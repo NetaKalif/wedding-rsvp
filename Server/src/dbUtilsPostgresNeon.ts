@@ -32,7 +32,7 @@ const pool = new Pool({
   connectionString: dbUrl.replace(/[?&]sslmode=require/g, ""),
   ssl: needsSSL ? { rejectUnauthorized: false } : false,
 });
-const guestsListColumnsNoUserID = `name, phone, whose, circle, "numberOfGuests", "RSVP", "messageGroup"`;
+const guestsListColumnsNoUserID = `name, phone, whose, circle, "numberOfGuests", "RSVP", "messageGroup", "lastRsvpSentAt"`;
 
 class Database {
   private static instance: Database | null = null;
@@ -116,10 +116,21 @@ class Database {
         circle TEXT NOT NULL,
         "numberOfGuests" INTEGER NOT NULL DEFAULT 1,
         "RSVP" INTEGER,
-        "messageGroup" INTEGER
+        "messageGroup" INTEGER,
+        "lastRsvpSentAt" TIMESTAMP WITH TIME ZONE
       );
     `,
     );
+
+    // Add lastRsvpSentAt column to guestsList if it doesn't exist (migration for existing DBs)
+    try {
+      await this.runQuery(
+        `ALTER TABLE "guestsList" ADD COLUMN IF NOT EXISTS "lastRsvpSentAt" TIMESTAMP WITH TIME ZONE;`,
+        [],
+      );
+    } catch (err: any) {
+      if (err.code !== "42701") throw err; // 42701 = column already exists
+    }
 
     // Create info table
     await safeCreateTable(
@@ -333,12 +344,13 @@ class Database {
           guest.numberOfGuests,
           guest.RSVP,
           guest.messageGroup,
+          guest.lastRsvpSentAt || null,
         ];
 
         values.push(...guestValues);
 
         return `(${guestValues
-          .map((_, i) => `$${index * 8 + i + 1}`) // Updated from 7 to 8 parameters
+          .map((_, i) => `$${index * 9 + i + 1}`)
           .join(", ")})`;
       })
       .join(", ");
@@ -383,6 +395,17 @@ class Database {
       : [updatedRSVP, phone, name];
 
     return await this.runQuery(query, values);
+  }
+
+  async updateLastRsvpSentAt(userID: string, phones: string[]): Promise<void> {
+    console.log("updateLastRsvpSentAt", userID, phones);
+    if (phones.length === 0) return;
+    const query = `
+      UPDATE "guestsList"
+      SET "lastRsvpSentAt" = CURRENT_TIMESTAMP
+      WHERE "userID" = $1 AND phone = ANY($2);
+    `;
+    await this.runQuery(query, [userID, phones]);
   }
 
   // Delete a specific guest

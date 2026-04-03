@@ -5,6 +5,7 @@ export interface Guest extends GuestIdentifier {
   RSVP: number | undefined;
   messageGroup?: number; // Group number for message batching (1-N)
   userID: string;
+  lastRsvpSentAt?: Date;
 }
 export interface GuestIdentifier {
   name: string;
