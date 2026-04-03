@@ -14,14 +14,24 @@ import {
   BudgetCategoryWithSpending,
   BudgetOverview,
   VendorFile,
-} from "./types"; // Assuming you have a `types.ts` file for type definitions
+} from "./types";
 import defaultTasks from "./defaultTasks.json";
 import { getDateStrings } from "./dateUtils";
+import { Pool } from "pg";
 
 require("dotenv").config();
-const { neon } = require("@neondatabase/serverless");
 
-const sql = neon(process.env.DATABASE_URL);
+const dbUrl = process.env.DATABASE_URL || "";
+const needsSSL =
+  dbUrl.includes("aivencloud.com") ||
+  dbUrl.includes("neon.tech") ||
+  dbUrl.includes("sslmode=require") ||
+  process.env.NODE_ENV === "production";
+
+const pool = new Pool({
+  connectionString: dbUrl.replace(/[?&]sslmode=require/g, ""),
+  ssl: needsSSL ? { rejectUnauthorized: false } : false,
+});
 const guestsListColumnsNoUserID = `name, phone, whose, circle, "numberOfGuests", "RSVP", "messageGroup"`;
 
 class Database {
@@ -1452,14 +1462,18 @@ class Database {
     return result.length > 0;
   }
 
-  // Run queries safely using the Neon serverless connection
   async runQuery(query: string, values: any[]): Promise<any> {
     try {
-      return await sql(query, values);
+      const result = await pool.query(query, values);
+      return result.rows;
     } catch (err) {
       console.error("Query failed:", query, values, err);
       throw err;
     }
+  }
+
+  async disconnect(): Promise<void> {
+    await pool.end();
   }
 }
 
