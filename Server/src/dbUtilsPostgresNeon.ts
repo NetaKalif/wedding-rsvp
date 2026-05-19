@@ -38,7 +38,7 @@ class Database {
   private static instance: Database | null = null;
 
   // Private constructor to prevent direct instantiation
-  private constructor() {}
+  private constructor() { }
 
   // Static method to get the singleton instance
   static getInstance(): Database | null {
@@ -295,9 +295,8 @@ class Database {
           task.info,
         );
         const offset = index * 6;
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${
-          offset + 4
-        }, $${offset + 5}, $${offset + 6})`;
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4
+          }, $${offset + 5}, $${offset + 6})`;
       })
       .join(", ");
 
@@ -415,12 +414,12 @@ class Database {
   ): Promise<any> {
     return userID
       ? await this.runQuery(
-          `DELETE FROM "guestsList" WHERE "userID" = $1 AND phone = $2 AND name = $3;`,
-          [userID, guest.phone, guest.name],
-        )
+        `DELETE FROM "guestsList" WHERE "userID" = $1 AND phone = $2 AND name = $3;`,
+        [userID, guest.phone, guest.name],
+      )
       : await this.runQuery(`DELETE FROM "guestsList" WHERE phone = $1;`, [
-          guest.phone,
-        ]);
+        guest.phone,
+      ]);
   }
 
   // Delete all guests for a user
@@ -551,9 +550,8 @@ class Database {
 
         values.push(messageGroupValue, userID, guest.name, guest.phone);
         const offset = index * 4;
-        return `($${offset + 1}::integer, $${offset + 2}, $${offset + 3}, $${
-          offset + 4
-        })`;
+        return `($${offset + 1}::integer, $${offset + 2}, $${offset + 3}, $${offset + 4
+          })`;
       })
       .join(", ");
 
@@ -629,7 +627,7 @@ class Database {
   async cleanupOldLogs(): Promise<number> {
     const query = `
       DELETE FROM "clientLogs"
-      WHERE "createdAt" < NOW() - INTERVAL '48 hours'
+      WHERE "createdAt" < NOW() - INTERVAL '30 days'
       RETURNING id;
     `;
     const results = await this.runQuery(query, []);
