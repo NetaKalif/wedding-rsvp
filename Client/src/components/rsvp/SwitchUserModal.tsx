@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { User } from "../../types";
 import { httpRequests } from "../../httpClient";
 import {
+  Modal,
   SidePanel,
   FormField,
   Input,
@@ -71,6 +72,7 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
   if (!isOpen) return null;
 
   return (
+    <Modal isOpen={isOpen}>
     <SidePanel
       onCloseButtonClick={handleClose}
       skin="floating"
@@ -139,5 +141,6 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
         </Box>
       </SidePanel.Content>
     </SidePanel>
+    </Modal>
   );
 };

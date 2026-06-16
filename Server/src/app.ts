@@ -2,21 +2,15 @@ import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
 import Database from "./dbUtilsPostgresNeon";
-import {
-  FilterOptions,
-  Guest,
-  GuestIdentifier,
-  User,
-  WeddingDetails,
-  TemplateName,
-} from "./types";
-import { Request, Response } from "express-serve-static-core";
+import { User, Event, EventGuest, TemplateName } from "./types";
+import { Request, Response, RequestHandler } from "express-serve-static-core";
 import multer from "multer";
 import {
   handleButtonReply,
+  handleTextResponse,
   sendWhatsAppMessage,
   uploadImage,
-  handleTextResponse,
+  getTemplateParams,
   logMessage,
   batchLogMessageResults,
   MessageResult,
@@ -26,7 +20,7 @@ import axios from "axios";
 import { getAccessToken } from "./whatsappTokenManager";
 
 const upload = multer({ storage: multer.memoryStorage() });
-dotenv.config();
+dotenv.config({ path: ".server.env" });
 
 const app = express();
 app.use(express.json() as any);
@@ -76,40 +70,10 @@ const getTemplateName = (
   return messageType as TemplateName;
 };
 
-const limitGuestsByMaxGuestsNumber = (guests: Guest[]): Guest[] => {
-  if (guests.length <= MAX_GUESTS_PER_MESSAGE_BATCH) {
-    return guests;
-  }
-  return guests.slice(0, MAX_GUESTS_PER_MESSAGE_BATCH);
-};
-
-const filterAndLimitGuests = (
-  guests: Guest[],
-  options: {
-    messageGroup?: number;
-    rsvpStatus?: FilterOptions;
-  },
-): Guest[] => {
-  let filtered = guests;
-
-  if (options.messageGroup) {
-    filtered = filtered.filter(
-      (guest) => guest.messageGroup === options.messageGroup,
-    );
-  }
-
-  if (options.rsvpStatus === "pending") {
-    filtered = filtered.filter(
-      (guest) => guest.RSVP === null || guest.RSVP === undefined,
-    );
-  } else if (options.rsvpStatus === "approved") {
-    filtered = filtered.filter((guest) => guest.RSVP && guest.RSVP > 0);
-  } else if (options.rsvpStatus === "declined") {
-    filtered = filtered.filter((guest) => guest.RSVP === 0);
-  }
-
-  return limitGuestsByMaxGuestsNumber(filtered);
-};
+const limitGuests = <T>(guests: T[]): T[] =>
+  guests.length <= MAX_GUESTS_PER_MESSAGE_BATCH
+    ? guests
+    : guests.slice(0, MAX_GUESTS_PER_MESSAGE_BATCH);
 
 const handleError = async (
   res: Response,
@@ -168,49 +132,44 @@ app.post("/sms", async (req: Request, res: Response) => {
 
     const message = value.messages[0];
     const sender = "+" + message.from;
-    const guestsList = await db.getAllGuests();
-    const matchingGuests = guestsList.filter(
-      (guest: Guest) => guest.phone === sender,
-    );
+    const candidates = await db.getAllRsvpCandidatesByPhone(sender);
 
-    if (matchingGuests.length === 0) {
-      console.log(`Phone number not found in guest list: ${sender}`);
+    if (candidates.length === 0) {
+      console.log(`Phone number not found in guest list or events: ${sender}`);
       return res.sendStatus(200);
     }
 
-    const guestSender =
-      matchingGuests.length === 1
-        ? matchingGuests[0]
-        : matchingGuests.reduce((latest, guest) => {
-            if (!latest.lastRsvpSentAt) return guest;
-            if (!guest.lastRsvpSentAt) return latest;
-            return new Date(guest.lastRsvpSentAt) >
-              new Date(latest.lastRsvpSentAt)
-              ? guest
-              : latest;
-          });
-    let msg;
+    // Pick the candidate with the most recent lastRsvpSentAt across weddings + events
+    let latestTs: Date | null = null;
+    let bestCandidate = candidates[0];
+
+    for (const candidate of candidates) {
+      const ts = candidate.lastRsvpSentAt;
+      if (ts && (!latestTs || ts > latestTs)) {
+        latestTs = ts;
+        bestCandidate = candidate;
+      }
+    }
+
+    // All candidates now have the same shape — wedding is just another event
+    const { eventId, guestId, phone, userID: candidateUserID, guestName } = bestCandidate;
+    let msg: string;
     if (message.type === "button") {
       msg = message.button?.payload || message.button?.text || "";
-      await logMessage(
-        guestSender.userID,
-        `🔘 SMS button reply received from ${guestSender.name} (${guestSender.phone}): ${msg}`,
-      );
-      await handleButtonReply(msg, guestSender).catch((error) => {
+      await logMessage(candidateUserID, `🔘 SMS button reply for event ${eventId} from ${guestName} (${phone}): ${msg}`);
+      await handleButtonReply(msg, phone, candidateUserID, eventId, guestId, guestName).catch((error) => {
         console.error("Error processing SMS:", error);
         return res.status(500).send(error.message);
       });
     } else if (message.type === "text") {
       msg = message.text.body;
-      await logMessage(
-        guestSender.userID,
-        `📥 SMS text message received from ${guestSender.name} (${guestSender.phone}): ${msg}`,
-      );
-      await handleTextResponse(msg, guestSender).catch((error) => {
+      await logMessage(candidateUserID, `📥 SMS text from ${guestName} (${phone}): ${msg}`);
+      await handleTextResponse(msg, phone, candidateUserID, eventId, guestId, guestName).catch((error) => {
         console.error("Error processing SMS:", error);
         return res.status(500).send(error.message);
       });
     }
+
     res.sendStatus(200);
   } catch (error) {
     console.error("Error processing SMS:", error);
@@ -220,16 +179,12 @@ app.post("/sms", async (req: Request, res: Response) => {
 
 app.post("/updateRsvp", async (req: Request, res: Response) => {
   try {
-    const { userID, guest }: { userID: string; guest: Guest } = req.body;
+    const { userID, eventId, guestId, rsvpStatus } = req.body;
     const dataOwner = await resolveDataOwner(userID);
-
-    await db.updateRSVP(guest.name, guest.phone, guest.RSVP, dataOwner);
-    await logMessage(
-      dataOwner,
-      `📠 RSVP updated for guest: ${guest.name} - RSVP: ${guest.RSVP}`,
-    );
-    const guestsList = await db.getGuests(dataOwner);
-    res.status(200).send(guestsList);
+    await db.updateEventGuestRsvp(Number(eventId), Number(guestId), rsvpStatus ?? null);
+    await logMessage(dataOwner, `📠 RSVP manually updated for guest ${guestId} in event ${eventId}: ${rsvpStatus}`);
+    const guests = await db.getEventGuests(Number(eventId));
+    res.status(200).json(guests);
   } catch (error) {
     console.error("Error updating RSVP:", error);
     return res.status(500).send("Failed to update RSVP");
@@ -250,24 +205,15 @@ app.post("/guestsList", async (req: Request, res: Response) => {
 });
 
 app.patch("/addGuests", async (req: Request, res: Response) => {
-  const {
-    guestsToAdd,
-    userID,
-  }: { guestsToAdd: Guest[]; userID: User["userID"] } = req.body;
+  const { guestsToAdd, userID } = req.body;
   try {
     if (!Array.isArray(guestsToAdd)) {
       return res.status(400).send("Invalid input: expected an array of guests");
     }
-
     const dataOwner = await resolveDataOwner(userID);
-
-    await db.addMultipleGuests(dataOwner, guestsToAdd);
-    const guestsList = await db.getGuests(dataOwner);
-    await logMessage(
-      dataOwner,
-      `👥 Added ${guestsToAdd.length} guests. Total guests: ${guestsList.length}`,
-    );
-    res.status(200).send(guestsList);
+    const added = await db.addGuests(dataOwner, guestsToAdd);
+    await logMessage(dataOwner, `👥 Added ${added.length} guests`);
+    res.status(200).json(added);
   } catch (error) {
     return handleError(res, error, "Failed to add guests", userID);
   }
@@ -317,183 +263,160 @@ app.delete("/deleteAllGuests", async (req: Request, res: Response) => {
 });
 
 app.delete("/deleteGuest", async (req: Request, res: Response) => {
-  const {
-    userID,
-    guest,
-  }: {
-    userID: User["userID"];
-    guest: GuestIdentifier;
-  } = req.body;
+  const { userID, guestId } = req.body;
   try {
     const dataOwner = await resolveDataOwner(userID);
-
-    await db.deleteGuest(guest, dataOwner);
-    await logMessage(dataOwner, `👋 Guest deleted: ${guest.name}`);
-    const guestsList = await db.getGuests(dataOwner);
-    res.status(200).send(guestsList);
+    await db.deleteGuest(dataOwner, Number(guestId));
+    await logMessage(dataOwner, `👋 Guest ${guestId} deleted`);
+    const guests = await db.getGuests(dataOwner);
+    res.status(200).json(guests);
   } catch (error) {
     return handleError(res, error, "Failed to delete guest", userID);
   }
 });
 
+// Save / update primary event (wedding info)
 app.post(
   "/saveWeddingInfo",
-  upload.single("imageFile"),
+  upload.single("imageFile") as RequestHandler,
   async (req: Request, res: Response) => {
     const userID = req.body.userID;
     try {
       const dataOwner = await resolveDataOwner(userID);
-      const weddingInfo = JSON.parse(req.body.weddingInfo);
+      const info = JSON.parse(req.body.weddingInfo);
       const file = (req as any).file;
 
-      // Check if this is a first-time wedding setup (no existing info)
-      const existingInfo = await db.getWeddingInfo(dataOwner);
-      const isFirstTimeSetup = !existingInfo;
+      let primary = await db.getPrimaryEvent(dataOwner);
+      const isFirstSetup = !primary;
 
-      // If a new file is uploaded, process it and update fileID
+      // Map legacy field names → new Event field names
+      const updates: Partial<Event> = {
+        ceremony_name: info.ceremony_name || "חתונה",
+        bride_name: info.bride_name,
+        groom_name: info.groom_name,
+        date: info.wedding_date || info.date,
+        time: info.hour || info.time,
+        location: info.location_name || info.location,
+        additional_info: info.additional_information || info.additional_info,
+        waze_link: info.waze_link,
+        gift_link: info.gift_link,
+        thank_you_message: info.thank_you_message,
+        send_reminder: info.send_reminder ?? (info.reminder_time ? true : false),
+        reminder_day: info.reminder_day,
+        reminder_time: info.reminder_time,
+        send_thank_you: info.send_thank_you ?? false,
+        estimated_guests: info.estimated_guests,
+        total_budget: info.total_budget,
+      };
+
       if (file) {
-        const fileID = await uploadImage(file);
-        weddingInfo.fileID = fileID;
+        updates.file_id = await uploadImage(file);
+      } else if (primary?.file_id) {
+        updates.file_id = primary.file_id;
+      } else if (info.fileID) {
+        updates.file_id = info.fileID;
+      }
+
+      if (!primary) {
+        primary = await db.createEvent(dataOwner, { is_primary: true, ceremony_name: "חתונה", ...updates });
       } else {
-        // If no new file is uploaded, preserve the existing fileID
-        if (existingInfo?.fileID) {
-          weddingInfo.fileID = existingInfo.fileID;
+        primary = await db.updateEvent(primary.id, updates);
+      }
+
+      if (isFirstSetup) {
+        await db.populateDefaultTasks(dataOwner);
+        // Auto-add all guests to the primary event
+        const guests = await db.getGuests(dataOwner);
+        if (guests.length > 0) {
+          await db.addEventGuests(primary.id, guests.map((g) => g.id));
         }
       }
 
-      await db.saveWeddingInfo(dataOwner, weddingInfo);
-
-      // If this is a first-time wedding setup, populate default tasks
-      if (isFirstTimeSetup) {
-        await db.populateDefaultTasks(dataOwner);
-      }
-
-      await logMessage(
-        dataOwner,
-        `💒 Wedding information saved: ${JSON.stringify(weddingInfo)}`,
-      );
-
-      res.status(200).send("Wedding information saved successfully");
+      await logMessage(dataOwner, `💒 Wedding information saved`);
+      res.status(200).json(primary);
     } catch (error) {
-      return handleError(
-        res,
-        error,
-        "Failed to save wedding information",
-        userID,
-      );
+      return handleError(res, error, "Failed to save wedding information", userID);
     }
   },
 );
+
+app.get("/health", async (req: Request, res: Response) => {
+  res.status(200).json({ "ok": ":)" });
+});
 
 app.get("/getWeddingInfo/:userID", async (req: Request, res: Response) => {
   try {
     const userID = req.params.userID;
     const dataOwner = await resolveDataOwner(userID);
-
-    const weddingInfo = await db.getWeddingInfo(dataOwner);
-    res.status(200).json(weddingInfo);
+    const primary = await db.getPrimaryEvent(dataOwner);
+    if (!primary) return res.status(404).json(null);
+    // Include image URL for client convenience
+    const result = { ...primary, imageURL: primary.file_id ? `${process.env.SERVER_URL || ""}/getImage/${dataOwner}` : "" };
+    res.status(200).json(result);
   } catch (error) {
-    console.error("Error retrieving wedding information:", error);
     return res.status(500).send("Failed to retrieve wedding information");
   }
 });
 
-app.patch("/updateGuestsGroups", async (req: Request, res: Response) => {
-  const { guests, userID }: { guests: Guest[]; userID: User["userID"] } =
-    req.body;
-  try {
-    const dataOwner = await resolveDataOwner(userID);
-
-    await db.updateGuestsGroups(dataOwner, guests);
-    await logMessage(dataOwner, `🔗 Guest groups updated`);
-    const updatedGuestsList = await db.getGuests(dataOwner);
-    res.status(200).json(updatedGuestsList);
-  } catch (error) {
-    return handleError(res, error, "Failed to update guest groups", userID);
-  }
-});
-
+// Send messages for a specific event
 app.post("/sendMessage", async (req: Request, res: Response) => {
   try {
     const { userID, options } = req.body;
     const dataOwner = await resolveDataOwner(userID);
-    const messageType = options?.messageType || "rsvp";
-    const customText = options?.customText;
+    const messageType: string = options?.messageType || "rsvp";
+    const customText: string = options?.customText;
+    const selectedGuestIds: number[] | undefined = options?.guestIds;
 
-    // Validate free text message
-    if (
-      messageType === "freeText" &&
-      (!customText || customText.trim() === "")
-    ) {
-      await logMessage(dataOwner, `❌ Custom text message cannot be empty`);
+    if (messageType === "freeText" && (!customText || !customText.trim())) {
       return res.status(400).send("Custom text message cannot be empty");
     }
 
-    const allGuests = await db.getGuestsWithUserID(dataOwner);
-    const guests = filterAndLimitGuests(allGuests, {
-      messageGroup: options?.messageGroup
-        ? Number(options.messageGroup)
-        : undefined,
-      rsvpStatus:
-        messageType === "rsvpReminder"
-          ? "pending"
-          : messageType === "weddingReminder"
-            ? "approved"
-            : undefined,
-    });
+    // Resolve which event to use
+    let eventId: number | undefined = options?.eventId ? Number(options.eventId) : undefined;
+    let event: Event | null;
+    if (eventId) {
+      event = await db.getEventById(eventId);
+      if (!event || event.user_id !== dataOwner) return res.status(404).send("Event not found");
+    } else {
+      event = await db.getPrimaryEvent(dataOwner);
+      if (!event) return res.status(400).send("No primary event found — please set up wedding info first");
+      eventId = event.id;
+    }
 
-    if (guests.length === 0) {
-      await logMessage(dataOwner, `❌ No guests match the selected criteria`);
+    // For non-primary events, fill bride/groom from the primary event
+    if (!event.is_primary || !event.bride_name) {
+      const primary = event.is_primary ? event : await db.getPrimaryEvent(dataOwner);
+      event = { ...event, bride_name: event.bride_name || primary?.bride_name, groom_name: event.groom_name || primary?.groom_name };
+    }
+
+    // Get event guests with optional RSVP filter
+    const rsvpFilter = messageType === "rsvpReminder" ? "pending" : messageType === "weddingReminder" ? "approved" : undefined;
+    let eventGuests = await db.getEventGuests(eventId, rsvpFilter);
+
+    if (selectedGuestIds?.length) {
+      eventGuests = eventGuests.filter((eg) => selectedGuestIds.includes(eg.guest_id));
+    }
+
+    if (eventGuests.length === 0) {
       return res.status(400).send("No guests match the selected criteria");
     }
 
-    // Check if we had to limit the guests
-    if (guests.length === MAX_GUESTS_PER_MESSAGE_BATCH) {
-      await logMessage(
-        dataOwner,
-        `⚠️ Guest list limited to ${MAX_GUESTS_PER_MESSAGE_BATCH} guests (WhatsApp limit)`,
-      );
+    const limited = limitGuests(eventGuests);
+    if (limited.length < eventGuests.length) {
+      await logMessage(dataOwner, `⚠️ Guest list limited to ${MAX_GUESTS_PER_MESSAGE_BATCH} (WhatsApp limit)`);
     }
 
-    const messageTypeLabel =
-      messageType === "rsvp"
-        ? "RSVP invitation"
-        : messageType === "rsvpReminder"
-          ? "rsvpReminder"
-          : messageType === "weddingReminder"
-            ? "wedding reminder"
-            : "custom text";
+    const label = messageType === "rsvp" ? "RSVP invitation" : messageType === "rsvpReminder" ? "RSVP reminder" : messageType === "weddingReminder" ? "wedding reminder" : messageType === "thankYou" ? "thank-you" : "custom text";
+    await logMessage(dataOwner, `📨 Sending ${label} for "${event.ceremony_name}" to ${limited.length} guests`);
 
-    const groupSuffix = options?.messageGroup
-      ? ` in group ${options.messageGroup}`
-      : "";
-
-    await logMessage(
-      dataOwner,
-      `📨 Sending ${messageTypeLabel} messages to ${guests.length} guests${groupSuffix}`,
-    );
-
-    const weddingInfo = await db.getWeddingInfo(dataOwner);
-    const messagePromises = buildMessagePromises(
-      guests,
-      messageType,
-      customText,
-      weddingInfo,
-    );
-
-    const messageResults = await sendMessagesAndLog(
-      messagePromises,
-      dataOwner,
-      "🎯",
-      `${messageTypeLabel} messages${groupSuffix}`,
-    );
+    const promises = buildMessagePromises(limited, messageType, customText, event, dataOwner);
+    const results = await sendMessagesAndLog(promises, dataOwner, "🎯", label);
 
     if (messageType === "rsvp" || messageType === "rsvpReminder") {
-      const phones = guests.map((g) => g.phone);
-      await db.updateLastRsvpSentAt(dataOwner, phones);
+      await db.updateEventGuestLastRsvpSentAt(eventId, limited.map((eg) => eg.guest_id));
     }
 
-    return res.status(200).send(messageResults);
+    return res.status(200).send(results);
   } catch (error) {
     console.error("Error sending messages:", error);
     return res.status(500).send(error.message);
@@ -540,57 +463,32 @@ const sendMessagesAndLog = async (
 };
 
 const buildMessagePromises = (
-  guests: Guest[],
+  eventGuests: EventGuest[],
   messageType: string,
   customText: string,
-  weddingInfo: WeddingDetails,
+  event: Event,
+  userID: string,
 ): Promise<MessageResult>[] => {
+  const toRecipient = (eg: EventGuest) => ({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone });
+
   if (messageType === "freeText") {
-    return guests.map((guest) =>
-      sendWhatsAppMessage(guest, { freeText: customText }),
-    );
+    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { freeText: customText }));
   }
-
   if (messageType === "rsvpReminder") {
-    return guests.map((guest) =>
-      sendWhatsAppMessage(guest, {
-        template: {
-          name: "wedding_rsvp_reminder",
-          info: weddingInfo,
-        },
-      }),
-    );
+    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: "wedding_rsvp_reminder", event } }));
   }
-
   if (messageType === "weddingReminder") {
-    const hasGiftLink =
-      weddingInfo.gift_link && weddingInfo.gift_link.trim() !== "";
-    const isWeddingDay = weddingInfo.reminder_day === "wedding_day";
-    const templateName = getTemplateName(
-      messageType,
-      hasGiftLink,
-      isWeddingDay,
-    );
-
-    return guests.map((guest) =>
-      sendWhatsAppMessage(guest, {
-        template: {
-          name: templateName,
-          info: weddingInfo,
-        },
-      }),
-    );
+    const hasGiftLink = !!(event.gift_link?.trim());
+    const isWeddingDay = event.reminder_day === "wedding_day";
+    const templateName = getTemplateName(messageType, hasGiftLink, isWeddingDay);
+    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: templateName, event } }));
   }
-
+  if (messageType === "thankYou") {
+    const templateName = event.thank_you_message ? "custom_thank_you_message" : "thank_you_message";
+    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: templateName, event } }));
+  }
   // Default: RSVP invitation
-  return guests.map((guest) =>
-    sendWhatsAppMessage(guest, {
-      template: {
-        name: "wedding_rsvp_action",
-        info: weddingInfo,
-      },
-    }),
-  );
+  return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: "wedding_rsvp_action", event } }));
 };
 
 app.get("/getImage/:userID", async (req: Request, res: Response) => {
@@ -598,11 +496,12 @@ app.get("/getImage/:userID", async (req: Request, res: Response) => {
     const userID = req.params.userID;
     const dataOwner = await resolveDataOwner(userID);
 
-    const weddingInfo = await db.getWeddingInfo(dataOwner);
+    const primary = await db.getPrimaryEvent(dataOwner);
+    if (!primary?.file_id) return res.status(404).send("No image");
     const ACCESS_TOKEN = await getAccessToken();
 
     const response = await axios.get(
-      `https://graph.facebook.com/v19.0/${weddingInfo.fileID}`,
+      `https://graph.facebook.com/v19.0/${primary.file_id}`,
       {
         headers: {
           Authorization: `Bearer ${ACCESS_TOKEN}`,
@@ -622,7 +521,7 @@ app.get("/getImage/:userID", async (req: Request, res: Response) => {
       },
     });
 
-    res.setHeader("Content-Type", imageResponse.headers["content-type"]);
+    res.setHeader("Content-Type", imageResponse.headers["content-type"] as string);
     imageResponse.data.pipe(res);
   } catch (err) {
     console.error(err);
@@ -885,18 +784,9 @@ app.patch("/budget/total", async (req: Request, res: Response) => {
     }
     const dataOwner = await resolveDataOwner(userID);
 
-    // Get current wedding info and update with new budget
-    const currentInfo = await db.getWeddingInfo(dataOwner);
-    if (!currentInfo) {
-      return res
-        .status(404)
-        .send("Wedding info not found. Please set up your wedding first.");
-    }
-
-    await db.saveWeddingInfo(dataOwner, {
-      ...currentInfo,
-      total_budget: total_budget,
-    });
+    const primary = await db.getPrimaryEvent(dataOwner);
+    if (!primary) return res.status(404).send("Wedding info not found. Please set up your wedding first.");
+    await db.updateEvent(primary.id, { total_budget });
 
     await logMessage(dataOwner, `💰 Total budget updated to ₪${total_budget}`);
     res.status(200).json({ total_budget });
@@ -915,17 +805,9 @@ app.patch("/budget/estimated-guests", async (req: Request, res: Response) => {
     }
     const dataOwner = await resolveDataOwner(userID);
 
-    const currentInfo = await db.getWeddingInfo(dataOwner);
-    if (!currentInfo) {
-      return res
-        .status(404)
-        .send("Wedding info not found. Please set up your wedding first.");
-    }
-
-    await db.saveWeddingInfo(dataOwner, {
-      ...currentInfo,
-      estimated_guests: estimated_guests,
-    });
+    const primary = await db.getPrimaryEvent(dataOwner);
+    if (!primary) return res.status(404).send("Wedding info not found. Please set up your wedding first.");
+    await db.updateEvent(primary.id, { estimated_guests });
 
     await logMessage(
       dataOwner,
@@ -1075,7 +957,7 @@ type VendorFile = {
 // Add a vendor
 app.post(
   "/budget/vendors",
-  upload.array("files", 10),
+  upload.array("files", 10) as RequestHandler,
   async (req: Request, res: Response) => {
     try {
       const { userID, vendor: vendorJson, fileNames } = req.body;
@@ -1107,7 +989,7 @@ app.post(
 // Update a vendor
 app.patch(
   "/budget/vendors/:vendorId",
-  upload.array("files", 10),
+  upload.array("files", 10) as RequestHandler,
   async (req: Request, res: Response) => {
     try {
       const { vendorId } = req.params;
@@ -1238,7 +1120,7 @@ app.delete(
 // Upload a file for a vendor
 app.post(
   "/budget/vendors/:vendorId/files",
-  upload.single("file"),
+  upload.single("file") as RequestHandler,
   async (req: Request, res: Response) => {
     try {
       const { vendorId } = req.params;
@@ -1326,172 +1208,220 @@ app.delete("/budget/files/:fileId", async (req: Request, res: Response) => {
   }
 });
 
+// ==================== Event Routes ====================
+
+app.post(
+  "/events",
+  upload.single("image") as RequestHandler,
+  async (req: Request, res: Response) => {
+    try {
+      const { userID, ceremony_name, date, time, location, additional_info } = req.body;
+      if (!userID || !ceremony_name) {
+        return res.status(400).send("userID and ceremony_name are required");
+      }
+      const dataOwner = await resolveDataOwner(userID);
+
+      const event = await db.createEvent(dataOwner, {
+        is_primary: false,
+        ceremony_name,
+        date: date || null,
+        time: time || null,
+        location: location || null,
+        additional_info: additional_info || null,
+        file_id: null,
+      });
+
+      if (req.file) {
+        const fileId = await uploadImage(req.file);
+        await db.updateEventFileId(event.id, fileId);
+        event.file_id = fileId;
+      }
+
+      await logMessage(dataOwner, `🎉 Event created: "${ceremony_name}"`);
+      return res.status(201).json(event);
+    } catch (error) {
+      console.error("Error creating event:", error);
+      return res.status(500).send("Failed to create event");
+    }
+  },
+);
+
+app.get("/events/:userID", async (req: Request, res: Response) => {
+  try {
+    const { userID } = req.params;
+    const dataOwner = await resolveDataOwner(userID);
+    const events = await db.getEvents(dataOwner);
+    return res.status(200).json(events);
+  } catch (error) {
+    console.error("Error fetching events:", error);
+    return res.status(500).send("Failed to fetch events");
+  }
+});
+
+app.patch("/events/:eventId", async (req: Request, res: Response) => {
+  try {
+    const { eventId } = req.params;
+    const { userID, ...updates } = req.body;
+    if (!userID) return res.status(400).send("userID is required");
+    const dataOwner = await resolveDataOwner(userID);
+    const event = await db.getEventById(parseInt(eventId));
+    if (!event || event.user_id !== dataOwner) return res.status(404).send("Event not found");
+    const updated = await db.updateEvent(parseInt(eventId), updates);
+    await logMessage(dataOwner, `✏️ Event updated: "${event.ceremony_name}"`);
+    return res.status(200).json(updated);
+  } catch (error) {
+    console.error("Error updating event:", error);
+    return res.status(500).send("Failed to update event");
+  }
+});
+
+app.delete("/events/:eventId", async (req: Request, res: Response) => {
+  try {
+    const { eventId } = req.params;
+    const { userID } = req.body;
+    if (!userID) return res.status(400).send("userID is required");
+    const dataOwner = await resolveDataOwner(userID);
+    const event = await db.getEventById(parseInt(eventId));
+    if (!event || event.user_id !== dataOwner) {
+      return res.status(404).send("Event not found");
+    }
+    await db.deleteEvent(parseInt(eventId));
+    await logMessage(dataOwner, `🗑️ Event deleted: "${event.ceremony_name}"`);
+    return res.status(200).send("Event deleted");
+  } catch (error) {
+    console.error("Error deleting event:", error);
+    return res.status(500).send("Failed to delete event");
+  }
+});
+
+app.post("/events/:eventId/guests", async (req: Request, res: Response) => {
+  try {
+    const { eventId } = req.params;
+    const { userID, guestIds } = req.body;
+    if (!userID || !guestIds) return res.status(400).send("userID and guestIds are required");
+    const dataOwner = await resolveDataOwner(userID);
+    const event = await db.getEventById(parseInt(eventId));
+    if (!event || event.user_id !== dataOwner) {
+      return res.status(404).send("Event not found");
+    }
+    await db.addEventGuests(parseInt(eventId), guestIds);
+    const guests = await db.getEventGuests(parseInt(eventId));
+    return res.status(200).json(guests);
+  } catch (error) {
+    console.error("Error adding event guests:", error);
+    return res.status(500).send("Failed to add event guests");
+  }
+});
+
+app.delete("/events/:eventId/guests", async (req: Request, res: Response) => {
+  try {
+    const { eventId } = req.params;
+    const { userID, guestIds } = req.body;
+    if (!userID || !guestIds) return res.status(400).send("userID and guestIds are required");
+    const dataOwner = await resolveDataOwner(userID);
+    const event = await db.getEventById(parseInt(eventId));
+    if (!event || event.user_id !== dataOwner) {
+      return res.status(404).send("Event not found");
+    }
+    await db.removeEventGuests(parseInt(eventId), guestIds);
+    const guests = await db.getEventGuests(parseInt(eventId));
+    return res.status(200).json(guests);
+  } catch (error) {
+    console.error("Error removing event guests:", error);
+    return res.status(500).send("Failed to remove event guests");
+  }
+});
+
+app.get("/events/:eventId/guests", async (req: Request, res: Response) => {
+  try {
+    const { eventId } = req.params;
+    const { userID } = req.query as { userID: string };
+    if (!userID) return res.status(400).send("userID is required");
+    const dataOwner = await resolveDataOwner(userID);
+    const event = await db.getEventById(parseInt(eventId));
+    if (!event || event.user_id !== dataOwner) {
+      return res.status(404).send("Event not found");
+    }
+    const guests = await db.getEventGuests(parseInt(eventId));
+    return res.status(200).json(guests);
+  } catch (error) {
+    console.error("Error fetching event guests:", error);
+    return res.status(500).send("Failed to fetch event guests");
+  }
+});
+
+app.get("/events/:eventId/image", async (req: Request, res: Response) => {
+  try {
+    const { eventId } = req.params;
+    const event = await db.getEventById(parseInt(eventId));
+    if (!event?.file_id) return res.status(404).send("No image");
+
+    const ACCESS_TOKEN = await getAccessToken();
+    const response = await axios.get(
+      `https://graph.facebook.com/v19.0/${event.file_id}`,
+      { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } },
+    );
+    const imageUrl = response.data.url;
+    const imageResponse = await axios.get(imageUrl, {
+      responseType: "stream",
+      headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
+    });
+    res.setHeader("Content-Type", imageResponse.headers["content-type"] as string);
+    imageResponse.data.pipe(res);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to fetch event image" });
+  }
+});
+
 // ==================== Scheduled Message Functions ====================
-
-const sendWeddingReminders = async (
-  userID: string,
-  guests: Guest[],
-  weddingInfo: WeddingDetails,
-  isWeddingDay: boolean,
-  messageGroup?: number,
-): Promise<void> => {
-  const guestsToSend = filterAndLimitGuests(guests, {
-    messageGroup,
-    rsvpStatus: "approved",
-  });
-
-  const dayType = isWeddingDay ? "wedding day" : "day before wedding";
-
-  if (guestsToSend.length === 0) {
-    await logMessage(userID, `⚠️ No guests to send ${dayType} messages to`);
-    return;
-  }
-
-  const preMessageLogs: string[] = [];
-
-  if (guestsToSend.length === MAX_GUESTS_PER_MESSAGE_BATCH) {
-    preMessageLogs.push(
-      `⚠️ Limited to ${MAX_GUESTS_PER_MESSAGE_BATCH} guests (WhatsApp limit)`,
-    );
-  }
-
-  preMessageLogs.push(
-    `💐 Sending ${dayType} messages to ${guestsToSend.length} guests`,
-  );
-
-  const hasGiftLink = weddingInfo.gift_link?.trim() !== "";
-  const templateName = getTemplateName(
-    "weddingReminder",
-    hasGiftLink,
-    isWeddingDay,
-  );
-
-  const promises = guestsToSend.map((guest) =>
-    sendWhatsAppMessage(guest, {
-      template: { name: templateName, info: weddingInfo },
-    }),
-  );
-
-  await sendMessagesAndLog(
-    promises,
-    userID,
-    "💍",
-    `${dayType} messages`,
-    preMessageLogs,
-  );
-};
-
-const sendThankYouMessages = async (
-  userID: string,
-  guests: Guest[],
-  weddingInfo: WeddingDetails,
-): Promise<void> => {
-  const guestsToSend = filterAndLimitGuests(guests, {
-    rsvpStatus: "approved",
-  });
-
-  if (guestsToSend.length === 0) {
-    await logMessage(userID, `⚠️ No guests to send thank you messages to`);
-    return;
-  }
-
-  const preMessageLogs: string[] = [];
-
-  if (guestsToSend.length === MAX_GUESTS_PER_MESSAGE_BATCH) {
-    preMessageLogs.push(
-      `⚠️ Limited to ${MAX_GUESTS_PER_MESSAGE_BATCH} guests (WhatsApp limit)`,
-    );
-  }
-
-  preMessageLogs.push(
-    `🎁 Sending thank you messages to ${guestsToSend.length} guests`,
-  );
-
-  const templateName =
-    weddingInfo.thank_you_message?.trim() !== ""
-      ? "custom_thank_you_message"
-      : "thank_you_message";
-
-  const promises = guestsToSend.map((guest) =>
-    sendWhatsAppMessage(guest, {
-      template: { name: templateName, info: weddingInfo },
-    }),
-  );
-
-  await sendMessagesAndLog(
-    promises,
-    userID,
-    "🙏",
-    "thank you messages",
-    preMessageLogs,
-  );
-};
 
 const sendScheduledMessages = async () => {
   try {
-    // Prevent duplicate executions within the same minute
     const israelTime = getIsraelTime();
     const currentMinute = `${israelTime.getHours()}:${israelTime.getMinutes()}`;
-
-    if (lastExecutionMinute === currentMinute) {
-      console.log("⏭️ Already executed in this minute, skipping...");
-      return;
-    }
-
+    if (lastExecutionMinute === currentMinute) return;
     lastExecutionMinute = currentMinute;
 
-    const weddings = await db.getWeddingsForMessaging();
-    if (weddings.length === 0) {
-      return;
-    }
-    console.log(`📝 Found ${weddings.length} weddings to process`);
+    const today = getDateFormat(new Date());
+    const events = await db.getEventsForScheduledMessages();
+    if (events.length === 0) return;
+    console.log(`📝 Processing ${events.length} events for scheduled messages`);
 
-    for (const { userID, info } of weddings) {
-      const guests = await db.getGuestsWithUserID(userID);
+    for (const event of events) {
+      const userID = event.user_id;
+      const { weddingDateStr, dayBeforeWeddingStr, dayAfterWeddingStr } = getWeddingDateStrings(event.date);
+      const reminderTime = event.reminder_time || "09:00";
 
-      const today = getDateFormat(new Date());
-
-      const { weddingDateStr, dayBeforeWeddingStr, dayAfterWeddingStr } =
-        getWeddingDateStrings(info.wedding_date);
-      const reminderDay = info.reminder_day || "day_before";
-      const reminderTime = info.reminder_time || "09:00";
-
-      // Send day before wedding reminder
-      if (
-        reminderDay === "day_before" &&
-        today === dayBeforeWeddingStr &&
-        isTimeToSend(reminderTime)
-      ) {
-        await logMessage(
-          userID,
-          `🔄 Processing day before wedding reminder for: ${info.bride_name} & ${info.groom_name} at ${reminderTime}`,
-        );
-        await sendWeddingReminders(userID, guests, info, false);
+      // Wedding day reminder (day_before or wedding_day)
+      if (event.send_reminder) {
+        const isWeddingDay = event.reminder_day === "wedding_day";
+        const triggerDate = isWeddingDay ? weddingDateStr : dayBeforeWeddingStr;
+        if (today === triggerDate && isTimeToSend(reminderTime)) {
+          const eventGuests = limitGuests(await db.getEventGuests(event.id, "approved"));
+          if (eventGuests.length > 0) {
+            await logMessage(userID, `🔄 Sending ${isWeddingDay ? "wedding day" : "day before"} reminder for "${event.ceremony_name}" to ${eventGuests.length} guests`);
+            const hasGiftLink = !!(event.gift_link?.trim());
+            const templateName = getTemplateName("weddingReminder", hasGiftLink, isWeddingDay);
+            const promises = eventGuests.map((eg) =>
+              sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone }, { template: { name: templateName, event } })
+            );
+            await sendMessagesAndLog(promises, userID, "💍", `${isWeddingDay ? "wedding day" : "day before"} reminder`);
+          }
+        }
       }
 
-      // Send wedding day reminder
-      if (
-        reminderDay === "wedding_day" &&
-        today === weddingDateStr &&
-        isTimeToSend(reminderTime)
-      ) {
-        await logMessage(
-          userID,
-          `🔄 Processing wedding day reminder for: ${info.bride_name} & ${info.groom_name} at ${reminderTime}`,
-        );
-        await sendWeddingReminders(userID, guests, info, true);
-      }
-
-      // Send thank you messages the day after the wedding
-      if (
-        today === dayAfterWeddingStr &&
-        isTimeToSend(THANK_YOU_MESSAGE_TIME)
-      ) {
-        await logMessage(
-          userID,
-          `🔄 Processing thank you messages for: ${info.bride_name} & ${info.groom_name}`,
-        );
-        await sendThankYouMessages(userID, guests, info);
+      // Thank-you messages the day after
+      if (event.send_thank_you && today === dayAfterWeddingStr && isTimeToSend(THANK_YOU_MESSAGE_TIME)) {
+        const eventGuests = limitGuests(await db.getEventGuests(event.id, "approved"));
+        if (eventGuests.length > 0) {
+          await logMessage(userID, `🔄 Sending thank-you for "${event.ceremony_name}" to ${eventGuests.length} guests`);
+          const templateName = event.thank_you_message?.trim() ? "custom_thank_you_message" : "thank_you_message";
+          const promises = eventGuests.map((eg) =>
+            sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone }, { template: { name: templateName, event } })
+          );
+          await sendMessagesAndLog(promises, userID, "🙏", "thank-you messages");
+        }
       }
     }
   } catch (error) {

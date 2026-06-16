@@ -32,9 +32,9 @@ export const WeddingDashboard = () => {
       weddingInfo &&
       weddingInfo.bride_name &&
       weddingInfo.groom_name &&
-      weddingInfo.wedding_date &&
-      weddingInfo.hour &&
-      weddingInfo.location_name;
+      weddingInfo.date &&
+      weddingInfo.time &&
+      weddingInfo.location;
     return !hasBasicInfo && !partnerInfo?.isLinkedAccount;
   }, [weddingInfo, partnerInfo?.isLinkedAccount, isLoading]);
 

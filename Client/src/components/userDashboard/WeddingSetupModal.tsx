@@ -10,7 +10,7 @@ import {
 } from "@wix/design-system";
 import { Heart } from "lucide-react";
 import { httpRequests } from "../../httpClient";
-import { User, WeddingDetails } from "../../types";
+import { Event, User } from "../../types";
 import "./css/WeddingSetupModal.css";
 
 interface WeddingSetupModalProps {
@@ -23,27 +23,24 @@ const WeddingSetupModal: React.FC<WeddingSetupModalProps> = ({
   onComplete,
 }) => {
   const [weddingDetails, setWeddingDetails] = useState<
-    Pick<
-      WeddingDetails,
-      "bride_name" | "groom_name" | "wedding_date" | "hour" | "location_name"
-    >
+    Pick<Event, "bride_name" | "groom_name" | "date" | "time" | "location">
   >({
     bride_name: "",
     groom_name: "",
-    wedding_date: "2026-05-01",
-    hour: "10:00",
-    location_name: "",
+    date: "2026-05-01",
+    time: "10:00",
+    location: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, boolean>>({});
 
   const validateForm = () => {
     const newErrors: Record<string, boolean> = {};
-    if (!weddingDetails.bride_name.trim()) newErrors.bride_name = true;
-    if (!weddingDetails.groom_name.trim()) newErrors.groom_name = true;
-    if (!weddingDetails.wedding_date) newErrors.wedding_date = true;
-    if (!weddingDetails.hour) newErrors.hour = true;
-    if (!weddingDetails.location_name.trim()) newErrors.location_name = true;
+    if (!weddingDetails.bride_name?.trim()) newErrors.bride_name = true;
+    if (!weddingDetails.groom_name?.trim()) newErrors.groom_name = true;
+    if (!weddingDetails.date) newErrors.date = true;
+    if (!weddingDetails.time) newErrors.time = true;
+    if (!weddingDetails.location?.trim()) newErrors.location = true;
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -59,20 +56,17 @@ const WeddingSetupModal: React.FC<WeddingSetupModalProps> = ({
       const formData = new FormData();
       formData.append("userID", userID);
 
-      // Create full wedding details with defaults for optional fields
-      const fullWeddingDetails: WeddingDetails = {
+      await httpRequests.saveEventInfo(userID, {
         ...weddingDetails,
-        additional_information: "",
+        is_primary: true,
+        ceremony_name: "חתונה",
+        additional_info: "",
         waze_link: "",
         gift_link: "",
         thank_you_message: "",
-        fileID: "",
         reminder_day: "day_before",
         reminder_time: "10:00",
-      };
-
-      formData.append("weddingInfo", JSON.stringify(fullWeddingDetails));
-      await httpRequests.saveWeddingInfo(formData);
+      } as Partial<Event>);
       onComplete();
     } catch (error) {
       console.error("Error saving wedding information:", error);
@@ -145,20 +139,20 @@ const WeddingSetupModal: React.FC<WeddingSetupModalProps> = ({
             <FormField
               label="מקום החתונה"
               required
-              status={errors.location_name ? "error" : undefined}
-              statusMessage={errors.location_name ? "שדה חובה" : undefined}
+              status={errors.location ? "error" : undefined}
+              statusMessage={errors.location ? "שדה חובה" : undefined}
             >
               <Input
-                value={weddingDetails.location_name}
+                value={weddingDetails.location}
                 onChange={(e) => {
                   setWeddingDetails((prev) => ({
                     ...prev,
-                    location_name: e.target.value,
+                    location: e.target.value,
                   }));
-                  setErrors((prev) => ({ ...prev, location_name: false }));
+                  setErrors((prev) => ({ ...prev, location: false }));
                 }}
                 placeholder="הכניסו את מקום החתונה"
-                status={errors.location_name ? "error" : undefined}
+                status={errors.location ? "error" : undefined}
               />
             </FormField>
 
@@ -167,20 +161,20 @@ const WeddingSetupModal: React.FC<WeddingSetupModalProps> = ({
                 <FormField
                   label="תאריך החתונה"
                   required
-                  status={errors.wedding_date ? "error" : undefined}
-                  statusMessage={errors.wedding_date ? "שדה חובה" : undefined}
+                  status={errors.date ? "error" : undefined}
+                  statusMessage={errors.date ? "שדה חובה" : undefined}
                 >
                   <Input
                     type="date"
-                    value={weddingDetails.wedding_date}
+                    value={weddingDetails.date}
                     onChange={(e) => {
                       setWeddingDetails((prev) => ({
                         ...prev,
-                        wedding_date: e.target.value,
+                        date: e.target.value,
                       }));
-                      setErrors((prev) => ({ ...prev, wedding_date: false }));
+                      setErrors((prev) => ({ ...prev, date: false }));
                     }}
-                    status={errors.wedding_date ? "error" : undefined}
+                    status={errors.date ? "error" : undefined}
                   />
                 </FormField>
               </Box>
@@ -188,20 +182,20 @@ const WeddingSetupModal: React.FC<WeddingSetupModalProps> = ({
                 <FormField
                   label="שעת החתונה"
                   required
-                  status={errors.hour ? "error" : undefined}
-                  statusMessage={errors.hour ? "שדה חובה" : undefined}
+                  status={errors.time ? "error" : undefined}
+                  statusMessage={errors.time ? "שדה חובה" : undefined}
                 >
                   <Input
                     type="time"
-                    value={weddingDetails.hour}
+                    value={weddingDetails.time}
                     onChange={(e) => {
                       setWeddingDetails((prev) => ({
                         ...prev,
-                        hour: e.target.value,
+                        time: e.target.value,
                       }));
                       setErrors((prev) => ({ ...prev, hour: false }));
                     }}
-                    status={errors.hour ? "error" : undefined}
+                    status={errors.time ? "error" : undefined}
                   />
                 </FormField>
               </Box>

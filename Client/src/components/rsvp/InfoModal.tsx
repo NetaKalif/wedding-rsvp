@@ -19,7 +19,7 @@ import {
   Image,
   RadioGroup,
 } from "@wix/design-system";
-import { WeddingDetails } from "../../types";
+import { Event } from "../../types";
 import { UploadExport } from "@wix/wix-ui-icons-common";
 import { Smile } from "@wix/wix-ui-icons-common";
 import WhatsAppPreview from "./WhatsAppPreview";
@@ -35,17 +35,17 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
     weddingInfo: contextWeddingInfo,
     refreshWeddingInfo,
   } = useAuth();
-  const [weddingDetails, setWeddingDetails] = useState<WeddingDetails>({
+  const [eventDetails, setEventDetails] = useState<Partial<Event>>({
     bride_name: "",
     groom_name: "",
-    wedding_date: "2025-01-01",
-    hour: "",
-    location_name: "",
-    additional_information: "",
+    date: "2025-01-01",
+    time: "",
+    location: "",
+    additional_info: "",
     waze_link: "",
     gift_link: "",
     thank_you_message: "",
-    fileID: "",
+    file_id: "",
     reminder_day: "day_before",
     reminder_time: "10:00",
   });
@@ -60,10 +60,10 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
   // Initialize form with data from context
   useEffect(() => {
     if (contextWeddingInfo) {
-      const { imageURL, ...rest } = contextWeddingInfo as WeddingDetails & {
+      const { imageURL, ...rest } = contextWeddingInfo as Event & {
         imageURL?: string;
       };
-      setWeddingDetails((prev) => ({ ...prev, ...rest }));
+      setEventDetails((prev) => ({ ...prev, ...rest }));
       if (imageURL) {
         setImageUrl(`${imageURL}?t=${Date.now()}`);
       }
@@ -81,12 +81,12 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
   }, [file]);
 
   const onEmojiClick = (
-    field: "additional_information" | "thank_you_message",
+    field: "additional_info" | "thank_you_message",
     emojiData: any
   ) => {
-    setWeddingDetails((prev) => ({
+    setEventDetails((prev) => ({
       ...prev,
-      [field]: prev[field] + emojiData.emoji,
+      [field]: (prev[field] ?? "") + emojiData.emoji,
     }));
   };
 
@@ -95,12 +95,12 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
 
     // Validate all required fields
     if (
-      !weddingDetails.bride_name ||
-      !weddingDetails.groom_name ||
-      !weddingDetails.wedding_date ||
-      !weddingDetails.hour ||
-      !weddingDetails.location_name ||
-      !weddingDetails.waze_link ||
+      !eventDetails.bride_name ||
+      !eventDetails.groom_name ||
+      !eventDetails.date ||
+      !eventDetails.time ||
+      !eventDetails.location ||
+      !eventDetails.waze_link ||
       (!file && !imageUrl)
     ) {
       alert("אנא מלאו את כל השדות הנדרשים והעלו תמונת הזמנה");
@@ -109,14 +109,8 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
 
     try {
       setIsSubmitting(true);
-      const formData = new FormData();
-      formData.append("userID", user.userID);
-      formData.append("weddingInfo", JSON.stringify(weddingDetails));
-      if (file) {
-        formData.append("imageFile", file);
-      }
       // Save wedding information and upload image
-      await httpRequests.saveWeddingInfo(formData);
+      await httpRequests.saveEventInfo(user.userID, eventDetails, file);
       // Refresh wedding info in context
       await refreshWeddingInfo();
       setIsInfoModalOpen(false);
@@ -144,9 +138,9 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
             <FormField label="שם הכלה" required>
               <div dir="rtl">
                 <Input
-                  value={weddingDetails.bride_name}
+                  value={eventDetails.bride_name}
                   onChange={(e) =>
-                    setWeddingDetails((prev) => ({
+                    setEventDetails((prev) => ({
                       ...prev,
                       bride_name: e.target.value,
                     }))
@@ -158,9 +152,9 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
             <FormField label="שם החתן" required>
               <div dir="rtl">
                 <Input
-                  value={weddingDetails.groom_name}
+                  value={eventDetails.groom_name}
                   onChange={(e) =>
-                    setWeddingDetails((prev) => ({
+                    setEventDetails((prev) => ({
                       ...prev,
                       groom_name: e.target.value,
                     }))
@@ -173,23 +167,23 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
               <Input
                 type="date"
                 onChange={(e) => {
-                  setWeddingDetails((prev) => ({
+                  setEventDetails((prev) => ({
                     ...prev,
-                    wedding_date: e.target.value,
+                    date: e.target.value,
                   }));
                 }}
-                value={weddingDetails.wedding_date}
+                value={eventDetails.date}
                 size="large"
               />
             </FormField>
             <FormField label="שעת החתונה" required>
               <Input
                 type="time"
-                value={weddingDetails.hour}
+                value={eventDetails.time}
                 onChange={(e) =>
-                  setWeddingDetails((prev) => ({
+                  setEventDetails((prev) => ({
                     ...prev,
-                    hour: e.target.value,
+                    time: e.target.value,
                   }))
                 }
               />
@@ -200,9 +194,9 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
                   בחרו מתי לשלוח תזכורת אוטומטית לאורחים שאישרו
                 </Text>
                 <RadioGroup
-                  value={weddingDetails.reminder_day || "day_before"}
+                  value={eventDetails.reminder_day || "day_before"}
                   onChange={(value) =>
-                    setWeddingDetails((prev) => ({
+                    setEventDetails((prev) => ({
                       ...prev,
                       reminder_day: value as "day_before" | "wedding_day",
                     }))
@@ -218,9 +212,9 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
                 <FormField label="שעת התזכורת">
                   <Input
                     type="time"
-                    value={weddingDetails.reminder_time || "10:00"}
+                    value={eventDetails.reminder_time || "10:00"}
                     onChange={(e) =>
-                      setWeddingDetails((prev) => ({
+                      setEventDetails((prev) => ({
                         ...prev,
                         reminder_time: e.target.value,
                       }))
@@ -232,11 +226,11 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
             <FormField label="שם המקום" required>
               <div dir="rtl">
                 <Input
-                  value={weddingDetails.location_name}
+                  value={eventDetails.location}
                   onChange={(e) =>
-                    setWeddingDetails((prev) => ({
+                    setEventDetails((prev) => ({
                       ...prev,
-                      location_name: e.target.value,
+                      location: e.target.value,
                     }))
                   }
                   placeholder="הכניסו את מיקום החתונה"
@@ -301,11 +295,11 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
               <Box direction="vertical" gap={1}>
                 <div dir="rtl">
                   <InputArea
-                    value={weddingDetails.additional_information}
+                    value={eventDetails.additional_info}
                     onChange={(e) =>
-                      setWeddingDetails((prev) => ({
+                      setEventDetails((prev) => ({
                         ...prev,
-                        additional_information: e.target.value.replace(
+                        additional_info: e.target.value.replace(
                           /\n/g,
                           " "
                         ),
@@ -342,7 +336,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
                     <Box width="350px">
                       <EmojiPicker
                         onEmojiClick={(emojiData) =>
-                          onEmojiClick("additional_information", emojiData)
+                          onEmojiClick("additional_info", emojiData)
                         }
                         width="100%"
                       />
@@ -355,9 +349,9 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
               <Box direction="vertical" gap={1}>
                 <div dir="rtl">
                   <InputArea
-                    value={weddingDetails.thank_you_message}
+                    value={eventDetails.thank_you_message}
                     onChange={(e) =>
-                      setWeddingDetails((prev) => ({
+                      setEventDetails((prev) => ({
                         ...prev,
                         thank_you_message: e.target.value,
                       }))
@@ -404,9 +398,9 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
             </FormField>
             <FormField label="קישור לוויז" required>
               <Input
-                value={weddingDetails.waze_link}
+                value={eventDetails.waze_link}
                 onChange={(e) =>
-                  setWeddingDetails((prev) => ({
+                  setEventDetails((prev) => ({
                     ...prev,
                     waze_link: e.target.value,
                   }))
@@ -416,9 +410,9 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
             </FormField>
             <FormField label=" קישור למתנות באשראי">
               <Input
-                value={weddingDetails.gift_link}
+                value={eventDetails.gift_link}
                 onChange={(e) =>
-                  setWeddingDetails((prev) => ({
+                  setEventDetails((prev) => ({
                     ...prev,
                     gift_link: e.target.value,
                   }))
@@ -430,7 +424,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
 
           {/* Message Previews */}
           <WhatsAppPreview
-            weddingDetails={weddingDetails}
+            event={eventDetails as Event}
             imageUrl={imageUrl}
             showAllMessages={true}
           />

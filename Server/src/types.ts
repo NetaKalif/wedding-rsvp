@@ -1,39 +1,75 @@
-export interface Guest extends GuestIdentifier {
-  whose: string;
-  circle: string;
-  numberOfGuests: number;
-  RSVP: number | undefined;
-  messageGroup?: number; // Group number for message batching (1-N)
-  userID: string;
-  lastRsvpSentAt?: Date;
-}
-export interface GuestIdentifier {
-  name: string;
-  phone: string;
-}
+// ==================== Core entities ====================
+
 export interface User {
   name: string;
   email: string;
   userID: string;
 }
-export type FilterOptions = "all" | "pending" | "approved" | "declined";
 
-export interface WeddingDetails {
-  bride_name: string;
-  groom_name: string;
-  wedding_date: string;
-  hour: string;
-  location_name: string;
-  additional_information: string;
-  waze_link: string;
-  gift_link: string;
-  thank_you_message?: string;
-  fileID?: string;
-  reminder_day?: "day_before" | "wedding_day"; // Which day to send reminder
-  reminder_time?: string; // Time to send reminder (HH:MM format)
-  total_budget?: number; // Total wedding budget
-  estimated_guests?: number; // Estimated guest count for budget planning
+/** Pure guest data — no RSVP, no event coupling. */
+export interface Guest {
+  id?: number;
+  user_id: string;
+  name: string;
+  phone: string;
+  whose: string;
+  circle: string;
+  number_of_guests: number;
 }
+
+/**
+ * An event — wedding (is_primary=true) or any other ceremony.
+ * Wedding-specific fields (bride_name, groom_name, waze_link, etc.) are nullable
+ * and only shown in the UI for the primary event.
+ */
+export interface Event {
+  id?: number;
+  user_id: string;
+  is_primary: boolean;
+  ceremony_name: string;
+  date?: string;
+  time?: string;
+  location?: string;
+  additional_info?: string;
+  file_id?: string;
+  // Primary-event (wedding) fields:
+  bride_name?: string;
+  groom_name?: string;
+  waze_link?: string;
+  gift_link?: string;
+  thank_you_message?: string;
+  send_reminder?: boolean;
+  reminder_day?: "day_before" | "wedding_day";
+  reminder_time?: string;
+  send_thank_you?: boolean;
+  estimated_guests?: number;
+  total_budget?: number;
+  created_at?: Date;
+}
+
+/**
+ * A guest's membership in a specific event.
+ * rsvp_status and last_rsvp_sent_at are per-event.
+ * Guest fields (name, phone, etc.) are joined from the guests table at query time.
+ */
+export interface EventGuest {
+  id?: number;
+  event_id: number;
+  guest_id: number;
+  rsvp_status?: number | null;
+  last_rsvp_sent_at?: Date;
+  // Joined from guests at query time (not stored here):
+  name?: string;
+  phone?: string;
+  whose?: string;
+  circle?: string;
+  number_of_guests?: number;
+  user_id?: string;
+}
+
+// ==================== Utility types ====================
+
+export type RsvpFilter = "all" | "pending" | "approved" | "declined";
 
 export type TemplateName =
   | "wedding_rsvp_action"
@@ -44,6 +80,7 @@ export type TemplateName =
   | "wedding_reminders_no_gift_same_day"
   | "custom_thank_you_message"
   | "thank_you_message";
+
 export interface ClientLog {
   id?: number;
   userID?: string | null;
@@ -51,7 +88,9 @@ export interface ClientLog {
   createdAt?: Date;
 }
 
-export type TaskPriority = 1 | 2 | 3; // 1 = High, 2 = Medium, 3 = Low
+// ==================== Task types ====================
+
+export type TaskPriority = 1 | 2 | 3;
 export type TaskAssignee = "bride" | "groom" | "both";
 
 export interface Task {
@@ -73,6 +112,9 @@ export interface DefaultTask {
   assignee?: TaskAssignee;
   info?: string;
 }
+
+// ==================== Budget types ====================
+
 export interface BudgetCategory {
   category_id?: number;
   user_id: string;

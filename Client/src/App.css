@@ -18,6 +18,17 @@ body {
 }
 .App {
   text-align: center;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.App-content {
+  flex: 1;
+}
+
+.App-footer {
+  margin-top: auto;
 }
 
 h1,
@@ -63,4 +74,18 @@ h6 {
 
 .modal {
   min-width: 150px;
+}
+
+/* Constrain all floating SidePanels so the header/X button stays visible */
+[class*="SidePanel__root"] {
+  max-height: 80vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+[class*="SidePanel__content"] {
+  overflow-y: auto !important;
+  flex: 1 !important;
+  min-height: 0 !important;
 }

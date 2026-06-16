@@ -1,38 +1,78 @@
+// ==================== Core entities ====================
+
 export interface Guest {
+  id?: number;
+  user_id?: string;
   name: string;
   phone: string;
   whose: string;
   circle: string;
-  numberOfGuests: number;
-  RSVP: number | undefined;
-  messageGroup?: number; // Group number for message batching (1-N)
+  number_of_guests: number;
 }
 
+/**
+ * An event — wedding (is_primary=true) or any other ceremony.
+ * Wedding-specific fields are only shown in the UI when is_primary=true.
+ */
+export interface Event {
+  id: number;
+  user_id: string;
+  is_primary: boolean;
+  ceremony_name: string;
+  date?: string;
+  time?: string;
+  location?: string;
+  additional_info?: string;
+  file_id?: string;
+  imageURL?: string; // client-side convenience, not in DB
+  // Primary (wedding) fields:
+  bride_name?: string;
+  groom_name?: string;
+  waze_link?: string;
+  gift_link?: string;
+  thank_you_message?: string;
+  send_reminder?: boolean;
+  reminder_day?: "day_before" | "wedding_day";
+  reminder_time?: string;
+  send_thank_you?: boolean;
+  estimated_guests?: number;
+  total_budget?: number;
+  created_at?: string;
+}
+
+/**
+ * A guest's participation in a specific event.
+ * Guest fields (name, phone, etc.) are joined at query time.
+ */
+export interface EventGuest {
+  id?: number;
+  event_id: number;
+  guest_id: number;
+  rsvp_status?: number | null;
+  last_rsvp_sent_at?: string;
+  // Joined from guests table:
+  name?: string;
+  phone?: string;
+  whose?: string;
+  circle?: string;
+  number_of_guests?: number;
+  user_id?: string;
+}
+
+// ==================== Filter / UI types ====================
+
 export type RsvpStatus = "pending" | "confirmed" | "declined";
+
 export interface FilterOptions {
-  whose: Guest["whose"][];
-  circle: Guest["circle"][];
+  whose: string[];
+  circle: string[];
   rsvpStatus: RsvpStatus[];
   searchTerm: string;
 }
-export type SetGuestsList = React.Dispatch<React.SetStateAction<Guest[]>>;
 
-export interface WeddingDetails {
-  bride_name: string;
-  groom_name: string;
-  wedding_date: string;
-  hour: string;
-  location_name: string;
-  additional_information: string;
-  waze_link: string;
-  gift_link: string;
-  thank_you_message?: string;
-  fileID: string;
-  reminder_day?: "day_before" | "wedding_day"; // Which day to send reminder
-  reminder_time?: string; // Time to send reminder (HH:MM format)
-  total_budget?: number; // Total wedding budget
-  estimated_guests?: number; // Estimated guest count for budget planning
-}
+export type SetGuestsList = (guests: Guest[] | ((prev: Guest[]) => Guest[])) => void;
+
+// ==================== Auth / User ====================
 
 export interface User {
   userID: string;
@@ -49,6 +89,8 @@ export interface PartnerInfo {
   inviteExpires?: string;
 }
 
+// ==================== Logs ====================
+
 export interface ClientLog {
   id: number;
   userID: string;
@@ -56,7 +98,9 @@ export interface ClientLog {
   createdAt: string;
 }
 
-export type TaskPriority = 1 | 2 | 3; // 1 = High, 2 = Medium, 3 = Low
+// ==================== Tasks ====================
+
+export type TaskPriority = 1 | 2 | 3;
 export type TaskAssignee = "bride" | "groom" | "both";
 
 export interface Task {
@@ -87,6 +131,8 @@ export type TimelineGroup =
   | "Wedding Day Bride"
   | "Wedding Day Groom"
   | "Wedding Day";
+
+// ==================== Budget ====================
 
 export type BudgetCategoryName =
   | "אולם"
@@ -122,7 +168,7 @@ export interface Vendor {
   vendor_id: number;
   user_id: string;
   name: string;
-  job_title?: string; // e.g., "DJ", "Band", "Live Singer" under Music category
+  job_title?: string;
   category_id: number;
   category_name?: BudgetCategoryName;
   agreed_cost: number;

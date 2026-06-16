@@ -39,7 +39,7 @@ export const TasksDashboard: React.FC = () => {
     if (!user) return;
     try {
       setIsLoading(true);
-      const weddingInfoPromise = httpRequests.getWeddingInfo(user.userID);
+      const weddingInfoPromise = httpRequests.getPrimaryEvent(user.userID);
       const tasksPromise = httpRequests.getTasks(user.userID);
       const [weddingInfo, fetchedTasks] = await Promise.all([
         weddingInfoPromise,

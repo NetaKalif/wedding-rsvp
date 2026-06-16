@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Box, Button, Loader } from "@wix/design-system";
 import { Calendar } from "lucide-react";
-import { WeddingDetails } from "../../types";
+import { Event } from "../../types";
 import "./css/WeddingCountdown.css";
 
 interface CountdownTime {
@@ -39,7 +39,7 @@ const formatWeddingDate = (dateString: string): string => {
 };
 
 interface WeddingCountdownProps {
-  weddingInfo: WeddingDetails | null;
+  weddingInfo: Event | null;
   isLoading: boolean;
 }
 
@@ -51,10 +51,10 @@ export const WeddingCountdown = ({
   const [countdown, setCountdown] = useState<CountdownTime | null>(null);
 
   useEffect(() => {
-    if (weddingInfo?.wedding_date) {
-      setCountdown(calculateCountdown(weddingInfo.wedding_date));
+    if (weddingInfo?.date) {
+      setCountdown(calculateCountdown(weddingInfo.date));
     }
-  }, [weddingInfo?.wedding_date]);
+  }, [weddingInfo?.date]);
 
   if (isLoading) {
     return (
@@ -64,7 +64,7 @@ export const WeddingCountdown = ({
     );
   }
 
-  if (weddingInfo?.wedding_date && countdown) {
+  if (weddingInfo?.date && countdown) {
     return (
       <Box
         direction="vertical"
@@ -100,14 +100,14 @@ export const WeddingCountdown = ({
 
           <div className="countdown-date">
             <span className="date-label">
-              {formatWeddingDate(weddingInfo.wedding_date)}
+              {formatWeddingDate(weddingInfo.date)}
             </span>
-            {weddingInfo.hour && (
-              <span className="time-label">בשעה {weddingInfo.hour}</span>
+            {weddingInfo.time && (
+              <span className="time-label">בשעה {weddingInfo.time}</span>
             )}
-            {weddingInfo.location_name && (
+            {weddingInfo.location && (
               <span className="location-label">
-                📍 {weddingInfo.location_name}
+                📍 {weddingInfo.location}
               </span>
             )}
           </div>

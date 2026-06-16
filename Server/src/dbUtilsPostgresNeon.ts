@@ -1,8 +1,9 @@
 import {
   Guest,
-  GuestIdentifier,
   User,
-  WeddingDetails,
+  Event,
+  EventGuest,
+  RsvpFilter,
   ClientLog,
   Task,
   DefaultTask,
@@ -19,7 +20,7 @@ import defaultTasks from "./defaultTasks.json";
 import { getDateStrings } from "./dateUtils";
 import { Pool } from "pg";
 
-require("dotenv").config();
+require("dotenv").config({ path: ".server.env" });
 
 const dbUrl = process.env.DATABASE_URL || "";
 const needsSSL =
@@ -32,7 +33,7 @@ const pool = new Pool({
   connectionString: dbUrl.replace(/[?&]sslmode=require/g, ""),
   ssl: needsSSL ? { rejectUnauthorized: false } : false,
 });
-const guestsListColumnsNoUserID = `name, phone, whose, circle, "numberOfGuests", "RSVP", "messageGroup", "lastRsvpSentAt"`;
+const guestColumns = `id, user_id, name, phone, whose, circle, number_of_guests`;
 
 class Database {
   private static instance: Database | null = null;
@@ -56,42 +57,8 @@ class Database {
   }
 
   private async initializeTables(): Promise<void> {
-    // Helper to safely create a table (checks if table exists first to avoid type conflicts)
-    const safeCreateTable = async (
-      tableName: string,
-      createSQL: string,
-    ): Promise<void> => {
-      try {
-        // First check if the table already exists
-        const tableExists = await this.runQuery(
-          `SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name = $1
-          );`,
-          [tableName],
-        );
-
-        if (tableExists[0]?.exists) {
-          // Table already exists, skip creation
-          return;
-        }
-
-        await this.runQuery(createSQL, []);
-      } catch (err: any) {
-        // If table already exists or type conflict, just log and continue
-        if (err.code === "42P07" || err.code === "23505") {
-          console.log(`Table ${tableName} already exists, skipping...`);
-          return;
-        }
-        throw err;
-      }
-    };
-
-    // Create users table
-    await safeCreateTable(
-      "users",
-      `
+    // ── Core structural tables (never dropped) ──────────────────────────────
+    await this.runQuery(`
       CREATE TABLE IF NOT EXISTS "users" (
         "userID" TEXT PRIMARY KEY,
         email TEXT NOT NULL,
@@ -99,151 +66,67 @@ class Database {
         primary_user_id TEXT REFERENCES users("userID") ON DELETE SET NULL,
         invite_code TEXT UNIQUE,
         invite_code_expires_at TIMESTAMP WITH TIME ZONE
-      );
-    `,
-    );
+      );`, []);
 
-    // Create guestsList table
-    await safeCreateTable(
-      "guestsList",
-      `
-      CREATE TABLE IF NOT EXISTS "guestsList" (
-        id SERIAL PRIMARY KEY,
-        "userID" TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
-        name TEXT NOT NULL,
-        phone TEXT NOT NULL,
-        whose TEXT NOT NULL,
-        circle TEXT NOT NULL,
-        "numberOfGuests" INTEGER NOT NULL DEFAULT 1,
-        "RSVP" INTEGER,
-        "messageGroup" INTEGER,
-        "lastRsvpSentAt" TIMESTAMP WITH TIME ZONE
-      );
-    `,
-    );
-
-    // Add lastRsvpSentAt column to guestsList if it doesn't exist (migration for existing DBs)
-    try {
-      await this.runQuery(
-        `ALTER TABLE "guestsList" ADD COLUMN IF NOT EXISTS "lastRsvpSentAt" TIMESTAMP WITH TIME ZONE;`,
-        [],
-      );
-    } catch (err: any) {
-      if (err.code !== "42701") throw err; // 42701 = column already exists
-    }
-
-    // Create info table
-    await safeCreateTable(
-      "info",
-      `
-      CREATE TABLE IF NOT EXISTS "info" (
-        "userID" TEXT PRIMARY KEY REFERENCES users("userID") ON DELETE CASCADE,
-        bride_name TEXT NOT NULL,
-        groom_name TEXT NOT NULL,
-        wedding_date TEXT NOT NULL,
-        hour TIME NOT NULL,
-        location_name TEXT NOT NULL,
-        additional_information TEXT,
-        waze_link TEXT,
-        gift_link TEXT,
-        thank_you_message TEXT,
-        "fileID" TEXT,
-        reminder_day TEXT DEFAULT 'day_before' CHECK (reminder_day IN ('day_before', 'wedding_day')),
-        reminder_time TIME DEFAULT '10:00:00',
-        total_budget DECIMAL(12, 2) DEFAULT 0,
-        estimated_guests INTEGER DEFAULT 0,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `,
-    );
-
-    // Create ClientLogs table
-    await safeCreateTable(
-      "clientLogs",
-      `
+    await this.runQuery(`
       CREATE TABLE IF NOT EXISTS "clientLogs" (
         id SERIAL PRIMARY KEY,
         "userID" TEXT REFERENCES users("userID") ON DELETE CASCADE,
         message TEXT NOT NULL,
         "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `,
-    );
+      );`, []);
 
-    // Create tasks table
-    await safeCreateTable(
-      "tasks",
-      `
+    await this.runQuery(`
       CREATE TABLE IF NOT EXISTS "tasks" (
         task_id SERIAL PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
         title VARCHAR(255) NOT NULL,
         timeline_group VARCHAR(50) NOT NULL,
         is_completed BOOLEAN NOT NULL DEFAULT FALSE,
-        priority INTEGER DEFAULT 2 CHECK (priority IN (1, 2, 3)),
-        assignee VARCHAR(20) DEFAULT 'both' CHECK (assignee IN ('bride', 'groom', 'both')),
+        priority INTEGER DEFAULT 2 CHECK (priority IN (1,2,3)),
+        assignee VARCHAR(20) DEFAULT 'both' CHECK (assignee IN ('bride','groom','both')),
         sort_order INTEGER,
         info TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
-      );
-    `,
-    );
+      );`, []);
 
-    // Create budget_categories table
-    await safeCreateTable(
-      "budget_categories",
-      `
+    await this.runQuery(`
       CREATE TABLE IF NOT EXISTS "budget_categories" (
         category_id SERIAL PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
         name VARCHAR(50) NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, name)
-      );
-    `,
-    );
+      );`, []);
 
-    // Create vendors table
-    await safeCreateTable(
-      "vendors",
-      `
+    await this.runQuery(`
       CREATE TABLE IF NOT EXISTS "vendors" (
         vendor_id SERIAL PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         job_title VARCHAR(100),
         category_id INTEGER NOT NULL REFERENCES budget_categories(category_id) ON DELETE CASCADE,
-        agreed_cost DECIMAL(12, 2) NOT NULL DEFAULT 0,
+        agreed_cost DECIMAL(12,2) NOT NULL DEFAULT 0,
         status VARCHAR(20) NOT NULL,
         phone VARCHAR(50),
         email VARCHAR(255),
         notes TEXT,
         is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `,
-    );
+      );`, []);
 
-    // Create payments table
-    await safeCreateTable(
-      "payments",
-      `
+    await this.runQuery(`
       CREATE TABLE IF NOT EXISTS "payments" (
         payment_id SERIAL PRIMARY KEY,
         vendor_id INTEGER NOT NULL REFERENCES vendors(vendor_id) ON DELETE CASCADE,
-        amount DECIMAL(12, 2) NOT NULL,
+        amount DECIMAL(12,2) NOT NULL,
         payment_date DATE NOT NULL,
         notes TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `,
-    );
+      );`, []);
 
-    // Create vendor_files table for storing agreement documents
-    await safeCreateTable(
-      "vendor_files",
-      `
+    await this.runQuery(`
       CREATE TABLE IF NOT EXISTS "vendor_files" (
         file_id SERIAL PRIMARY KEY,
         vendor_id INTEGER NOT NULL REFERENCES vendors(vendor_id) ON DELETE CASCADE,
@@ -252,9 +135,118 @@ class Database {
         file_size INTEGER NOT NULL,
         file_data BYTEA NOT NULL,
         uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `,
+      );`, []);
+
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS guests (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        whose TEXT NOT NULL,
+        circle TEXT NOT NULL,
+        number_of_guests INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(user_id, phone)
+      );`, []);
+
+    // events — wedding (is_primary=true) and any other ceremony
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS events (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
+        is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+        ceremony_name TEXT NOT NULL,
+        date TEXT,
+        time TEXT,
+        location TEXT,
+        additional_info TEXT,
+        file_id TEXT,
+        bride_name TEXT,
+        groom_name TEXT,
+        waze_link TEXT,
+        gift_link TEXT,
+        thank_you_message TEXT,
+        send_reminder BOOLEAN DEFAULT FALSE,
+        reminder_day TEXT CHECK (reminder_day IN ('day_before','wedding_day')),
+        reminder_time TIME,
+        send_thank_you BOOLEAN DEFAULT FALSE,
+        estimated_guests INTEGER DEFAULT 0,
+        total_budget DECIMAL(12,2) DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );`, []);
+
+    // event_guests — per-event RSVP, links to guests
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS event_guests (
+        id SERIAL PRIMARY KEY,
+        event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        guest_id INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+        rsvp_status INTEGER,
+        last_rsvp_sent_at TIMESTAMP WITH TIME ZONE,
+        UNIQUE(event_id, guest_id)
+      );`, []);
+
+    // ── Migrations from legacy tables ────────────────────────────────────────
+
+    // Migrate guestsList → guests if needed
+    const guestsEmpty = await this.runQuery(
+      `SELECT NOT EXISTS (SELECT 1 FROM guests LIMIT 1) as empty;`, [],
     );
+    const legacyGuests = await this.runQuery(
+      `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name='guestsList') as exists;`, [],
+    );
+    if (guestsEmpty[0]?.empty && legacyGuests[0]?.exists) {
+      await this.runQuery(`
+        INSERT INTO guests (user_id, name, phone, whose, circle, number_of_guests)
+        SELECT "userID", name, phone, whose, circle, "numberOfGuests"
+        FROM "guestsList"
+        ON CONFLICT (user_id, phone) DO NOTHING;`, []);
+      console.log("✅ Migrated guestsList → guests");
+    }
+
+    // Migrate info → events (primary) if needed
+    const primaryExists = await this.runQuery(
+      `SELECT EXISTS (SELECT 1 FROM events WHERE is_primary=TRUE LIMIT 1) as exists;`, [],
+    );
+    const legacyInfo = await this.runQuery(
+      `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name='info') as exists;`, [],
+    );
+    if (!primaryExists[0]?.exists && legacyInfo[0]?.exists) {
+      await this.runQuery(`
+        INSERT INTO events
+          (user_id, is_primary, ceremony_name, date, time, location, additional_info, file_id,
+           bride_name, groom_name, waze_link, gift_link, thank_you_message,
+           send_reminder, reminder_day, reminder_time, send_thank_you,
+           estimated_guests, total_budget)
+        SELECT
+          "userID", TRUE, 'חתונה', wedding_date, hour::TEXT, location_name, additional_information, "fileID",
+          bride_name, groom_name, waze_link, gift_link, thank_you_message,
+          (reminder_time IS NOT NULL), reminder_day, reminder_time, FALSE,
+          COALESCE(estimated_guests,0), COALESCE(total_budget,0)
+        FROM info;`, []);
+      console.log("✅ Migrated info → events");
+
+      // Migrate guestsList RSVP + lastRsvpSentAt into event_guests for the primary event
+      await this.runQuery(`
+        INSERT INTO event_guests (event_id, guest_id, rsvp_status, last_rsvp_sent_at)
+        SELECT e.id, g.id, gl."RSVP", gl."lastRsvpSentAt"
+        FROM events e
+        JOIN guests g ON g.user_id = e.user_id
+        JOIN "guestsList" gl ON gl."userID" = g.user_id AND gl.phone = g.phone
+        WHERE e.is_primary = TRUE
+        ON CONFLICT (event_id, guest_id) DO NOTHING;`, []);
+      console.log("✅ Migrated guestsList RSVP → event_guests");
+    }
+
+    // Drop legacy tables once migration is complete and new tables have data
+    const newTablesHaveData = await this.runQuery(
+      `SELECT EXISTS (SELECT 1 FROM guests LIMIT 1) as has_guests,
+              EXISTS (SELECT 1 FROM events LIMIT 1) as has_events;`, [],
+    );
+    if (newTablesHaveData[0]?.has_guests || newTablesHaveData[0]?.has_events) {
+      await this.runQuery(`DROP TABLE IF EXISTS "guestsList" CASCADE;`, []);
+      await this.runQuery(`DROP TABLE IF EXISTS "info" CASCADE;`, []);
+    }
   }
 
   // Add or update user (Google login)
@@ -308,263 +300,196 @@ class Database {
     await this.runQuery(query, values);
   }
 
-  // Get all guests for a specific user
-  async getGuests(userID: User["userID"]): Promise<Guest[]> {
-    const query = `SELECT  ${guestsListColumnsNoUserID} FROM "guestsList" WHERE "userID" = $1;`;
-    const results = await this.runQuery(query, [userID]);
-    return results;
-  }
+  // ==================== Guest Methods ====================
 
-  async getGuestsWithUserID(userID: User["userID"]): Promise<Guest[]> {
-    const query = `SELECT "userID", ${guestsListColumnsNoUserID} FROM "guestsList" WHERE "userID" = $1;`;
-    const results = await this.runQuery(query, [userID]);
-    return results;
-  }
-
-  async getAllGuests(): Promise<Guest[]> {
-    const query = `SELECT "userID", ${guestsListColumnsNoUserID} FROM "guestsList";`;
-    const results = await this.runQuery(query, []);
-    return results;
-  }
-
-  async addMultipleGuests(
-    userID: User["userID"],
-    guests: Guest[],
-  ): Promise<any> {
-    const values: any[] = [];
-    const placeholders = guests
-      .map((guest, index) => {
-        const guestValues = [
-          userID,
-          guest.name,
-          guest.phone,
-          guest.whose,
-          guest.circle,
-          guest.numberOfGuests,
-          guest.RSVP,
-          guest.messageGroup,
-          guest.lastRsvpSentAt || null,
-        ];
-
-        values.push(...guestValues);
-
-        return `(${guestValues
-          .map((_, i) => `$${index * 9 + i + 1}`)
-          .join(", ")})`;
-      })
-      .join(", ");
-
-    const query = `
-    INSERT INTO "guestsList" ("userID", ${guestsListColumnsNoUserID})
-    VALUES ${placeholders}
-  `;
-    return await this.runQuery(query, values);
-  }
-
-  // Update RSVP for a specific guest
-  async updateRSVP(
-    name: Guest["name"],
-    phone: Guest["phone"],
-    RSVP: number | undefined,
-    userID?: string,
-  ): Promise<any> {
-    let updatedRSVP: number | null;
-    if (RSVP == null) {
-      updatedRSVP = null;
-    } else {
-      updatedRSVP = parseInt(RSVP.toString(), 10);
-    }
-
-    const query = userID
-      ? `
-      UPDATE "guestsList" 
-      SET "RSVP" = $1 
-      WHERE "userID" = $2
-      AND phone = $3 
-      AND name = $4
-    `
-      : `
-      UPDATE "guestsList" 
-      SET "RSVP" = $1 
-      WHERE phone = $2 
-      AND name = $3
-    `;
-    const values = userID
-      ? [updatedRSVP, userID, phone, name]
-      : [updatedRSVP, phone, name];
-
-    return await this.runQuery(query, values);
-  }
-
-  async updateLastRsvpSentAt(userID: string, phones: string[]): Promise<void> {
-    console.log("updateLastRsvpSentAt", userID, phones);
-    if (phones.length === 0) return;
-    const query = `
-      UPDATE "guestsList"
-      SET "lastRsvpSentAt" = CURRENT_TIMESTAMP
-      WHERE "userID" = $1 AND phone = ANY($2);
-    `;
-    await this.runQuery(query, [userID, phones]);
-  }
-
-  // Delete a specific guest
-  async deleteGuest(
-    guest: GuestIdentifier,
-    userID?: User["userID"],
-  ): Promise<any> {
-    return userID
-      ? await this.runQuery(
-        `DELETE FROM "guestsList" WHERE "userID" = $1 AND phone = $2 AND name = $3;`,
-        [userID, guest.phone, guest.name],
-      )
-      : await this.runQuery(`DELETE FROM "guestsList" WHERE phone = $1;`, [
-        guest.phone,
-      ]);
-  }
-
-  // Delete all guests for a user
-  async deleteAllGuests(userID: User["userID"]): Promise<any> {
-    return await this.runQuery(
-      `DELETE FROM "guestsList" WHERE "userID" = $1;`,
+  async getGuests(userID: string): Promise<Guest[]> {
+    return this.runQuery(
+      `SELECT ${guestColumns} FROM guests WHERE user_id = $1 ORDER BY name ASC;`,
       [userID],
     );
   }
-  async deleteUser(userID: User["userID"]): Promise<any> {
-    return await this.runQuery(`DELETE FROM "users" WHERE "userID" = $1;`, [
-      userID,
-    ]);
-  }
 
-  // Add or update wedding information
-  async saveWeddingInfo(
-    userID: User["userID"],
-    info: WeddingDetails,
-  ): Promise<void> {
-    const query = `
-      INSERT INTO info (
-        "userID", bride_name, groom_name, wedding_date, hour, 
-        location_name, additional_information, waze_link, gift_link,
-        thank_you_message, "fileID", reminder_day, reminder_time, total_budget, estimated_guests
-      ) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      ON CONFLICT ("userID") 
-      DO UPDATE SET 
-        bride_name = EXCLUDED.bride_name,
-        groom_name = EXCLUDED.groom_name,
-        wedding_date = EXCLUDED.wedding_date,
-        hour = EXCLUDED.hour,
-        location_name = EXCLUDED.location_name,
-        additional_information = EXCLUDED.additional_information,
-        waze_link = EXCLUDED.waze_link,
-        gift_link = EXCLUDED.gift_link,
-        thank_you_message = EXCLUDED.thank_you_message,
-        "fileID" = EXCLUDED."fileID",
-        reminder_day = EXCLUDED.reminder_day,
-        reminder_time = EXCLUDED.reminder_time,
-        total_budget = EXCLUDED.total_budget,
-        estimated_guests = EXCLUDED.estimated_guests;
-    `;
-
-    const values = [
-      userID,
-      info.bride_name,
-      info.groom_name,
-      info.wedding_date,
-      info.hour,
-      info.location_name,
-      info.additional_information,
-      info.waze_link,
-      info.gift_link,
-      info.thank_you_message,
-      info.fileID,
-      info.reminder_day || "day_before",
-      info.reminder_time || "10:00:00",
-      info.total_budget || 0,
-      info.estimated_guests || 0,
-    ];
-
-    await this.runQuery(query, values);
-  }
-
-  // Get wedding information for a user
-  async getWeddingInfo(userID: User["userID"]): Promise<WeddingDetails | null> {
-    const query = `
-      SELECT 
-        bride_name, groom_name, wedding_date, hour, 
-        location_name, additional_information, waze_link, 
-        gift_link, thank_you_message, "fileID",
-        reminder_day, reminder_time, total_budget, estimated_guests
-      FROM info 
-      WHERE "userID" = $1;
-    `;
-
-    const results = await this.runQuery(query, [userID]);
-    if (results.length === 0) return null;
-
-    return {
-      ...results[0],
-      total_budget: results[0].total_budget
-        ? parseFloat(results[0].total_budget)
-        : 0,
-      estimated_guests: results[0].estimated_guests
-        ? parseInt(results[0].estimated_guests)
-        : 0,
-    };
-  }
-
-  // Get all weddings that need to send messages today
-  async getWeddingsForMessaging(): Promise<
-    { userID: string; info: WeddingDetails }[]
-  > {
-    const { today, tomorrow, yesterday } = getDateStrings();
-
-    const query = `
-      SELECT 
-        "userID",
-        bride_name, groom_name, wedding_date, hour, 
-        location_name, additional_information, waze_link, 
-        gift_link, thank_you_message, "fileID",
-        reminder_day, reminder_time
-      FROM info 
-      WHERE wedding_date = $1 OR wedding_date = $2 OR wedding_date = $3;
-    `;
-
-    const results = await this.runQuery(query, [today, tomorrow, yesterday]);
-    return results.map((row: any) => {
-      const { userID, ...info } = row;
-      return { userID, info };
-    });
-  }
-
-  async updateGuestsGroups(
-    userID: User["userID"],
-    guests: Guest[],
-  ): Promise<void> {
+  async addGuests(userID: string, guests: Pick<Guest, "name" | "phone" | "whose" | "circle" | "number_of_guests">[]): Promise<Guest[]> {
+    if (guests.length === 0) return [];
     const values: any[] = [];
-    const placeholders = guests
-      .map((guest, index) => {
-        // Ensure messageGroup is a number or null
-        const messageGroupValue = guest.messageGroup
-          ? parseInt(guest.messageGroup.toString(), 10)
-          : null;
+    const placeholders = guests.map((g, i) => {
+      values.push(userID, g.name, g.phone, g.whose, g.circle, g.number_of_guests);
+      const o = i * 6;
+      return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6})`;
+    }).join(", ");
+    return this.runQuery(
+      `INSERT INTO guests (user_id,name,phone,whose,circle,number_of_guests) VALUES ${placeholders}
+       ON CONFLICT (user_id,phone) DO UPDATE SET name=EXCLUDED.name,whose=EXCLUDED.whose,circle=EXCLUDED.circle,number_of_guests=EXCLUDED.number_of_guests
+       RETURNING ${guestColumns};`,
+      values,
+    );
+  }
 
-        values.push(messageGroupValue, userID, guest.name, guest.phone);
-        const offset = index * 4;
-        return `($${offset + 1}::integer, $${offset + 2}, $${offset + 3}, $${offset + 4
-          })`;
-      })
-      .join(", ");
+  async deleteGuest(userID: string, guestId: number): Promise<void> {
+    await this.runQuery(`DELETE FROM guests WHERE id=$1 AND user_id=$2;`, [guestId, userID]);
+  }
 
-    const query = `
-      UPDATE "guestsList" AS g
-      SET "messageGroup" = c.messageGroup
-      FROM (VALUES ${placeholders}) AS c(messageGroup, userID, name, phone)
-      WHERE g."userID" = c.userID
-      AND g.name = c.name
-      AND g.phone = c.phone;
-    `;
+  async deleteAllGuests(userID: string): Promise<void> {
+    await this.runQuery(`DELETE FROM guests WHERE user_id=$1;`, [userID]);
+  }
 
-    await this.runQuery(query, values);
+  async deleteUser(userID: User["userID"]): Promise<any> {
+    return this.runQuery(`DELETE FROM "users" WHERE "userID" = $1;`, [userID]);
+  }
+
+  // ==================== Event Methods ====================
+
+  async getPrimaryEvent(userID: string): Promise<Event | null> {
+    const rows = await this.runQuery(
+      `SELECT * FROM events WHERE user_id=$1 AND is_primary=TRUE LIMIT 1;`,
+      [userID],
+    );
+    return rows[0] ?? null;
+  }
+
+  async getEvents(userID: string): Promise<Event[]> {
+    return this.runQuery(
+      `SELECT * FROM events WHERE user_id=$1 ORDER BY is_primary DESC, created_at ASC;`,
+      [userID],
+    );
+  }
+
+  async getEventById(eventId: number): Promise<Event | null> {
+    const rows = await this.runQuery(`SELECT * FROM events WHERE id=$1;`, [eventId]);
+    return rows[0] ?? null;
+  }
+
+  async createEvent(userID: string, event: Omit<Event, "id" | "user_id" | "created_at">): Promise<Event> {
+    const e = event;
+    const rows = await this.runQuery(
+      `INSERT INTO events
+         (user_id,is_primary,ceremony_name,date,time,location,additional_info,file_id,
+          bride_name,groom_name,waze_link,gift_link,thank_you_message,
+          send_reminder,reminder_day,reminder_time,send_thank_you,estimated_guests,total_budget)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       RETURNING *;`,
+      [userID, e.is_primary ?? false, e.ceremony_name,
+        e.date ?? null, e.time ?? null, e.location ?? null, e.additional_info ?? null, e.file_id ?? null,
+        e.bride_name ?? null, e.groom_name ?? null, e.waze_link ?? null, e.gift_link ?? null, e.thank_you_message ?? null,
+        e.send_reminder ?? false, e.reminder_day ?? null, e.reminder_time ?? null, e.send_thank_you ?? false,
+        e.estimated_guests ?? 0, e.total_budget ?? 0],
+    );
+    return rows[0];
+  }
+
+  async updateEvent(eventId: number, updates: Partial<Omit<Event, "id" | "user_id" | "created_at">>): Promise<Event | null> {
+    const fields = Object.keys(updates);
+    if (fields.length === 0) return this.getEventById(eventId);
+    const setClauses = fields.map((f, i) => `${f}=$${i + 2}`).join(", ");
+    const values = [eventId, ...fields.map(f => (updates as any)[f])];
+    const rows = await this.runQuery(
+      `UPDATE events SET ${setClauses} WHERE id=$1 RETURNING *;`,
+      values,
+    );
+    return rows[0] ?? null;
+  }
+
+  async updateEventFileId(eventId: number, fileId: string): Promise<void> {
+    await this.runQuery(`UPDATE events SET file_id=$1 WHERE id=$2;`, [fileId, eventId]);
+  }
+
+  async deleteEvent(eventId: number): Promise<void> {
+    await this.runQuery(`DELETE FROM events WHERE id=$1;`, [eventId]);
+  }
+
+  /** Returns events where a scheduled message (reminder or thank-you) might need sending today. */
+  async getEventsForScheduledMessages(): Promise<Event[]> {
+    const { today, tomorrow, yesterday } = getDateStrings();
+    return this.runQuery(
+      `SELECT * FROM events WHERE (send_reminder=TRUE OR send_thank_you=TRUE)
+       AND (date=$1 OR date=$2 OR date=$3);`,
+      [today, tomorrow, yesterday],
+    );
+  }
+
+  // ==================== EventGuest Methods ====================
+
+  async addEventGuests(eventId: number, guestIds: number[]): Promise<void> {
+    if (guestIds.length === 0) return;
+    const values: any[] = [];
+    const placeholders = guestIds.map((id, i) => {
+      values.push(eventId, id);
+      return `($${i * 2 + 1},$${i * 2 + 2})`;
+    }).join(", ");
+    await this.runQuery(
+      `INSERT INTO event_guests (event_id,guest_id) VALUES ${placeholders} ON CONFLICT (event_id,guest_id) DO NOTHING;`,
+      values,
+    );
+  }
+
+  async removeEventGuests(eventId: number, guestIds: number[]): Promise<void> {
+    if (guestIds.length === 0) return;
+    await this.runQuery(
+      `DELETE FROM event_guests WHERE event_id=$1 AND guest_id=ANY($2);`,
+      [eventId, guestIds],
+    );
+  }
+
+  async getEventGuests(eventId: number, filter?: RsvpFilter): Promise<EventGuest[]> {
+    let where = `eg.event_id=$1`;
+    if (filter === "pending") where += ` AND eg.rsvp_status IS NULL`;
+    if (filter === "approved") where += ` AND eg.rsvp_status > 0`;
+    if (filter === "declined") where += ` AND eg.rsvp_status = 0`;
+    return this.runQuery(
+      `SELECT eg.id,eg.event_id,eg.guest_id,eg.rsvp_status,eg.last_rsvp_sent_at,
+              g.name,g.phone,g.whose,g.circle,g.number_of_guests,g.user_id
+       FROM event_guests eg
+       JOIN guests g ON g.id=eg.guest_id
+       WHERE ${where}
+       ORDER BY g.name ASC;`,
+      [eventId],
+    );
+  }
+
+  async updateEventGuestRsvp(eventId: number, guestId: number, rsvpStatus: number | null): Promise<void> {
+    await this.runQuery(
+      `UPDATE event_guests SET rsvp_status=$1 WHERE event_id=$2 AND guest_id=$3;`,
+      [rsvpStatus, eventId, guestId],
+    );
+  }
+
+  async updateEventGuestLastRsvpSentAt(eventId: number, guestIds: number[]): Promise<void> {
+    if (guestIds.length === 0) return;
+    await this.runQuery(
+      `UPDATE event_guests SET last_rsvp_sent_at=CURRENT_TIMESTAMP WHERE event_id=$1 AND guest_id=ANY($2);`,
+      [eventId, guestIds],
+    );
+  }
+
+  /** Used by the webhook to route an incoming reply to the right wedding/event. */
+  async getAllRsvpCandidatesByPhone(phone: string): Promise<Array<{
+    type: "wedding" | "event";
+    eventId: number;
+    guestId: number;
+    phone: string;
+    userID: string;
+    guestName: string;
+    lastRsvpSentAt: Date | null;
+  }>> {
+    const rows = await this.runQuery(
+      `SELECT eg.event_id, eg.guest_id, eg.last_rsvp_sent_at,
+              g.user_id, g.name as guest_name,
+              e.is_primary
+       FROM event_guests eg
+       JOIN guests g ON g.id = eg.guest_id
+       JOIN events e ON e.id = eg.event_id
+       WHERE g.phone = $1;`,
+      [phone],
+    );
+    return rows.map((row: any) => ({
+      type: row.is_primary ? "wedding" as const : "event" as const,
+      eventId: row.event_id,
+      guestId: row.guest_id,
+      phone,
+      userID: row.user_id,
+      guestName: row.guest_name,
+      lastRsvpSentAt: row.last_rsvp_sent_at ? new Date(row.last_rsvp_sent_at) : null,
+    }));
   }
 
   // Add a log entry
@@ -1368,10 +1293,10 @@ class Database {
 
   // Get full budget overview with all data
   async getBudgetOverview(userID: string): Promise<BudgetOverview> {
-    const [categories, vendors, weddingInfo] = await Promise.all([
+    const [categories, vendors, primaryEvent] = await Promise.all([
       this.getBudgetCategories(userID),
       this.getVendors(userID),
-      this.getWeddingInfo(userID),
+      this.getPrimaryEvent(userID),
     ]);
     // Attach vendors to their categories
     const categoriesWithVendors: BudgetCategoryWithSpending[] = categories.map(
@@ -1381,9 +1306,8 @@ class Database {
       }),
     );
 
-    // Get budget data from wedding info
-    const totalBudget = weddingInfo?.total_budget || 0;
-    const estimatedGuests = weddingInfo?.estimated_guests || 0;
+    const totalBudget = primaryEvent?.total_budget || 0;
+    const estimatedGuests = primaryEvent?.estimated_guests || 0;
     const totalExpenses = vendors.reduce((sum, v) => sum + v.total_paid, 0);
     const plannedExpenses = vendors
       .filter((v) => v.status !== "יצרנו קשר")
@@ -1482,6 +1406,7 @@ class Database {
     const result = await this.runQuery(query, [fileId, userID]);
     return result.length > 0;
   }
+
 
   async runQuery(query: string, values: any[]): Promise<any> {
     try {

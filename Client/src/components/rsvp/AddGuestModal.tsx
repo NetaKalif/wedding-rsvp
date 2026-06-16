@@ -19,31 +19,32 @@ import {
   NumberInput,
   IconButton,
 } from "@wix/design-system";
-import { Guest, SetGuestsList, User } from "../../types";
+import { EventGuest, Guest, User } from "../../types";
 import React from "react";
 import { httpRequests } from "../../httpClient";
 import { Attachment, UploadExport } from "@wix/wix-ui-icons-common";
 import { DocDownload } from "@wix/wix-ui-icons-common";
+
 interface AddGuestModalProps {
-  setGuestsList: SetGuestsList;
-  guestsList: Guest[];
+  primaryGuestsList: Guest[];
   setIsAddGuestModalOpen: (isOpen: boolean) => void;
   userID: User["userID"];
+  eventId: number;
+  onEventGuestsChange: (guests: EventGuest[]) => void;
 }
 
 const AddGuestModal: React.FC<AddGuestModalProps> = ({
-  setGuestsList,
-  guestsList,
+  primaryGuestsList,
   setIsAddGuestModalOpen,
   userID,
+  eventId,
+  onEventGuestsChange,
 }) => {
   const [name, setName] = useState<string>("");
   const [numberOfGuests, setNumberOfGuests] = useState<number>(0);
   const [phone, setPhone] = useState<string>("");
   const [whose, setWhose] = useState<string>("");
   const [circle, setCircle] = useState<string>("");
-  const [rsvp, setRsvp] = useState<number>();
-  const [messageGroup, setMessageGroup] = useState<number>();
   const [activeTabId, setActiveTabId] = useState<string>("1");
   const [file, setFile] = useState<File | null>(null);
 
@@ -85,37 +86,18 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
       isEmpty: () => circle.length === 0,
     },
     {
-      fieldId: formFieldsData["numberOfGuests"].fieldId,
+      fieldId: formFieldsData["number_of_guests"].fieldId,
       label: "מספר אורחים",
-      onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
-        setNumberOfGuests(parseInt(e.target.value, 10)),
-      placeholder: "2",
-      mandatory: formFieldsData["numberOfGuests"].mandatory,
-      isEmpty: () => numberOfGuests === 0,
-    },
-    {
-      fieldId: formFieldsData["RSVP"].fieldId,
-      label: "אישור הגעה?",
-      onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
-        setRsvp(parseInt(e.target.value, 10)),
-      placeholder: "",
-      mandatory: formFieldsData["RSVP"].mandatory,
-      isEmpty: () => rsvp === undefined,
-    },
-    {
-      fieldId: "messageGroup",
-      label: "קבוצת הודעות (אם יש יותר מ-250 רשומות)",
       component: (
         <NumberInput
-          value={messageGroup}
-          onChange={(value) =>
-            setMessageGroup(value === null ? undefined : value)
-          }
-          placeholder="אופציונלי"
+          value={numberOfGuests}
+          onChange={(value) => setNumberOfGuests(value ?? 0)}
+          min={0}
+          placeholder="2"
         />
       ),
-      mandatory: false,
-      isEmpty: () => messageGroup === undefined,
+      mandatory: formFieldsData["number_of_guests"].mandatory,
+      isEmpty: () => numberOfGuests === 0,
     },
   ];
 
@@ -124,23 +106,30 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
 
   const handleSubmitManually = async (e: React.FormEvent) => {
     e.preventDefault();
-    const goodGuest = validateGuestsInfo(
+    const goodGuests = validateGuestsInfo(
       [
         {
-          name: name,
-          phone: phone,
-          whose: whose,
-          circle: circle,
-          numberOfGuests: numberOfGuests,
-          RSVP: rsvp,
-          messageGroup: messageGroup,
+          name,
+          phone,
+          whose,
+          circle,
+          number_of_guests: numberOfGuests,
         },
       ],
-      guestsList
+      primaryGuestsList
     );
-    if (goodGuest.length > 0) {
-      const updatedGuestsList = await httpRequests.addGuests(userID, goodGuest);
-      setGuestsList(updatedGuestsList);
+    if (goodGuests.length > 0) {
+      const newGuests = await httpRequests.addGuests(userID, goodGuests);
+      // Add new guests to the event
+      const newGuestIds = newGuests
+        .map((g) => g.id)
+        .filter((id): id is number => id != null);
+      if (newGuestIds.length > 0) {
+        await httpRequests.setEventGuests(userID, eventId, newGuestIds);
+      }
+      // Refresh event guests
+      const updatedEventGuests = await httpRequests.getEventGuests(userID, eventId);
+      onEventGuestsChange(updatedEventGuests);
     }
     setIsAddGuestModalOpen(false);
   };
@@ -151,7 +140,24 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
       alert("יש לבחור קובץ!");
       return;
     }
-    await handleImport(userID, file, guestsList, setGuestsList);
+    // handleImport adds guests and calls setGuestsList with the updated global list
+    // We wrap setGuestsList to also sync the event guests after import
+    const wrappedSetGuestsList = async (updatedGuests: Guest[] | ((prev: Guest[]) => Guest[])) => {
+      // After import, find newly added guest IDs and add them to the event
+      const resolved = typeof updatedGuests === "function"
+        ? updatedGuests(primaryGuestsList)
+        : updatedGuests;
+      const existingIds = new Set(primaryGuestsList.map((g) => g.id).filter(Boolean));
+      const newIds = resolved
+        .map((g) => g.id)
+        .filter((id): id is number => id != null && !existingIds.has(id));
+      if (newIds.length > 0) {
+        await httpRequests.setEventGuests(userID, eventId, newIds);
+      }
+      const updatedEventGuests = await httpRequests.getEventGuests(userID, eventId);
+      onEventGuestsChange(updatedEventGuests);
+    };
+    await handleImport(userID, file, primaryGuestsList, wrappedSetGuestsList);
     setIsAddGuestModalOpen(false);
   };
 

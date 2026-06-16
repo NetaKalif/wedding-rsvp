@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import { Card, Image, Button, Box } from "@wix/design-system";
-import { WeddingDetails } from "../../types";
+import { Event } from "../../types";
 import "./css/WhatsAppMessage.css";
 import { MessageType } from "./MessageGroupsModal";
 
 interface WhatsAppPreviewProps {
-  weddingDetails: WeddingDetails;
+  event: Event;
   imageUrl: string;
   isCollapsible?: boolean;
   isPreviewOpen?: boolean;
@@ -16,64 +16,66 @@ interface WhatsAppPreviewProps {
 }
 
 const WhatsAppPreview: React.FC<WhatsAppPreviewProps> = ({
-  weddingDetails,
+  event,
   imageUrl,
   showAllMessages = true,
   messageType = "rsvp",
   customText = "",
 }) => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const rsvpTemplate = `אורחים וחברים יקרים,
-הנכם מוזמנים לחתונה של ${weddingDetails.bride_name || "{{bride_name}}"} ו${
-    weddingDetails.groom_name || "{{groom_name}}"
+  const effectiveCeremonyType = event.ceremony_name || "חתונה";
+
+  const rsvpTemplate = `משפחה וחברים יקרים,
+הנכם מוזמנים ל${effectiveCeremonyType} של ${event.bride_name || "{{bride_name}}"} ו${
+    event.groom_name || "{{groom_name}}"
   }!
 האירוע יתקיים בתאריך ${
-    weddingDetails.wedding_date
-      ? new Date(weddingDetails.wedding_date).toLocaleDateString("he-IL")
+    event.date
+      ? new Date(event.date).toLocaleDateString("he-IL")
       : "{{date}}"
-  } ב${weddingDetails.location_name || "{{location}}"}.
+  } ב${event.location || "{{location}}"}.
 
-${weddingDetails.additional_information || ""}`;
+${event.additional_info || ""}`;
 
   const reminderTemplate = `היי, ראינו שעדיין לא עניתם אם תגיעו לחתונה של ${
-    weddingDetails.bride_name || "{{bride_name}}"
-  } ו${weddingDetails.groom_name || "{{groom_name}}"}. ❤️
+    event.bride_name || "{{bride_name}}"
+  } ו${event.groom_name || "{{groom_name}}"}. ❤️
 נודה לתשובתכם על מנת לסדר את האירוע בצורה הטובה ביותר!`;
 
   const dayBeforeWeddingTemplate = `היי, מחכים לראותכם מחר בחתונה של ${
-    weddingDetails.bride_name || "{{bride_name}}"
-  } ו${weddingDetails.groom_name || "{{groom_name}}"} בשעה ${
-    weddingDetails.hour.slice(0, 5) || "{{time}}"
+    event.bride_name || "{{bride_name}}"
+  } ו${event.groom_name || "{{groom_name}}"} בשעה ${
+    event.time ? event.time.slice(0, 5) : "{{time}}"
   }!
 
-לניווט: ${weddingDetails.waze_link || "{{waze_link}}"}
+לניווט: ${event.waze_link || "{{waze_link}}"}
 
 ${
-  weddingDetails.gift_link && weddingDetails.gift_link.trim() !== ""
-    ? `לנוחיותכם, ניתן להעניק מתנות באשראי בקישור: 
-${weddingDetails.gift_link}`
+  event.gift_link && event.gift_link.trim() !== ""
+    ? `לנוחיותכם, ניתן להעניק מתנות באשראי בקישור:
+${event.gift_link}`
     : ""
 } `;
 
   const weddingDayTemplate = `היי, מחכים לראותכם היום בחתונה של ${
-    weddingDetails.bride_name || "{{bride_name}}"
-  } ו${weddingDetails.groom_name || "{{groom_name}}"} בשעה ${
-    weddingDetails.hour.slice(0, 5) || "{{time}}"
+    event.bride_name || "{{bride_name}}"
+  } ו${event.groom_name || "{{groom_name}}"} בשעה ${
+    event.time ? event.time.slice(0, 5) : "{{time}}"
   }!
-לניווט: ${weddingDetails.waze_link || "{{waze_link}}"}
+לניווט: ${event.waze_link || "{{waze_link}}"}
 
 ${
-  weddingDetails.gift_link && weddingDetails.gift_link.trim() !== ""
-    ? `לנוחיותכם, ניתן להעניק מתנות באשראי בקישור: 
-${weddingDetails.gift_link}`
+  event.gift_link && event.gift_link.trim() !== ""
+    ? `לנוחיותכם, ניתן להעניק מתנות באשראי בקישור:
+${event.gift_link}`
     : ""
 } `;
 
   const thankYouTemplate = `אורחים יקרים,
-${weddingDetails.thank_you_message || "תודה שהגעתם לחגוג איתנו ולשמוח בשמחתנו!"}
+${event.thank_you_message || "תודה שהגעתם לחגוג איתנו ולשמוח בשמחתנו!"}
 אוהבים,
-${weddingDetails.bride_name || "{{bride_name}}"} ו${
-    weddingDetails.groom_name || "{{groom_name}}"
+${event.bride_name || "{{bride_name}}"} ו${
+    event.groom_name || "{{groom_name}}"
   }`;
 
   const renderMessage = (title: string, content: string, showImage: boolean = false) => (
@@ -97,8 +99,7 @@ ${weddingDetails.bride_name || "{{bride_name}}"} ו${
     } else if (type === "rsvpReminder") {
       return renderMessage("הודעת תזכורת", reminderTemplate);
     } else if (type === "weddingReminder") {
-      // Use the configured reminder day to determine which template to show
-      const isWeddingDay = weddingDetails.reminder_day === "wedding_day";
+      const isWeddingDay = event.reminder_day === "wedding_day";
       return renderMessage(
         isWeddingDay ? "תזכורת ליום החתונה" : "תזכורת ליום לפני החתונה",
         isWeddingDay ? weddingDayTemplate : dayBeforeWeddingTemplate
@@ -132,7 +133,7 @@ ${weddingDetails.bride_name || "{{bride_name}}"} ו${
         suffix={
           <Button
             size="small"
-            onClick={() => setIsPreviewOpen?.(!isPreviewOpen)}
+            onClick={() => setIsPreviewOpen(!isPreviewOpen)}
           >
             {isPreviewOpen ? "הסתר תצוגה מקדימה" : "הצג תצוגה מקדימה"}
           </Button>

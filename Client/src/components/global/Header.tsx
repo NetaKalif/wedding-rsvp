@@ -1,4 +1,4 @@
-import { Button, IconButton, PopoverMenu } from "@wix/design-system";
+import { Button, IconButton, Modal, PopoverMenu } from "@wix/design-system";
 import React, { useState } from "react";
 import { ChevronDown } from "@wix/wix-ui-icons-common";
 import { ArrowLeft, Heart, Users } from "lucide-react";
@@ -7,6 +7,8 @@ import { httpRequests } from "../../httpClient";
 import "./css/Header.css";
 import { useNavigate } from "react-router-dom";
 import PartnerModal from "../userDashboard/PartnerModal";
+import { SwitchUserModal } from "../rsvp/SwitchUserModal";
+import ViewLogsModal from "../rsvp/ViewLogsModal";
 
 type HeaderProps = {
   showBackToDashboardButton?: boolean;
@@ -14,10 +16,12 @@ type HeaderProps = {
 const Header = ({
   showBackToDashboardButton = false,
 }: HeaderProps): JSX.Element => {
-  const { user, isAdmin, handleLogout, partnerInfo, refreshPartnerInfo } =
+  const { user, isAdmin, handleLogout, partnerInfo, refreshPartnerInfo, switchUser } =
     useAuth();
   const navigate = useNavigate();
   const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
+  const [isSwitchUserModalOpen, setIsSwitchUserModalOpen] = useState(false);
+  const [isViewLogsModalOpen, setIsViewLogsModalOpen] = useState(false);
 
   const getPartnerMenuText = () => {
     if (partnerInfo?.hasPartner) {
@@ -62,6 +66,12 @@ const Header = ({
               onClick={() => setIsPartnerModalOpen(true)}
             />
             <PopoverMenu.Divider />
+            {isAdmin
+              ? <PopoverMenu.MenuItem text="החלפת משתמש" onClick={() => setIsSwitchUserModalOpen(true)} />
+              : null}
+            {isAdmin ? <PopoverMenu.Divider /> : null}
+            <PopoverMenu.MenuItem text="יומן" onClick={() => setIsViewLogsModalOpen(true)} />
+            <PopoverMenu.Divider />
             <PopoverMenu.MenuItem text="התנתקות" onClick={handleLogout} />
             <PopoverMenu.MenuItem
               text="מחיקת חשבון"
@@ -84,6 +94,20 @@ const Header = ({
               await refreshPartnerInfo();
             }}
           />
+          {isAdmin && (
+            <SwitchUserModal
+              isOpen={isSwitchUserModalOpen}
+              onClose={() => setIsSwitchUserModalOpen(false)}
+              currentUserID={user.userID}
+              onSwitchUser={switchUser}
+            />
+          )}
+          <Modal isOpen={isViewLogsModalOpen}>
+            <ViewLogsModal
+              userID={user.userID}
+              setIsViewLogsModalOpen={setIsViewLogsModalOpen}
+            />
+          </Modal>
         </div>
       )}
     </div>

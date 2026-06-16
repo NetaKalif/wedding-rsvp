@@ -1,6 +1,6 @@
 import { httpRequests } from "../../httpClient";
-import { FilterOptions, Guest, SetGuestsList, User } from "../../types";
-import * as XLSX from "xlsx";
+import { EventGuest, FilterOptions, Guest, SetGuestsList, User } from "../../types";
+import { Workbook } from "exceljs";
 
 export const formatPhoneNumber = (phone: string): string => {
   if (phone.startsWith("0")) return `+972${phone.slice(1)}`;
@@ -20,7 +20,7 @@ export const validatePhoneNumber = (
   return formattedPhone;
 };
 
-export const getRsvpCounts = (guestsList: Guest[]) => {
+export const getRsvpCounts = (guestsList: EventGuest[]) => {
   const counts = {
     pending: 0,
     confirmed: 0,
@@ -28,32 +28,57 @@ export const getRsvpCounts = (guestsList: Guest[]) => {
   };
 
   guestsList.forEach((guest) => {
-    if (guest.RSVP == null) counts.pending++;
-    else if (guest.RSVP > 0) counts.confirmed++;
-    else if (guest.RSVP === 0) counts.declined++;
+    if (guest.rsvp_status == null) counts.pending++;
+    else if (guest.rsvp_status > 0) counts.confirmed++;
+    else if (guest.rsvp_status === 0) counts.declined++;
   });
 
   return counts;
 };
 
-export const handleExport = (guestsList: Guest[]) => {
-  const ws = XLSX.utils.json_to_sheet(guestsList);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Guests");
-  XLSX.writeFile(wb, "guestsListUpdated.xlsx");
+const downloadXlsx = async (workbook: Workbook, filename: string) => {
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 };
-export const handleEmptyTableTemplate = () => {
+
+export const handleExport = async (guestsList: EventGuest[]) => {
+  const workbook = new Workbook();
+  const worksheet = workbook.addWorksheet("Guests");
+
+  if (guestsList.length > 0) {
+    worksheet.columns = (Object.keys(guestsList[0]) as (keyof EventGuest)[]).map(
+      (key) => ({ header: String(key), key: String(key) })
+    );
+    guestsList.forEach((guest) =>
+      worksheet.addRow(guest as unknown as Record<string, unknown>)
+    );
+  }
+
+  await downloadXlsx(workbook, "guestsListUpdated.xlsx");
+};
+
+export const handleEmptyTableTemplate = async () => {
   const columns = Object.keys(formFieldsData);
+  const workbook = new Workbook();
+  const worksheet = workbook.addWorksheet("Guests");
 
-  const emptyRow = columns.reduce((acc, col) => {
-    acc[col] = "";
-    return acc;
-  }, {} as Record<string, string>);
+  worksheet.columns = columns.map((col) => ({ header: col, key: col }));
+  worksheet.addRow(
+    columns.reduce<Record<string, string>>((acc, col) => {
+      acc[col] = "";
+      return acc;
+    }, {})
+  );
 
-  const ws = XLSX.utils.json_to_sheet([emptyRow]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Guests");
-  XLSX.writeFile(wb, "guests_list_template.xlsx");
+  await downloadXlsx(workbook, "guests_list_template.xlsx");
 };
 export const formFieldsData = {
   name: {
@@ -72,13 +97,9 @@ export const formFieldsData = {
     fieldId: 5,
     mandatory: true,
   },
-  numberOfGuests: {
+  number_of_guests: {
     fieldId: 6,
     mandatory: true,
-  },
-  RSVP: {
-    fieldId: 7,
-    mandatory: false,
   },
 };
 export const requiredFields: (keyof typeof formFieldsData)[] = Object.keys(
@@ -158,13 +179,27 @@ export const handleImport = (
 
   reader.onload = async (event) => {
     if (!event.target?.result) return;
-    const data = new Uint8Array(event.target.result as ArrayBuffer);
-    const workbook = XLSX.read(data, { type: "array" });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const rawJSON: Guest[] = XLSX.utils.sheet_to_json(worksheet, {
-      defval: null,
+
+    const workbook = new Workbook();
+    await workbook.xlsx.load(event.target.result as Buffer);
+    const worksheet = workbook.worksheets[0];
+
+    const headers: Record<number, string> = {};
+    worksheet.getRow(1).eachCell((cell, colNumber) => {
+      headers[colNumber] = String(cell.value);
     });
+
+    const rawJSON: Guest[] = [];
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const guest: Record<string, unknown> = {};
+      Object.entries(headers).forEach(([colStr, header]) => {
+        const cell = row.getCell(Number(colStr));
+        guest[header] = cell.value ?? null;
+      });
+      rawJSON.push(guest as unknown as Guest);
+    });
+
     const json = rawJSON.filter((row) =>
       Object.values(row).some((value) => value !== null && value !== "")
     );
@@ -199,6 +234,14 @@ export const getUniqueValues = <T extends keyof Guest>(
   return [...new Set(values)].sort();
 };
 
+export const getUniqueEventGuestValues = <T extends keyof EventGuest>(
+  guests: EventGuest[],
+  key: T
+): string[] => {
+  const values = guests.map((guest) => guest[key] as string).filter(Boolean);
+  return [...new Set(values)].sort();
+};
+
 export const getCirclesValues = (guests: Guest[]) => {
   const circlesMap: any = {};
   guests.forEach((guest) => {
@@ -207,6 +250,21 @@ export const getCirclesValues = (guests: Guest[]) => {
         circlesMap[guest.whose].push(guest.circle);
     } else {
       circlesMap[guest.whose] = [guest.circle];
+    }
+  });
+  return circlesMap;
+};
+
+export const getEventGuestCirclesValues = (guests: EventGuest[]) => {
+  const circlesMap: Record<string, string[]> = {};
+  guests.forEach((guest) => {
+    const whose = guest.whose ?? "";
+    const circle = guest.circle ?? "";
+    if (circlesMap[whose]) {
+      if (!circlesMap[whose].includes(circle))
+        circlesMap[whose].push(circle);
+    } else {
+      circlesMap[whose] = [circle];
     }
   });
   return circlesMap;
@@ -221,28 +279,28 @@ export const getRsvpStatus = (
 };
 
 export const filterGuests = (
-  guests: Guest[],
+  guests: EventGuest[],
   filterOptions: FilterOptions
-): Guest[] => {
+): EventGuest[] => {
   return guests.filter((guest) => {
     const matchesInvitedBy =
       filterOptions.whose.length === 0 ||
-      filterOptions.whose.includes(guest.whose);
+      (guest.whose != null && filterOptions.whose.includes(guest.whose));
 
     const matchesGroup =
       filterOptions.circle.length === 0 ||
-      filterOptions.circle.includes(guest.circle);
+      (guest.circle != null && filterOptions.circle.includes(guest.circle));
 
     const matchesRsvpStatus =
       filterOptions.rsvpStatus.length === 0 ||
-      filterOptions.rsvpStatus.includes(getRsvpStatus(guest.RSVP));
+      filterOptions.rsvpStatus.includes(getRsvpStatus(guest.rsvp_status));
 
     const matchesSearch =
       !filterOptions.searchTerm ||
-      guest.name.includes(filterOptions.searchTerm) ||
-      guest.phone.includes(filterOptions.searchTerm) ||
-      guest.whose.includes(filterOptions.searchTerm) ||
-      guest.circle.includes(filterOptions.searchTerm);
+      (guest.name && guest.name.includes(filterOptions.searchTerm)) ||
+      (guest.phone && guest.phone.includes(filterOptions.searchTerm)) ||
+      (guest.whose && guest.whose.includes(filterOptions.searchTerm)) ||
+      (guest.circle && guest.circle.includes(filterOptions.searchTerm));
 
     return (
       matchesInvitedBy && matchesGroup && matchesRsvpStatus && matchesSearch
@@ -250,20 +308,20 @@ export const filterGuests = (
   });
 };
 
-export const getNumberOfGuests = (guestsList: Guest[]) => {
-  return guestsList.reduce((acc, guest) => acc + guest.numberOfGuests, 0);
+export const getNumberOfGuests = (guestsList: EventGuest[]) => {
+  return guestsList.reduce((acc, guest) => acc + (guest.number_of_guests ?? 0), 0);
 };
 
-export const getNumberOfGuestsRSVP = (guestsList: Guest[]) => {
+export const getNumberOfGuestsRSVP = (guestsList: EventGuest[]) => {
   return guestsList.reduce(
-    (total, guest) => (guest.RSVP ? total + guest.RSVP : total),
+    (total, guest) => (guest.rsvp_status ? total + guest.rsvp_status : total),
     0
   );
 };
 
-export const getNumberOfGuestsDeclined = (guestsList: Guest[]) => {
+export const getNumberOfGuestsDeclined = (guestsList: EventGuest[]) => {
   return guestsList.reduce(
-    (total, guest) => (guest.RSVP === 0 ? total + guest.numberOfGuests : total),
+    (total, guest) => (guest.rsvp_status === 0 ? total + (guest.number_of_guests ?? 0) : total),
     0
   );
 };

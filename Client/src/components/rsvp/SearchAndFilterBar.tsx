@@ -1,5 +1,5 @@
 import "./css/GuestsList.css";
-import { FilterOptions, Guest, RsvpStatus } from "../../types";
+import { EventGuest, FilterOptions, RsvpStatus } from "../../types";
 
 import React, { useState } from "react";
 import {
@@ -11,10 +11,10 @@ import {
   Modal,
   Text,
 } from "@wix/design-system";
-import { getCirclesValues, getUniqueValues } from "./logic";
+import { getEventGuestCirclesValues, getUniqueEventGuestValues } from "./logic";
 import { Filter, Search } from "lucide-react";
 interface SearchAndFilterBarProps {
-  guestsList: Guest[];
+  guestsList: EventGuest[];
   filterOptions: FilterOptions;
   setFilterOptions: React.Dispatch<React.SetStateAction<FilterOptions>>;
 }
@@ -26,8 +26,8 @@ const SearchAndFilterBar: React.FC<SearchAndFilterBarProps> = ({
 }) => {
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
 
-  const invitedByOptions = getUniqueValues(guestsList, "whose");
-  const circleOptions = getCirclesValues(guestsList);
+  const invitedByOptions = getUniqueEventGuestValues(guestsList, "whose");
+  const circleOptions = getEventGuestCirclesValues(guestsList);
   const rsvpStatusOptions: RsvpStatus[] = ["pending", "confirmed", "declined"];
 
   const toggleInvitedByFilter = (whose: string) => {

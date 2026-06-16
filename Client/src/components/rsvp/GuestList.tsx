@@ -1,9 +1,9 @@
 import "./css/GuestsList.css";
 import {
+  EventGuest,
   FilterOptions,
   Guest,
   RsvpStatus,
-  SetGuestsList,
   User,
 } from "../../types";
 
@@ -23,23 +23,37 @@ import { filterGuests, getRsvpStatus } from "./logic";
 import { httpRequests } from "../../httpClient";
 import SearchAndFilterBar from "./SearchAndFilterBar";
 import { RowDataDefaultType } from "@wix/design-system/dist/types/Table/DataTable";
-interface GuestTableProps {
-  guestsList: Guest[];
-  setGuestsList: SetGuestsList;
+
+interface GuestListProps {
+  eventGuests: EventGuest[];
+  eventId: number;
   userID: User["userID"];
+  onEventGuestsChange: (guests: EventGuest[]) => void;
+  primaryGuestsList: Guest[];
+  /** Override the delete action. Defaults to deleting from the global guests table. */
+  onDeleteGuest?: (guest: EventGuest) => Promise<void>;
 }
 
-const GuestTable: React.FC<GuestTableProps> = ({
-  guestsList,
-  setGuestsList,
+const GuestList: React.FC<GuestListProps> = ({
+  eventGuests,
+  eventId,
   userID,
+  onEventGuestsChange,
+  primaryGuestsList,
+  onDeleteGuest: onDeleteGuestProp,
 }) => {
-  const onDeleteGuest = async (guest: Guest) => {
-    const updatedGuestsList = await httpRequests.deleteGuest(userID, guest);
-    setGuestsList(updatedGuestsList);
+  const onDeleteGuest = async (guest: EventGuest) => {
+    if (onDeleteGuestProp) {
+      await onDeleteGuestProp(guest);
+      return;
+    }
+    if (!guest.guest_id) return;
+    await httpRequests.deleteGuest(userID, guest.guest_id);
+    const updatedEventGuests = await httpRequests.getEventGuests(userID, eventId);
+    onEventGuestsChange(updatedEventGuests);
   };
 
-  const [sortField, setSortField] = useState<keyof Guest>("name");
+  const [sortField, setSortField] = useState<keyof EventGuest>("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({
     whose: [],
@@ -48,14 +62,9 @@ const GuestTable: React.FC<GuestTableProps> = ({
     searchTerm: "",
   });
   const [isMobile, setIsMobile] = useState<boolean>(window.innerWidth <= 768);
-  const [messageGroupModal, setMessageGroupModal] = useState<{
-    isOpen: boolean;
-    guest: Guest | null;
-    value: number | undefined;
-  }>({ isOpen: false, guest: null, value: undefined });
   const [rsvpModal, setRsvpModal] = useState<{
     isOpen: boolean;
-    guest: Guest | null;
+    guest: EventGuest | null;
     value: number | undefined;
   }>({ isOpen: false, guest: null, value: undefined });
 
@@ -69,29 +78,25 @@ const GuestTable: React.FC<GuestTableProps> = ({
     };
   }, []);
 
-  const filteredGuests = filterGuests(guestsList, filterOptions);
+  const filteredGuests = filterGuests(eventGuests, filterOptions);
   const sortedGuests = [...filteredGuests].sort((a, b) => {
     const fieldA = a[sortField];
     const fieldB = b[sortField];
 
-    if (fieldA === undefined && fieldB === undefined) {
-      return 0;
-    } else if (fieldA === undefined) {
-      return 1;
-    } else if (fieldB === undefined) {
-      return -1;
-    }
+    if (fieldA == null && fieldB == null) return 0;
+    if (fieldA == null) return 1;
+    if (fieldB == null) return -1;
 
     if (fieldA < fieldB) return sortDirection === "asc" ? -1 : 1;
     if (fieldA > fieldB) return sortDirection === "asc" ? 1 : -1;
     return 0;
   });
 
-  const renderSortIcon = (field: keyof Guest) => {
+  const renderSortIcon = (field: keyof EventGuest) => {
     if (sortField !== field) return null;
     return sortDirection === "asc" ? <ChevronUp /> : <ChevronDown />;
   };
-  const handleSort = (field: keyof Guest) => {
+  const handleSort = (field: keyof EventGuest) => {
     if (sortField === field) {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
     } else {
@@ -100,57 +105,17 @@ const GuestTable: React.FC<GuestTableProps> = ({
     }
   };
 
-  const handleMessageGroupSave = async () => {
-    if (!messageGroupModal.guest) return;
-
-    const updatedGuests = guestsList.map((g) => {
-      if (
-        g.name === messageGroupModal.guest!.name &&
-        g.phone === messageGroupModal.guest!.phone
-      ) {
-        return {
-          ...g,
-          messageGroup: messageGroupModal.value,
-        };
-      }
-      return g;
-    });
-    setGuestsList(updatedGuests);
-    setMessageGroupModal({ isOpen: false, guest: null, value: undefined });
-
-    const updatedGuestsList = await httpRequests.updateGuestsGroups(
-      userID,
-      updatedGuests,
-      guestsList
-    );
-    setGuestsList(updatedGuestsList);
-  };
-
   const handleRsvpSave = async () => {
     if (!rsvpModal.guest) return;
-
-    const updatedGuests = guestsList.map((g) => {
-      if (
-        g.name === rsvpModal.guest!.name &&
-        g.phone === rsvpModal.guest!.phone
-      ) {
-        return {
-          ...g,
-          RSVP: rsvpModal.value,
-        };
-      }
-      return g;
-    });
-    setGuestsList(updatedGuests);
-    setRsvpModal({ isOpen: false, guest: null, value: undefined });
-
-    const updatedGuestsList = await httpRequests.setRSVP(
+    const guestId = rsvpModal.guest.guest_id;
+    const updatedEventGuests = await httpRequests.setRSVP(
       userID,
-      rsvpModal.guest,
-      rsvpModal.value ?? null,
-      guestsList
+      eventId,
+      guestId,
+      rsvpModal.value ?? null
     );
-    setGuestsList(updatedGuestsList);
+    onEventGuestsChange(updatedEventGuests);
+    setRsvpModal({ isOpen: false, guest: null, value: undefined });
   };
 
   const renderRsvpStatus = (status: RsvpStatus) => {
@@ -159,7 +124,7 @@ const GuestTable: React.FC<GuestTableProps> = ({
         return isMobile ? (
           <Check color="green" />
         ) : (
-          <Badge uppercase="false" skin="neutralSuccess">
+          <Badge uppercase={false} skin="neutralSuccess">
             מאושר
           </Badge>
         );
@@ -167,7 +132,7 @@ const GuestTable: React.FC<GuestTableProps> = ({
         return isMobile ? (
           <X color="red" />
         ) : (
-          <Badge uppercase="false" skin="neutralDanger">
+          <Badge uppercase={false} skin="neutralDanger">
             סירוב
           </Badge>
         );
@@ -175,12 +140,13 @@ const GuestTable: React.FC<GuestTableProps> = ({
         return isMobile ? (
           <Clock color="orange" />
         ) : (
-          <Badge uppercase="false" skin="warningLight">
+          <Badge uppercase={false} skin="warningLight">
             ממתין
           </Badge>
         );
     }
   };
+
   const columns: (TableColumn<RowDataDefaultType> & {
     showOnMobile: boolean;
   })[] = [
@@ -190,13 +156,13 @@ const GuestTable: React.FC<GuestTableProps> = ({
           שם {renderSortIcon("name")}
         </span>
       ),
-      render: (row: Guest) => row.name,
+      render: (row: EventGuest) => row.name,
       showOnMobile: true,
       align: "start",
     },
     {
       title: <span>טלפון {renderSortIcon("phone")}</span>,
-      render: (row: Guest) => row.phone,
+      render: (row: EventGuest) => row.phone,
       showOnMobile: false,
       align: "start",
     },
@@ -206,7 +172,7 @@ const GuestTable: React.FC<GuestTableProps> = ({
           מוזמן ע״י {renderSortIcon("whose")}
         </span>
       ),
-      render: (row: Guest) => row.whose,
+      render: (row: EventGuest) => row.whose,
       showOnMobile: false,
       align: "start",
     },
@@ -216,81 +182,59 @@ const GuestTable: React.FC<GuestTableProps> = ({
           מעגל {renderSortIcon("circle")}
         </span>
       ),
-      render: (row: Guest) => row.circle,
+      render: (row: EventGuest) => row.circle,
       showOnMobile: false,
       align: "start",
     },
     {
       title: <span>סטטוס אישור</span>,
-      render: (row: Guest) => renderRsvpStatus(getRsvpStatus(row.RSVP)),
+      render: (row: EventGuest) =>
+        renderRsvpStatus(getRsvpStatus(row.rsvp_status)),
       showOnMobile: true,
       align: "start",
     },
     {
       title: (
-        <span onClick={() => handleSort("RSVP")}>
-          מספר מאושרים {renderSortIcon("RSVP")}
+        <span onClick={() => handleSort("rsvp_status")}>
+          מספר מאושרים {renderSortIcon("rsvp_status")}
         </span>
       ),
-      render: (row: Guest) => (
-        <Badge
-          skin={
-            row.RSVP === undefined || row.RSVP === null
-              ? "warningLight"
-              : row.RSVP > 0
-              ? "neutralSuccess"
-              : "neutralDanger"
-          }
+      render: (row: EventGuest) => (
+        <span
+          style={{ cursor: "pointer" }}
           onClick={() =>
             setRsvpModal({
               isOpen: true,
               guest: row,
-              value: row.RSVP,
+              value: row.rsvp_status ?? undefined,
             })
           }
-          style={{ cursor: "pointer" }}
         >
-          {row.RSVP ?? "P"}
-        </Badge>
+          <Badge
+            skin={
+              row.rsvp_status === undefined || row.rsvp_status === null
+                ? "warningLight"
+                : row.rsvp_status > 0
+                ? "neutralSuccess"
+                : "neutralDanger"
+            }
+          >
+            {row.rsvp_status ?? "P"}
+          </Badge>
+        </span>
       ),
       showOnMobile: true,
       align: "start",
     },
     {
       title: <span>מספר אורחים</span>,
-      render: (row: Guest) => row.numberOfGuests,
-      showOnMobile: true,
-      align: "start",
-    },
-    {
-      title: (
-        <span onClick={() => handleSort("messageGroup")}>
-          קבוצת הודעות {renderSortIcon("messageGroup")}
-        </span>
-      ),
-      render: (row: Guest) => (
-        <Box justifyItems="start">
-          <Badge
-            skin={row.messageGroup ? "neutralStandard" : "neutralLight"}
-            onClick={() =>
-              setMessageGroupModal({
-                isOpen: true,
-                guest: row,
-                value: row.messageGroup,
-              })
-            }
-            style={{ cursor: "pointer" }}
-          >
-            {row.messageGroup ?? "לא שויך"}
-          </Badge>
-        </Box>
-      ),
+      render: (row: EventGuest) => row.number_of_guests,
       showOnMobile: true,
       align: "start",
     },
     {
       title: "פעולות",
-      render: (row: Guest) => (
+      render: (row: EventGuest) => (
         <Box justifyItems="start">
           <Button
             onClick={() => onDeleteGuest(row)}
@@ -312,7 +256,7 @@ const GuestTable: React.FC<GuestTableProps> = ({
   return (
     <div className="guest-list-container">
       <SearchAndFilterBar
-        guestsList={guestsList}
+        guestsList={eventGuests}
         setFilterOptions={setFilterOptions}
         filterOptions={filterOptions}
       />
@@ -324,59 +268,8 @@ const GuestTable: React.FC<GuestTableProps> = ({
         <Table.Content />
       </Table>
       <div className="number-of-guests-shown">
-        מציג {sortedGuests.length} מתוך {guestsList.length} אורחים
+        מציג {sortedGuests.length} מתוך {eventGuests.length} אורחים
       </div>
-
-      <Modal
-        isOpen={messageGroupModal.isOpen}
-        onRequestClose={() =>
-          setMessageGroupModal({ isOpen: false, guest: null, value: undefined })
-        }
-        shouldCloseOnOverlayClick
-      >
-        <Box
-          background="WHITE"
-          borderRadius="10px"
-          direction="vertical"
-          gap="16px"
-          padding="24px"
-          align="center"
-        >
-          <Text weight="bold" size="medium">
-            שינוי קבוצת הודעות עבור {messageGroupModal.guest?.name}
-          </Text>
-          <NumberInput
-            value={messageGroupModal.value}
-            onChange={(value) =>
-              setMessageGroupModal((prev) => ({
-                ...prev,
-                value: value ?? undefined,
-              }))
-            }
-            min={1}
-            placeholder="הזן מספר קבוצה"
-            size="medium"
-          />
-          <Box direction="horizontal" gap="12px">
-            <Button onClick={handleMessageGroupSave} size="small">
-              שמירה
-            </Button>
-            <Button
-              onClick={() =>
-                setMessageGroupModal({
-                  isOpen: false,
-                  guest: null,
-                  value: undefined,
-                })
-              }
-              priority="secondary"
-              size="small"
-            >
-              ביטול
-            </Button>
-          </Box>
-        </Box>
-      </Modal>
 
       <Modal
         isOpen={rsvpModal.isOpen}
@@ -432,4 +325,4 @@ const GuestTable: React.FC<GuestTableProps> = ({
   );
 };
 
-export default GuestTable;
+export default GuestList;

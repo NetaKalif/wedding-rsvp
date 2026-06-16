@@ -17,7 +17,7 @@ import {
   X,
   MessageSquare,
 } from "lucide-react";
-import { Guest, User } from "../../types";
+import { EventGuest, User } from "../../types";
 import React from "react";
 import { Edit } from "@wix/wix-ui-icons-common";
 
@@ -25,19 +25,19 @@ interface ControlPanelProps {
   setIsAddGuestModalOpen: (value: boolean) => void;
   setIsInfoModalOpen: (value: boolean) => void;
   setIsMessageGroupsModalOpen: (value: boolean) => void;
-  setGuestsList: (value: any) => void;
-  guestsList: Guest[];
+  setEventGuests: (value: any) => void;
+  eventGuests: EventGuest[];
   userID: User["userID"];
 }
 const ControlPanel: React.FC<ControlPanelProps> = ({
   setIsAddGuestModalOpen,
-  setGuestsList,
-  guestsList,
+  setEventGuests,
+  eventGuests,
   setIsInfoModalOpen,
   setIsMessageGroupsModalOpen,
   userID,
 }) => {
-  const rsvpCounts = getRsvpCounts(guestsList);
+  const rsvpCounts = getRsvpCounts(eventGuests);
 
   return (
     <div className="control-panel">
@@ -47,20 +47,20 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           <Box gap="16px" className="guest-summary">
             <Box direction="vertical" gap="4px">
               <span>סה״כ מוזמנים</span>
-              <span className="pending">{getNumberOfGuests(guestsList)}</span>
+              <span className="pending">{getNumberOfGuests(eventGuests)}</span>
             </Box>
 
             <Box direction="vertical" gap="4px">
               <span>סה״כ אישרו</span>
               <span className="confirmed">
-                {getNumberOfGuestsRSVP(guestsList)}
+                {getNumberOfGuestsRSVP(eventGuests)}
               </span>
             </Box>
 
             <Box direction="vertical" gap="4px">
               <span>סה״כ סירבו</span>
               <span className="declined">
-                {getNumberOfGuestsDeclined(guestsList)}
+                {getNumberOfGuestsDeclined(eventGuests)}
               </span>
             </Box>
           </Box>
@@ -125,7 +125,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             </Button>
 
             <Button
-              onClick={() => handleExport(guestsList)}
+              onClick={() => handleExport(eventGuests)}
               priority="secondary"
             >
               <FileSpreadsheet />
@@ -140,7 +140,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                   const updatedGuestsList = await httpRequests.deleteAllGuests(
                     userID
                   );
-                  setGuestsList(updatedGuestsList);
+                  setEventGuests(updatedGuestsList);
                 }
               }}
               priority="secondary"
@@ -150,8 +150,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             </Button>
             <Button
               onClick={async () => {
-                const info = await httpRequests.getWeddingInfo(userID);
-                if (info) {
+                const event = await httpRequests.getPrimaryEvent(userID);
+                if (event) {
                   setIsMessageGroupsModalOpen(true);
                 } else {
                   alert(
@@ -160,6 +160,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 }
               }}
               priority="secondary"
+              disabled={eventGuests.length === 0}
             >
               <MessageSquare />
               <span style={{ marginRight: "8px" }}>שליחת הודעות</span>

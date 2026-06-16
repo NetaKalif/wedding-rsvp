@@ -1,4 +1,4 @@
-import { Guest, TemplateName, WeddingDetails } from "./types";
+import { Event, TemplateName } from "./types";
 import axios from "axios";
 import FormData from "form-data";
 import { messagesMap } from "./messages";
@@ -11,108 +11,95 @@ const WHATSAPP_API_VERSION = "v19.0";
 const WHATSAPP_MEDIA_API_VERSION = "v17.0";
 const LANGUAGE_CODE = "he";
 
-// Hebrew Command Keywords
 const HEBREW_MISTAKE_KEYWORD = "טעות";
 
-// Response Button Text
 const RESPONSE_BUTTONS = {
   APPROVED: "כן אני אגיע!",
   DECLINED: "לצערי לא",
   PENDING: "עדיין לא יודע/ת",
 } as const;
 
-// RSVP Status
 const RSVP_STATUS = {
   APPROVED: "approved",
   DECLINED: "declined",
   PENDING: "pending",
 } as const;
 
-// RSVP Limits
 const MIN_RSVP_COUNT = 0;
 const MAX_RSVP_COUNT = 10;
 
 // ============================================================================
-// Message Handlers
+// Message Handlers — all incoming replies are routed by (eventId, guestId)
 // ============================================================================
 
-export const handleTextResponse = async (
-  msg: string,
-  guestSender: Guest
-): Promise<void> => {
-  if (msg === HEBREW_MISTAKE_KEYWORD) {
-    await handleMistake(guestSender);
-    return;
-  }
+const isValidRsvpCount = (count: number): boolean =>
+  !isNaN(count) && count >= MIN_RSVP_COUNT && count <= MAX_RSVP_COUNT;
 
-  const rsvpCount = parseInt(msg, 10);
-  if (!isValidRsvpCount(rsvpCount)) {
-    await sendWhatsAppMessage(guestSender, {
-      freeText: messagesMap.unknownResponse,
-    });
-    return;
-  }
-
-  await handleGuestNumberRSVP(rsvpCount, guestSender);
-};
-
-const isValidRsvpCount = (count: number): boolean => {
-  return !isNaN(count) && count >= MIN_RSVP_COUNT && count <= MAX_RSVP_COUNT;
-};
-
-export const handleMistake = async (guestSender: Guest): Promise<void> => {
-  await logMessage(
-    guestSender.userID,
-    `🗑️ Delete request received from guest: ${guestSender.name}`
-  );
-  const db = Database.getInstance();
-  await db.deleteGuest(guestSender);
-  await sendWhatsAppMessage(guestSender, { freeText: messagesMap.mistake });
-};
-
-export const handleGuestNumberRSVP = async (
-  rsvpCount: number,
-  guestSender: Guest
-) => {
-  const db = Database.getInstance();
-  await db.updateRSVP(guestSender.name, guestSender.phone, rsvpCount);
-  await logMessage(
-    guestSender.userID,
-    `📠 RSVP updated for guest: ${guestSender.name} - RSVP: ${rsvpCount}`
-  );
-  const message = rsvpCount === 0 ? messagesMap.declined : messagesMap.approved;
-
-  await sendWhatsAppMessage(guestSender, { freeText: message });
-};
-
-export const handleButtonReply = async (
-  msg: string,
-  guestSender: Guest
-): Promise<void> => {
-  const senderStatus = mapResponseToStatus(
-    msg as (typeof RESPONSE_BUTTONS)[keyof typeof RESPONSE_BUTTONS]
-  );
-  const db = Database.getInstance();
-
-  if (senderStatus === RSVP_STATUS.DECLINED) {
-    await db.updateRSVP(guestSender.name, guestSender.phone, 0);
-    await sendWhatsAppMessage(guestSender, { freeText: messagesMap.declined });
-  } else if (senderStatus === RSVP_STATUS.APPROVED) {
-    await sendWhatsAppMessage(guestSender, {
-      freeText: messagesMap.approveFollowUp,
-    });
-  } else if (senderStatus === RSVP_STATUS.PENDING) {
-    await sendWhatsAppMessage(guestSender, { freeText: messagesMap.pending });
-  }
-};
-
-export const mapResponseToStatus = (
+const mapResponseToStatus = (
   response: (typeof RESPONSE_BUTTONS)[keyof typeof RESPONSE_BUTTONS]
 ): (typeof RSVP_STATUS)[keyof typeof RSVP_STATUS] => {
   if (response === RESPONSE_BUTTONS.APPROVED) return RSVP_STATUS.APPROVED;
   if (response === RESPONSE_BUTTONS.DECLINED) return RSVP_STATUS.DECLINED;
   return RSVP_STATUS.PENDING;
 };
+
+export const handleTextResponse = async (
+  msg: string,
+  phone: string,
+  userID: string,
+  eventId: number,
+  guestId: number,
+  guestName: string,
+): Promise<void> => {
+  const recipient = { phone, user_id: userID, name: guestName };
+
+  if (msg === HEBREW_MISTAKE_KEYWORD) {
+    const db = Database.getInstance();
+    await db.updateEventGuestRsvp(eventId, guestId, null);
+    await logMessage(userID, `🗑️ RSVP reset (mistake) for ${guestName} in event ${eventId}`);
+    await sendWhatsAppMessage(recipient, { freeText: messagesMap.mistake });
+    return;
+  }
+
+  const rsvpCount = parseInt(msg, 10);
+  if (!isValidRsvpCount(rsvpCount)) {
+    await sendWhatsAppMessage(recipient, { freeText: messagesMap.unknownResponse });
+    return;
+  }
+
+  const db = Database.getInstance();
+  await db.updateEventGuestRsvp(eventId, guestId, rsvpCount);
+  await logMessage(userID, `📠 RSVP updated for ${guestName} (event ${eventId}): ${rsvpCount}`);
+  const message = rsvpCount === 0 ? messagesMap.declined : messagesMap.approved;
+  await sendWhatsAppMessage(recipient, { freeText: message });
+};
+
+export const handleButtonReply = async (
+  msg: string,
+  phone: string,
+  userID: string,
+  eventId: number,
+  guestId: number,
+  guestName: string,
+): Promise<void> => {
+  const senderStatus = mapResponseToStatus(
+    msg as (typeof RESPONSE_BUTTONS)[keyof typeof RESPONSE_BUTTONS]
+  );
+  const db = Database.getInstance();
+  const recipient = { phone, user_id: userID, name: guestName };
+
+  if (senderStatus === RSVP_STATUS.DECLINED) {
+    await db.updateEventGuestRsvp(eventId, guestId, 0);
+    await logMessage(userID, `📠 RSVP declined by ${guestName} (event ${eventId})`);
+    await sendWhatsAppMessage(recipient, { freeText: messagesMap.declined });
+  } else if (senderStatus === RSVP_STATUS.APPROVED) {
+    await logMessage(userID, `📠 RSVP approved by ${guestName} (event ${eventId}), awaiting count`);
+    await sendWhatsAppMessage(recipient, { freeText: messagesMap.approveFollowUp });
+  } else if (senderStatus === RSVP_STATUS.PENDING) {
+    await sendWhatsAppMessage(recipient, { freeText: messagesMap.pending });
+  }
+};
+
 // ============================================================================
 // WhatsApp Message Building
 // ============================================================================
@@ -128,143 +115,80 @@ const createTemplateData = (to: string, params: TemplateParams) => {
     ? [{ type: "header", parameters: params.headerParams }]
     : [];
   components.push({ type: "body", parameters: params.bodyParams });
-
   return {
     messaging_product: "whatsapp",
     to,
     type: "template",
-    template: {
-      name: params.templateName,
-      language: {
-        code: LANGUAGE_CODE,
-      },
-      components,
-    },
+    template: { name: params.templateName, language: { code: LANGUAGE_CODE }, components },
   };
 };
 
-const createDataForFreeText = (to: string, freeText: string) => {
-  return {
-    messaging_product: "whatsapp",
-    to,
-    type: "text",
-    text: {
-      body: freeText,
-    },
-  };
-};
+const createDataForFreeText = (to: string, freeText: string) => ({
+  messaging_product: "whatsapp",
+  to,
+  type: "text",
+  text: { body: freeText },
+});
 
-// ============================================================================
-// Template Parameter Builders
-// ============================================================================
+type TemplateBodyParam = { type: string; parameter_name: string; text?: string };
 
-type TemplateBodyParam = {
-  type: string;
-  parameter_name: string;
-  text?: string;
-};
-
-const createTextParam = (
-  parameterName: string,
-  text: string
-): TemplateBodyParam => ({
+const createTextParam = (parameterName: string, text: string): TemplateBodyParam => ({
   type: "text",
   parameter_name: parameterName,
   text,
 });
 
-const createImageHeader = (fileID: string) => [
-  {
-    type: "image",
-    image: { id: fileID },
-  },
+const createImageHeader = (fileId: string) => [{ type: "image", image: { id: fileId } }];
+
+const createBrideGroomParams = (event: Event): TemplateBodyParam[] => [
+  createTextParam("bride_name", event.bride_name || ""),
+  createTextParam("groom_name", event.groom_name || ""),
 ];
 
-const createBrideGroomParams = (info: WeddingDetails): TemplateBodyParam[] => [
-  createTextParam("bride_name", info.bride_name),
-  createTextParam("groom_name", info.groom_name),
-];
-
-const createReminderParams = (
-  info: WeddingDetails,
-  includeGift: boolean
-): TemplateBodyParam[] => {
+const createReminderParams = (event: Event, includeGift: boolean): TemplateBodyParam[] => {
   const params = [
-    ...createBrideGroomParams(info),
-    createTextParam("time", info.hour.slice(0, 5)),
-    createTextParam("waze_link", info.waze_link),
+    ...createBrideGroomParams(event),
+    createTextParam("time", (event.time || "").slice(0, 5)),
+    createTextParam("waze_link", event.waze_link || ""),
   ];
-
-  if (includeGift) {
-    params.push(createTextParam("card_gift_link", info.gift_link));
-  }
-
+  if (includeGift) params.push(createTextParam("card_gift_link", event.gift_link || ""));
   return params;
 };
 
-const getTemplateParams = (
-  templateName: TemplateName,
-  info: WeddingDetails
-): TemplateParams => {
+export const getTemplateParams = (templateName: TemplateName, event: Event): TemplateParams => {
   switch (templateName) {
     case "wedding_rsvp_action":
       return {
         templateName: "wedding_rsvp_action",
-        headerParams: createImageHeader(info.fileID),
+        headerParams: event.file_id ? createImageHeader(event.file_id) : undefined,
         bodyParams: [
-          ...createBrideGroomParams(info),
-          createTextParam(
-            "date",
-            new Date(info.wedding_date).toLocaleDateString("he-IL")
-          ),
-          createTextParam("location", info.location_name),
-          createTextParam(
-            "additonal_details",
-            info.additional_information.length > 0
-              ? info.additional_information
-              : " "
-          ),
+          createTextParam("ceremony_type", event.ceremony_name || "חתונה"),
+          ...createBrideGroomParams(event),
+          createTextParam("date", event.date ? new Date(event.date).toLocaleDateString("he-IL") : ""),
+          createTextParam("location", event.location || ""),
+          createTextParam("additonal_details", event.additional_info || " "),
         ],
       };
     case "wedding_day_reminder":
-      return {
-        templateName: "wedding_rsvp_same_day",
-        bodyParams: createReminderParams(info, true),
-      };
+      return { templateName: "wedding_rsvp_same_day", bodyParams: createReminderParams(event, true) };
     case "day_before_wedding_reminder":
-      return {
-        templateName: "day_before_wedding_reminder",
-        bodyParams: createReminderParams(info, true),
-      };
-
+      return { templateName: "day_before_wedding_reminder", bodyParams: createReminderParams(event, true) };
     case "wedding_reminders_no_gift":
-      return {
-        templateName: "wedding_reminders_no_gift",
-        bodyParams: createReminderParams(info, false),
-      };
+      return { templateName: "wedding_reminders_no_gift", bodyParams: createReminderParams(event, false) };
     case "wedding_reminders_no_gift_same_day":
-      return {
-        templateName: "wedding_reminders_no_gift_same_day",
-        bodyParams: createReminderParams(info, false),
-      };
+      return { templateName: "wedding_reminders_no_gift_same_day", bodyParams: createReminderParams(event, false) };
     case "wedding_rsvp_reminder":
-      return {
-        templateName: "wedding_rsvp_reminder",
-        bodyParams: createBrideGroomParams(info),
-      };
+      return { templateName: "wedding_rsvp_reminder", bodyParams: [createTextParam("ceremony_name", event.ceremony_name || "חתונה"), ...createBrideGroomParams(event)] };
     case "custom_thank_you_message":
       return {
         templateName: "custom_thank_you_message",
         bodyParams: [
-          createTextParam("custom_massage", info.thank_you_message),
-          createTextParam("names", `${info.bride_name} ו${info.groom_name}`),
+          createTextParam("custom_massage", event.thank_you_message || ""),
+          createTextParam("names", `${event.bride_name || ""} ו${event.groom_name || ""}`),
         ],
       };
     case "thank_you_message":
-      return {
-        templateName: "thank_you_message",
-        bodyParams: createBrideGroomParams(info),
-      };
+      return { templateName: "thank_you_message", bodyParams: createBrideGroomParams(event) };
     default:
       throw new Error(`Template name ${templateName} not found`);
   }
@@ -276,10 +200,7 @@ const getTemplateParams = (
 
 interface SendMessageOptions {
   freeText?: string;
-  template?: {
-    name: TemplateName;
-    info?: WeddingDetails;
-  };
+  template?: { name: TemplateName; event?: Event };
 }
 
 export interface MessageResult {
@@ -289,45 +210,40 @@ export interface MessageResult {
   logMessage: string;
 }
 
-const getWhatsAppApiUrl = (endpoint: string): string => {
-  return `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${PHONE_NUMBER_ID}/${endpoint}`;
-};
+const getWhatsAppApiUrl = (endpoint: string) =>
+  `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${PHONE_NUMBER_ID}/${endpoint}`;
 
 const createAuthHeaders = (accessToken: string) => ({
   Authorization: `Bearer ${accessToken}`,
   "Content-Type": "application/json",
 });
 
+type MessageRecipient = { phone: string; user_id: string; name: string };
+
 export const sendWhatsAppMessage = async (
-  guest: Guest,
-  options: SendMessageOptions
+  recipient: MessageRecipient,
+  options: SendMessageOptions,
 ): Promise<MessageResult> => {
   try {
     const accessToken = await getAccessToken();
     const headers = createAuthHeaders(accessToken);
-
     const whatsappData = options.template
-      ? createTemplateData(
-          guest.phone,
-          getTemplateParams(options.template.name, options.template.info)
-        )
-      : createDataForFreeText(guest.phone, options.freeText);
-
+      ? createTemplateData(recipient.phone, getTemplateParams(options.template.name, options.template.event))
+      : createDataForFreeText(recipient.phone, options.freeText);
     await axios.post(getWhatsAppApiUrl("messages"), whatsappData, { headers });
-
     return {
       success: true,
-      userID: guest.userID,
-      guestName: guest.name,
-      logMessage: `✅ Message sent successfully to ${guest.name}`,
+      userID: recipient.user_id,
+      guestName: recipient.name,
+      logMessage: `✅ Message sent successfully to ${recipient.name}`,
     };
   } catch (error) {
     const errorMessage = error.response?.data?.error?.message || error.message;
     return {
       success: false,
-      userID: guest.userID,
-      guestName: guest.name,
-      logMessage: `❌ Failed to send message to ${guest.name}: ${errorMessage}`,
+      userID: recipient.user_id,
+      guestName: recipient.name,
+      logMessage: `❌ Failed to send message to ${recipient.name}: ${errorMessage}`,
     };
   }
 };
@@ -345,23 +261,13 @@ interface UploadedFile {
 export const uploadImage = async (file: UploadedFile): Promise<string> => {
   const form = new FormData();
   form.append("messaging_product", "whatsapp");
-  form.append("file", file.buffer, {
-    filename: file.originalname,
-    contentType: file.mimetype,
-  });
-
+  form.append("file", file.buffer, { filename: file.originalname, contentType: file.mimetype });
   const accessToken = await getAccessToken();
   const response = await axios.post(
     `https://graph.facebook.com/${WHATSAPP_MEDIA_API_VERSION}/${PHONE_NUMBER_ID}/media`,
     form,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        ...form.getHeaders(),
-      },
-    }
+    { headers: { Authorization: `Bearer ${accessToken}`, ...form.getHeaders() } },
   );
-
   return response.data.id;
 };
 
@@ -369,33 +275,17 @@ export const uploadImage = async (file: UploadedFile): Promise<string> => {
 // Logging
 // ============================================================================
 
-export const logMessage = async (
-  userID: string,
-  message: string
-): Promise<void> => {
+export const logMessage = async (userID: string, message: string): Promise<void> => {
   console.log(message);
   const db = Database.getInstance();
-  if (db && userID) {
-    await db.addClientLog(userID, message);
-  }
+  if (db && userID) await db.addClientLog(userID, message);
 };
 
-// Batch log multiple message results in a single DB call
-export const batchLogMessageResults = async (
-  results: MessageResult[]
-): Promise<void> => {
+export const batchLogMessageResults = async (results: MessageResult[]): Promise<void> => {
   const db = Database.getInstance();
   if (!db || results.length === 0) return;
-
   results.forEach((r) => console.log(r.logMessage));
-
-  const logs = results
-    .filter((r) => r.userID)
-    .map((r) => ({
-      userID: r.userID,
-      message: r.logMessage,
-    }));
-
+  const logs = results.filter((r) => r.userID).map((r) => ({ userID: r.userID, message: r.logMessage }));
   if (logs.length > 0) {
     try {
       await db.addClientLogsBatch(logs);

@@ -6,7 +6,7 @@ import React, {
   ReactNode,
   useCallback,
 } from "react";
-import { User, PartnerInfo, WeddingDetails } from "../types";
+import { User, PartnerInfo, Event } from "../types";
 import { jwtDecode } from "jwt-decode";
 import { googleLogout } from "@react-oauth/google";
 import { httpRequests } from "../httpClient";
@@ -15,7 +15,7 @@ import { useNavigate } from "react-router-dom";
 interface AuthContextType {
   user: User | undefined;
   partnerInfo: PartnerInfo | undefined;
-  weddingInfo: WeddingDetails | null;
+  weddingInfo: Event | null;
   isAdmin: boolean;
   isLoading: boolean;
   handleLoginSuccess: (response: any) => void;
@@ -32,7 +32,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [partnerInfo, setPartnerInfo] = useState<PartnerInfo | undefined>(
     undefined
   );
-  const [weddingInfo, setWeddingInfo] = useState<WeddingDetails | null>(null);
+  const [weddingInfo, setWeddingInfo] = useState<Event | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const navigate = useNavigate();
@@ -48,7 +48,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const fetchWeddingInfo = useCallback(async (userID: string) => {
     try {
-      const info = await httpRequests.getWeddingInfo(userID);
+      const info = await httpRequests.getPrimaryEvent(userID);
       setWeddingInfo(info);
       return info;
     } catch (error) {
@@ -90,7 +90,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 .checkAdmin(userWithoutLoginTime.userID)
                 .catch(() => false),
               httpRequests
-                .getWeddingInfo(userWithoutLoginTime.userID)
+                .getPrimaryEvent(userWithoutLoginTime.userID)
                 .catch(() => null),
             ]);
 
@@ -133,7 +133,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [partnerInfoData, adminStatus, weddingInfoData] = await Promise.all([
       httpRequests.getPartnerInfo(loggedInUser.userID),
       httpRequests.checkAdmin(loggedInUser.userID).catch(() => false),
-      httpRequests.getWeddingInfo(loggedInUser.userID).catch(() => null),
+      httpRequests.getPrimaryEvent(loggedInUser.userID).catch(() => null),
     ]);
 
     // Batch all state updates together
@@ -170,7 +170,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Fetch all data for the new user
     const [partnerInfoData, weddingInfoData] = await Promise.all([
       httpRequests.getPartnerInfo(targetUser.userID),
-      httpRequests.getWeddingInfo(targetUser.userID).catch(() => null),
+      httpRequests.getPrimaryEvent(targetUser.userID).catch(() => null),
     ]);
 
     setUser(targetUser);

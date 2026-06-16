@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Box, Button, Card, Checkbox, Text } from "@wix/design-system";
-import { Guest, SetGuestsList, User, WeddingDetails } from "../../types";
+import { Event, EventGuest, Guest, SetGuestsList, User } from "../../types";
 import { httpRequests } from "../../httpClient";
 import { Send, Loader2 } from "lucide-react";
 import { MessageType } from "./MessageGroupsModal";
@@ -13,19 +13,19 @@ interface MessageGroupsProps {
   messageType?: MessageType;
   customText?: string;
   isSending?: boolean;
-  weddingDetails: WeddingDetails;
+  weddingDetails: Event;
 }
 
-// Check if all required wedding details are filled
-const isWeddingDetailsComplete = (details: WeddingDetails): boolean => {
-  const requiredFields: (keyof WeddingDetails)[] = [
+// Check if all required event details are filled
+const isWeddingDetailsComplete = (details: Event): boolean => {
+  const requiredFields: (keyof Event)[] = [
     "bride_name",
     "groom_name",
-    "wedding_date",
-    "hour",
-    "location_name",
+    "date",
+    "time",
+    "location",
     "waze_link",
-    "fileID",
+    "file_id",
   ];
 
   return requiredFields.every((field) => {
@@ -93,50 +93,25 @@ export const MessageGroups: React.FC<MessageGroupsProps> = ({
       const groupIndex = groups.findIndex((group) =>
         group.some((g) => g.name === guest.name && g.phone === guest.phone)
       );
-      return {
-        ...guest,
-        messageGroup: groupIndex + 1, // Groups are 1-indexed
-      };
+      return { ...guest };
     });
 
     try {
-      const updatedGuestsList = await httpRequests.updateGuestsGroups(
-        userID,
-        updatedGuests,
-        guestsList
-      );
-      setGuestsList(updatedGuestsList);
+      // messageGroup concept removed — no-op
+      console.log("Auto-assign groups is deprecated", updatedGuests);
     } catch (error) {
       console.error("Error assigning groups:", error);
     }
   };
 
-  // Get guests in the selected group
-  const getGuestsInGroup = (group: number | undefined) => {
-    if (!group) return [];
-    let guests = guestsList.filter((guest) => guest.messageGroup === group);
-
-    // Filter by RSVP status for reminder messages
-    if (messageType === "rsvpReminder") {
-      guests = guests.filter(
-        (guest) => guest.RSVP === null || guest.RSVP === undefined
-      );
-    }
-
-    // Filter for confirmed guests only (wedding reminder)
-    if (messageType === "weddingReminder") {
-      guests = guests.filter((guest) => guest.RSVP && guest.RSVP > 0);
-    }
-
-    return guests;
+  // Get guests in the selected group (deprecated — groups no longer exist)
+  const getGuestsInGroup = (_group: number | undefined): Guest[] => {
+    return [];
   };
 
-  // Get all available groups
+  // Get all available groups (deprecated)
   const getAvailableGroups = () => {
-    const groups = new Set(
-      guestsList.map((guest) => guest.messageGroup).filter(Boolean)
-    );
-    return Array.from(groups).sort((a, b) => (a || 0) - (b || 0));
+    return [] as number[];
   };
 
   const availableGroups = getAvailableGroups();

@@ -1,13 +1,16 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   SidePanel,
   Box,
   RadioGroup,
   InputArea,
   Text,
+  Loader,
+  Button,
+  FormField,
+  Checkbox,
 } from "@wix/design-system";
-import { Guest, User, SetGuestsList, WeddingDetails } from "../../types";
-import { MessageGroups } from "./MessageGroups";
+import { Event, EventGuest, User } from "../../types";
 import { httpRequests } from "../../httpClient";
 import WhatsAppPreview from "./WhatsAppPreview";
 import "./css/WhatsAppMessage.css";
@@ -15,8 +18,9 @@ import "./css/WhatsAppMessage.css";
 interface MessageGroupsModalProps {
   setIsMessageGroupsModalOpen: (value: boolean) => void;
   userID: User["userID"];
-  guestsList: Guest[];
-  setGuestsList: SetGuestsList;
+  eventId: number;
+  eventGuests: EventGuest[];
+  event: Event;
 }
 
 export type MessageType =
@@ -29,25 +33,19 @@ export type MessageType =
 const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   setIsMessageGroupsModalOpen,
   userID,
-  guestsList,
-  setGuestsList,
+  eventId,
+  eventGuests,
+  event,
 }) => {
-  const [weddingDetails, setWeddingDetails] = useState<WeddingDetails>({
-    bride_name: "",
-    groom_name: "",
-    wedding_date: "2025-01-01",
-    hour: "",
-    location_name: "",
-    additional_information: "",
-    waze_link: "",
-    gift_link: "",
-    thank_you_message: "",
-    fileID: "",
-  });
-  const [imageUrl, setImageUrl] = useState("");
+  const imageUrl = event.file_id
+    ? httpRequests.getEventImageUrl(event.id)
+    : httpRequests.getPrimaryImageUrl(userID);
+
   const [messageType, setMessageType] = useState<MessageType>("rsvp");
   const [customText, setCustomText] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [selectSpecificGuests, setSelectSpecificGuests] = useState(false);
+  const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set());
   const [messageResults, setMessageResults] = useState<
     | {
         success: number;
@@ -57,19 +55,54 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     | undefined
   >(undefined);
 
-  useEffect(() => {
-    httpRequests.getWeddingInfo(userID).then((weddingInfo) => {
-      if (weddingInfo) {
-        const { imageURL, ...rest } = weddingInfo;
-        const date = weddingInfo.wedding_date;
-        setWeddingDetails({
-          ...rest,
-          wedding_date: date,
-        });
-        setImageUrl(`${imageURL}?t=${Date.now()}`);
+  const isPrimaryEvent = event.is_primary;
+
+  const toggleGuestSelection = (guestId: number) => {
+    setSelectedGuestIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(guestId)) {
+        next.delete(guestId);
+      } else {
+        next.add(guestId);
       }
+      return next;
     });
-  }, [userID]);
+  };
+
+  const handleSend = () => {
+    if (messageType === "freeText" && (!customText || customText.trim() === "")) return;
+
+    const guestIds =
+      selectSpecificGuests && selectedGuestIds.size > 0
+        ? Array.from(selectedGuestIds)
+        : undefined;
+
+    setIsSending(true);
+    httpRequests
+      .sendMessage(userID, {
+        eventId,
+        messageType,
+        guestIds,
+        customText: messageType === "freeText" ? customText : undefined,
+      })
+      .then((result) => {
+        setMessageResults({
+          success: result.success,
+          fail: result.fail,
+          failGuestsList: result.failGuestsList,
+        });
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("שליחת ההודעות נכשלה. אנא נסו שנית.");
+      })
+      .finally(() => setIsSending(false));
+  };
+
+  const isSendDisabled =
+    isSending ||
+    (messageType === "freeText" && (!customText || customText.trim() === "")) ||
+    (selectSpecificGuests && selectedGuestIds.size === 0);
 
   const renderResponseMessage = () => {
     if (messageResults) {
@@ -77,12 +110,16 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
         <Box direction="vertical" gap={2}>
           <Text>✅: {messageResults.success} הודעות נשלחו בהצלחה</Text>
           <Text>❌: {messageResults.fail} הודעות נכשלו</Text>
-          <Text>אורחים שנכשלו:</Text>
-          {messageResults.failGuestsList.map((guest) => (
-            <Text key={guest.guestName}>
-              {guest.guestName}: {guest.logMessage}
-            </Text>
-          ))}
+          {messageResults.failGuestsList.length > 0 && (
+            <>
+              <Text>אורחים שנכשלו:</Text>
+              {messageResults.failGuestsList.map((guest) => (
+                <Text key={guest.guestName}>
+                  {guest.guestName}: {guest.logMessage}
+                </Text>
+              ))}
+            </>
+          )}
         </Box>
       );
     }
@@ -95,108 +132,130 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
       onCloseButtonClick={() => setIsMessageGroupsModalOpen(false)}
       height={"auto"}
     >
-      <SidePanel.Header title="קבוצות הודעות" />
+      <SidePanel.Header title="שליחת הודעות" />
       <SidePanel.Content>
         {messageResults ? (
           renderResponseMessage()
         ) : (
-          <Box direction="vertical">
-            <Box direction="vertical" gap={3}>
-              <RadioGroup
-                value={messageType}
-                onChange={(value) => setMessageType(value as MessageType)}
-              >
-                <RadioGroup.Radio value="rsvp">
-                  <Box direction="vertical" gap={1}>
-                    <Text weight="bold">הזמנה לאישור הגעה</Text>
-                    <Text size="small" secondary>
-                      שליחת הזמנת החתונה הראשונית עם כפתורי אישור הגעה
-                    </Text>
-                  </Box>
-                </RadioGroup.Radio>
-                <RadioGroup.Radio value="rsvpReminder">
-                  <Box direction="vertical" gap={1}>
-                    <Text weight="bold">שליחה חוזרת לממתינים</Text>
-                    <Text size="small" secondary>
-                      שליחת תזכורת רק לאורחים שעדיין לא הגיבו
-                    </Text>
-                  </Box>
-                </RadioGroup.Radio>
-                {/* <RadioGroup.Radio value="freeText">
-                    <Box direction="vertical" gap={1}>
-                      <Text weight="bold">הודעת טקסט חופשי</Text>
-                      <Text size="small" secondary>
-                        שליחת הודעה מותאמת אישית לקבוצה נבחרת
-                      </Text>
-                    </Box>
-                  </RadioGroup.Radio> */}
+          <Box direction="vertical" gap={3}>
+            <RadioGroup
+              value={messageType}
+              onChange={(value) => setMessageType(value as MessageType)}
+            >
+              <RadioGroup.Radio value="rsvp">
+                <Box direction="vertical" gap={1}>
+                  <Text weight="bold">הזמנה לאישור הגעה</Text>
+                  <Text size="small" secondary>
+                    שליחת הזמנה ראשונית עם כפתורי אישור הגעה
+                  </Text>
+                </Box>
+              </RadioGroup.Radio>
+
+              <RadioGroup.Radio value="rsvpReminder">
+                <Box direction="vertical" gap={1}>
+                  <Text weight="bold">שליחה חוזרת לממתינים</Text>
+                  <Text size="small" secondary>
+                    שליחת תזכורת רק לאורחים שעדיין לא הגיבו
+                  </Text>
+                </Box>
+              </RadioGroup.Radio>
+
+              {isPrimaryEvent && (
                 <RadioGroup.Radio value="weddingReminder">
                   <Box direction="vertical" gap={1}>
                     <Text weight="bold">תזכורת לחתונה</Text>
                     <Text size="small" secondary>
                       שליחת תזכורת לאורחים שאישרו ב
-                      {weddingDetails.reminder_day === "wedding_day"
+                      {event.reminder_day === "wedding_day"
                         ? "יום החתונה"
                         : "יום לפני החתונה"}
-                      בשעה {weddingDetails.reminder_time || "10:00"}
+                      {event.reminder_time ? ` בשעה ${event.reminder_time}` : ""}
                     </Text>
                   </Box>
                 </RadioGroup.Radio>
-              </RadioGroup>
+              )}
 
-              {messageType === "freeText" && (
-                <Box direction="vertical" gap={2}>
-                  <Text weight="bold">הודעה מותאמת אישית:</Text>
-                  <InputArea
-                    placeholder="הכניסו את ההודעה שלכם כאן..."
-                    value={customText}
-                    onChange={(e) => setCustomText(e.target.value)}
-                    rows={5}
-                  />
-                  {(!customText || customText.trim() === "") && (
-                    <Text size="small" secondary skin="error">
-                      ⚠️ אנא הכניסו הודעה לפני השליחה
+              <RadioGroup.Radio value="freeText">
+                <Box direction="vertical" gap={1}>
+                  <Text weight="bold">הודעה מותאמת אישית</Text>
+                  <Text size="small" secondary>
+                    שליחת טקסט חופשי לאורחים
+                  </Text>
+                </Box>
+              </RadioGroup.Radio>
+
+              {isPrimaryEvent && (
+                <RadioGroup.Radio value="thankYou">
+                  <Box direction="vertical" gap={1}>
+                    <Text weight="bold">הודעת תודה</Text>
+                    <Text size="small" secondary>
+                      שליחת הודעת תודה לאורחים שהגיעו
+                    </Text>
+                  </Box>
+                </RadioGroup.Radio>
+              )}
+            </RadioGroup>
+
+            {messageType === "freeText" && (
+              <Box direction="vertical" gap={2}>
+                <Text weight="bold">הודעה מותאמת אישית:</Text>
+                <InputArea
+                  placeholder="הכניסו את ההודעה שלכם כאן..."
+                  value={customText}
+                  onChange={(e) => setCustomText(e.target.value)}
+                  rows={5}
+                />
+                {(!customText || customText.trim() === "") && (
+                  <Text size="small" secondary skin="error">
+                    ⚠️ אנא הכניסו הודעה לפני השליחה
+                  </Text>
+                )}
+              </Box>
+            )}
+
+            <Box direction="vertical" gap={2}>
+              <Checkbox
+                checked={selectSpecificGuests}
+                onChange={() => {
+                  setSelectSpecificGuests((v) => !v);
+                  setSelectedGuestIds(new Set());
+                }}
+              >
+                <Text>בחירת אורחים ספציפיים לשליחה</Text>
+              </Checkbox>
+
+              {selectSpecificGuests && (
+                <FormField label="בחרו אורחים">
+                  <Box direction="vertical" gap={1} style={{ maxHeight: 200, overflowY: "auto" }}>
+                    {eventGuests.map((guest) => (
+                      <Checkbox
+                        key={guest.guest_id}
+                        checked={selectedGuestIds.has(guest.guest_id)}
+                        onChange={() => toggleGuestSelection(guest.guest_id)}
+                      >
+                        {guest.name} {guest.phone ? `(${guest.phone})` : ""}
+                      </Checkbox>
+                    ))}
+                  </Box>
+                  {selectedGuestIds.size > 0 && (
+                    <Text size="small" secondary>
+                      נבחרו {selectedGuestIds.size} אורחים
                     </Text>
                   )}
-                </Box>
+                </FormField>
               )}
             </Box>
 
-            <MessageGroups
-              guestsList={guestsList}
-              setGuestsList={setGuestsList}
-              userID={userID}
-              messageType={messageType}
-              customText={customText}
-              isSending={isSending}
-              weddingDetails={weddingDetails}
-              onSendMessage={(group) => {
-                setIsSending(true);
-                httpRequests
-                  .sendMessage(userID, {
-                    messageGroup: group,
-                    messageType,
-                    customText:
-                      messageType === "freeText" ? customText : undefined,
-                  })
-                  .then((result) => {
-                    setMessageResults({
-                      success: result.success,
-                      fail: result.fail,
-                      failGuestsList: result.failGuestsList,
-                    });
-                  })
-                  .catch((error) => {
-                    console.error("Error sending messages:", error);
-                    alert("שליחת ההודעות נכשלה. אנא נסו שנית.");
-                  })
-                  .finally(() => {
-                    setIsSending(false);
-                  });
-              }}
-            />
+            <Button
+              onClick={handleSend}
+              disabled={isSendDisabled}
+              fullWidth
+            >
+              {isSending ? <Loader size="tiny" /> : "שליחת הודעות"}
+            </Button>
+
             <WhatsAppPreview
-              weddingDetails={weddingDetails}
+              event={event}
               imageUrl={imageUrl}
               isCollapsible={true}
               showAllMessages={false}

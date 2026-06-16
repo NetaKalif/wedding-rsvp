@@ -3,7 +3,7 @@ Server/node_modules/
 
 Client/build
 .wwebjs_auth/
-.env
+*.env
 
 node_modules/
 node_modules
