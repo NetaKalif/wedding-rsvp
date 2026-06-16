@@ -121,6 +121,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const handleLoginSuccess = async (response: any) => {
+    setIsLoading(true);
     const decoded: any = jwtDecode(response.credential);
     const loggedInUser = {
       name: decoded.name,
@@ -141,6 +142,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setPartnerInfo(partnerInfoData);
     setWeddingInfo(weddingInfoData);
     setIsAdmin(adminStatus);
+    setIsLoading(false);
 
     localStorage.setItem(
       "loggedInUser",
