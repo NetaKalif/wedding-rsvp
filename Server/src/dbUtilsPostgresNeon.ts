@@ -186,67 +186,6 @@ class Database {
         UNIQUE(event_id, guest_id)
       );`, []);
 
-    // ── Migrations from legacy tables ────────────────────────────────────────
-
-    // Migrate guestsList → guests if needed
-    const guestsEmpty = await this.runQuery(
-      `SELECT NOT EXISTS (SELECT 1 FROM guests LIMIT 1) as empty;`, [],
-    );
-    const legacyGuests = await this.runQuery(
-      `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name='guestsList') as exists;`, [],
-    );
-    if (guestsEmpty[0]?.empty && legacyGuests[0]?.exists) {
-      await this.runQuery(`
-        INSERT INTO guests (user_id, name, phone, whose, circle, number_of_guests)
-        SELECT "userID", name, phone, whose, circle, "numberOfGuests"
-        FROM "guestsList"
-        ON CONFLICT (user_id, phone) DO NOTHING;`, []);
-      console.log("✅ Migrated guestsList → guests");
-    }
-
-    // Migrate info → events (primary) if needed
-    const primaryExists = await this.runQuery(
-      `SELECT EXISTS (SELECT 1 FROM events WHERE is_primary=TRUE LIMIT 1) as exists;`, [],
-    );
-    const legacyInfo = await this.runQuery(
-      `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name='info') as exists;`, [],
-    );
-    if (!primaryExists[0]?.exists && legacyInfo[0]?.exists) {
-      await this.runQuery(`
-        INSERT INTO events
-          (user_id, is_primary, ceremony_name, date, time, location, additional_info, file_id,
-           bride_name, groom_name, waze_link, gift_link, thank_you_message,
-           send_reminder, reminder_day, reminder_time, send_thank_you,
-           estimated_guests, total_budget)
-        SELECT
-          "userID", TRUE, 'חתונה', wedding_date, hour::TEXT, location_name, additional_information, "fileID",
-          bride_name, groom_name, waze_link, gift_link, thank_you_message,
-          (reminder_time IS NOT NULL), reminder_day, reminder_time, FALSE,
-          COALESCE(estimated_guests,0), COALESCE(total_budget,0)
-        FROM info;`, []);
-      console.log("✅ Migrated info → events");
-
-      // Migrate guestsList RSVP + lastRsvpSentAt into event_guests for the primary event
-      await this.runQuery(`
-        INSERT INTO event_guests (event_id, guest_id, rsvp_status, last_rsvp_sent_at)
-        SELECT e.id, g.id, gl."RSVP", gl."lastRsvpSentAt"
-        FROM events e
-        JOIN guests g ON g.user_id = e.user_id
-        JOIN "guestsList" gl ON gl."userID" = g.user_id AND gl.phone = g.phone
-        WHERE e.is_primary = TRUE
-        ON CONFLICT (event_id, guest_id) DO NOTHING;`, []);
-      console.log("✅ Migrated guestsList RSVP → event_guests");
-    }
-
-    // Drop legacy tables once migration is complete and new tables have data
-    const newTablesHaveData = await this.runQuery(
-      `SELECT EXISTS (SELECT 1 FROM guests LIMIT 1) as has_guests,
-              EXISTS (SELECT 1 FROM events LIMIT 1) as has_events;`, [],
-    );
-    if (newTablesHaveData[0]?.has_guests || newTablesHaveData[0]?.has_events) {
-      await this.runQuery(`DROP TABLE IF EXISTS "guestsList" CASCADE;`, []);
-      await this.runQuery(`DROP TABLE IF EXISTS "info" CASCADE;`, []);
-    }
   }
 
   // Add or update user (Google login)
