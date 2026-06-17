@@ -1,6 +1,8 @@
 import axios from "axios";
 import dotenv from "dotenv";
-import Database from "./dbUtilsPostgresNeon";
+
+const WHATSAPP_API_BASE = process.env.WHATSAPP_API_BASE_URL ?? "https://graph.facebook.com";
+import Database from "./dbUtils";
 
 dotenv.config();
 
@@ -54,7 +56,7 @@ export const refreshAccessToken = async () => {
     const currentToken = await getAccessToken();
 
     const response = await axios.post(
-      "https://graph.facebook.com/oauth/access_token",
+      `${WHATSAPP_API_BASE}/oauth/access_token`,
       null,
       {
         params: {

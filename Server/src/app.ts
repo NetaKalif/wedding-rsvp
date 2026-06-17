@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
-import Database from "./dbUtilsPostgresNeon";
+import Database from "./dbUtils";
 import { User, Event, EventGuest, TemplateName } from "./types";
 import { Request, Response, RequestHandler } from "express-serve-static-core";
 import multer from "multer";

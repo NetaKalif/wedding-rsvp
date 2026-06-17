@@ -3,12 +3,13 @@ import axios from "axios";
 import FormData from "form-data";
 import { messagesMap } from "./messages";
 import { getAccessToken } from "./whatsappTokenManager";
-import Database from "./dbUtilsPostgresNeon";
+import Database from "./dbUtils";
 
 // Constants
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const WHATSAPP_API_VERSION = "v19.0";
 const WHATSAPP_MEDIA_API_VERSION = "v17.0";
+const WHATSAPP_API_BASE = process.env.WHATSAPP_API_BASE_URL ?? "https://graph.facebook.com";
 const LANGUAGE_CODE = "he";
 
 const HEBREW_MISTAKE_KEYWORD = "טעות";
@@ -211,7 +212,7 @@ export interface MessageResult {
 }
 
 const getWhatsAppApiUrl = (endpoint: string) =>
-  `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${PHONE_NUMBER_ID}/${endpoint}`;
+  `${WHATSAPP_API_BASE}/${WHATSAPP_API_VERSION}/${PHONE_NUMBER_ID}/${endpoint}`;
 
 const createAuthHeaders = (accessToken: string) => ({
   Authorization: `Bearer ${accessToken}`,
@@ -264,7 +265,7 @@ export const uploadImage = async (file: UploadedFile): Promise<string> => {
   form.append("file", file.buffer, { filename: file.originalname, contentType: file.mimetype });
   const accessToken = await getAccessToken();
   const response = await axios.post(
-    `https://graph.facebook.com/${WHATSAPP_MEDIA_API_VERSION}/${PHONE_NUMBER_ID}/media`,
+    `${WHATSAPP_API_BASE}/${WHATSAPP_MEDIA_API_VERSION}/${PHONE_NUMBER_ID}/media`,
     form,
     { headers: { Authorization: `Bearer ${accessToken}`, ...form.getHeaders() } },
   );

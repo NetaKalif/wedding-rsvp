@@ -37,6 +37,7 @@ const guestColumns = `id, user_id, name, phone, whose, circle, number_of_guests`
 
 class Database {
   private static instance: Database | null = null;
+  private static connectPromise: Promise<Database> | null = null;
 
   // Private constructor to prevent direct instantiation
   private constructor() { }
@@ -46,14 +47,20 @@ class Database {
     return Database.instance;
   }
 
-  // Static method to create and initialize the database instance
+  // Static method to create and initialize the database instance.
+  // Uses a shared promise so concurrent callers share one initialization
+  // instead of racing to CREATE TABLE simultaneously on a fresh database.
   static async connect(): Promise<Database> {
-    if (!Database.instance) {
-      const db = new Database();
-      await db.initializeTables();
-      Database.instance = db;
+    if (Database.instance) return Database.instance;
+    if (!Database.connectPromise) {
+      Database.connectPromise = (async () => {
+        const db = new Database();
+        await db.initializeTables();
+        Database.instance = db;
+        return db;
+      })();
     }
-    return Database.instance;
+    return Database.connectPromise;
   }
 
   private async initializeTables(): Promise<void> {
