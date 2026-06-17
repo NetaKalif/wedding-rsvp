@@ -15,6 +15,7 @@ import { TasksDashboard } from "./components/tasks/TasksDashboard";
 import { BudgetDashboard } from "./components/budgetAndVendors/BudgetDashboard";
 import WelcomePage from "./components/welcomePage/WelcomePage";
 import { useAuth, AuthProvider } from "./hooks/useAuth";
+import { AppDataProvider, useAppData } from "./hooks/useAppData";
 import { Loader } from "@wix/design-system";
 
 function ScrollToTop() {
@@ -28,9 +29,10 @@ function ScrollToTop() {
 }
 
 function AppContent() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
+  const { isDataLoading } = useAppData();
 
-  if (isLoading) {
+  if (authLoading || isDataLoading) {
     return (
       <div style={{
         display: "flex",
@@ -81,7 +83,9 @@ function App() {
   return (
     <Router>
       <AuthProvider>
-        <AppContent />
+        <AppDataProvider>
+          <AppContent />
+        </AppDataProvider>
       </AuthProvider>
     </Router>
   );

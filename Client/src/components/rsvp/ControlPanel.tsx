@@ -1,6 +1,8 @@
 import "./css/ControlPanel.css";
-import { Card, Button, Box } from "@wix/design-system";
+import { Card, Button, Box, SectionHelper } from "@wix/design-system";
 import { httpRequests } from "../../httpClient";
+import { useAuth } from "../../hooks/useAuth";
+import { useConfirm } from "../../hooks/useConfirm";
 import {
   getNumberOfGuests,
   getNumberOfGuestsDeclined,
@@ -37,6 +39,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   setIsMessageGroupsModalOpen,
   userID,
 }) => {
+  const { weddingInfo } = useAuth();
+  const { confirm, ConfirmDialog } = useConfirm();
+  const [noWeddingWarning, setNoWeddingWarning] = React.useState(false);
   const rsvpCounts = getRsvpCounts(eventGuests);
 
   return (
@@ -133,13 +138,12 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             </Button>
             <Button
               onClick={async () => {
-                const confirmed = window.confirm(
-                  "האם אתם בטוחים שברצונכם לאפס את רשימת האורחים? פעולה זו תמחק את כל האורחים"
-                );
-                if (confirmed) {
-                  const updatedGuestsList = await httpRequests.deleteAllGuests(
-                    userID
-                  );
+                const ok = await confirm({
+                  message: "לאפס את רשימת האורחים? פעולה זו תמחק את כל האורחים.",
+                  confirmText: "מחק הכל",
+                });
+                if (ok) {
+                  const updatedGuestsList = await httpRequests.deleteAllGuests(userID);
                   setEventGuests(updatedGuestsList);
                 }
               }}
@@ -149,14 +153,12 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               <span style={{ marginRight: "8px" }}>מחיקת הכל</span>
             </Button>
             <Button
-              onClick={async () => {
-                const event = await httpRequests.getPrimaryEvent(userID);
-                if (event) {
+              onClick={() => {
+                if (weddingInfo) {
+                  setNoWeddingWarning(false);
                   setIsMessageGroupsModalOpen(true);
                 } else {
-                  alert(
-                    "לא נמצאו פרטי חתונה. אנא הוסיפו פרטי חתונה לפני שליחת הודעות."
-                  );
+                  setNoWeddingWarning(true);
                 }
               }}
               priority="secondary"
@@ -168,6 +170,12 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </Card.Content>
       </Card>
+      {noWeddingWarning && (
+        <SectionHelper skin="warning">
+          לא נמצאו פרטי חתונה. אנא הוסיפו פרטי חתונה לפני שליחת הודעות.
+        </SectionHelper>
+      )}
+      {ConfirmDialog}
     </div>
   );
 };

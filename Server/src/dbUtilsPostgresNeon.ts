@@ -884,18 +884,29 @@ class Database {
     userID: string,
   ): Promise<BudgetCategoryWithSpending[]> {
     const query = `
-      SELECT 
+      WITH vendor_costs AS (
+        SELECT category_id, SUM(agreed_cost) AS agreed_cost
+        FROM vendors
+        WHERE status != 'יצרנו קשר'
+        GROUP BY category_id
+      ),
+      vendor_payments AS (
+        SELECT v.category_id, SUM(p.amount) AS actual_spending
+        FROM vendors v
+        JOIN payments p ON v.vendor_id = p.vendor_id
+        GROUP BY v.category_id
+      )
+      SELECT
         bc.category_id,
         bc.user_id,
         bc.name,
         bc.created_at,
-        COALESCE(SUM(p.amount), 0) as actual_spending,
-        COALESCE(SUM(v.agreed_cost), 0) as agreed_cost
+        COALESCE(vc.agreed_cost, 0) AS agreed_cost,
+        COALESCE(vp.actual_spending, 0) AS actual_spending
       FROM budget_categories bc
-      LEFT JOIN vendors v ON bc.category_id = v.category_id AND v.status != 'יצרנו קשר'
-      LEFT JOIN payments p ON v.vendor_id = p.vendor_id
+      LEFT JOIN vendor_costs vc ON bc.category_id = vc.category_id
+      LEFT JOIN vendor_payments vp ON bc.category_id = vp.category_id
       WHERE bc.user_id = $1
-      GROUP BY bc.category_id
       ORDER BY bc.created_at ASC;
     `;
     const results = await this.runQuery(query, [userID]);

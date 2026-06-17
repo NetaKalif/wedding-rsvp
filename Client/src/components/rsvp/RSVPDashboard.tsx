@@ -8,9 +8,8 @@ import InfoModal from "./InfoModal";
 import MessageGroupsModal from "./MessageGroupsModal";
 import EventsList from "./EventsList";
 import "@wix/design-system/styles.global.css";
-import { Event, EventGuest, Guest } from "../../types";
-import { httpRequests } from "../../httpClient";
 import { useAuth } from "../../hooks/useAuth";
+import { useAppData } from "../../hooks/useAppData";
 import { Button, Loader, Modal, Box } from "@wix/design-system";
 import { Check } from "lucide-react";
 import Header from "../global/Header";
@@ -19,14 +18,8 @@ const CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
 
 export const RSVPDashboard = () => {
   const navigate = useNavigate();
-  const { user, isLoading } = useAuth();
-
-  // Global guest list (primary list, used for add/import)
-  const [primaryGuestsList, setPrimaryGuestsList] = useState<Guest[] | undefined>(undefined);
-  // Primary event (wedding)
-  const [primaryEvent, setPrimaryEvent] = useState<Event | null>(null);
-  // EventGuests for the primary event
-  const [eventGuests, setEventGuests] = useState<EventGuest[] | undefined>(undefined);
+  const { user, isLoading, weddingInfo } = useAuth();
+  const { guests, eventGuestsByEventId, updateEventGuests, refreshGuests, refreshEventGuests } = useAppData();
 
   const [activeTab, setActiveTab] = useState<"guests" | "events">("guests");
   const [isAddGuestModalOpen, setIsAddGuestModalOpen] = useState(false);
@@ -35,27 +28,7 @@ export const RSVPDashboard = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const fetchData = async (userID: string) => {
-    const [guests, event] = await Promise.all([
-      httpRequests.getGuests(userID),
-      httpRequests.getPrimaryEvent(userID),
-    ]);
-    setPrimaryGuestsList(guests);
-    setPrimaryEvent(event);
-    if (event) {
-      const eg = await httpRequests.getEventGuests(userID, event.id);
-      setEventGuests(eg);
-    } else {
-      setEventGuests([]);
-    }
-  };
-
-  useEffect(() => {
-    if (user) {
-      fetchData(user.userID);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  const eventGuests = weddingInfo ? (eventGuestsByEventId[weddingInfo.id] ?? []) : [];
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -73,7 +46,10 @@ export const RSVPDashboard = () => {
     setIsRefreshing(true);
     setShowSuccess(false);
     try {
-      await fetchData(user.userID);
+      await Promise.all([
+        refreshGuests(),
+        weddingInfo ? refreshEventGuests(weddingInfo.id) : Promise.resolve(),
+      ]);
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 1000);
     } catch (error) {
@@ -83,7 +59,9 @@ export const RSVPDashboard = () => {
     }
   };
 
-  const isDataReady = primaryGuestsList !== undefined && eventGuests !== undefined;
+  const handleEventGuestsChange = (eg: typeof eventGuests) => {
+    if (weddingInfo) updateEventGuests(weddingInfo.id, eg);
+  };
 
   return (
     <Box direction="vertical" gap="0" align="center" style={{ width: "100%" }}>
@@ -131,85 +109,79 @@ export const RSVPDashboard = () => {
         </div>
       </div>
       <Box direction="vertical" width="100%">
-        {activeTab === "events" && primaryGuestsList && (
+        {activeTab === "events" && (
           <Box padding="20px" style={{ width: "100%", maxWidth: 800 }}>
-            <EventsList userID={user.userID} guestsList={primaryGuestsList} primaryEvent={primaryEvent} />
+            <EventsList userID={user.userID} guestsList={guests} primaryEvent={weddingInfo} />
           </Box>
         )}
 
         {activeTab === "guests" && (
-          isDataReady ? (
-            <>
-              <Box direction="horizontal" gap="20px" padding="20px">
-                <ControlPanel
-                  setIsAddGuestModalOpen={setIsAddGuestModalOpen}
-                  setEventGuests={setEventGuests}
+          <>
+            <Box direction="horizontal" gap="20px" padding="20px">
+              <ControlPanel
+                setIsAddGuestModalOpen={setIsAddGuestModalOpen}
+                setEventGuests={handleEventGuestsChange}
+                eventGuests={eventGuests}
+                setIsInfoModalOpen={setIsInfoModalOpen}
+                setIsMessageGroupsModalOpen={setIsMessageGroupsModalOpen}
+                userID={user.userID}
+              />
+            </Box>
+
+            {eventGuests.length > 0 ? (
+              weddingInfo ? (
+                <GuestList
+                  userID={user.userID}
                   eventGuests={eventGuests}
-                  setIsInfoModalOpen={setIsInfoModalOpen}
+                  eventId={weddingInfo.id}
+                  onEventGuestsChange={handleEventGuestsChange}
+                  primaryGuestsList={guests}
+                />
+              ) : null
+            ) : (
+              <Box
+                direction="vertical"
+                align="center"
+                background={"WHITE"}
+                padding="20px"
+                borderRadius="10px"
+                gap="20px"
+              >
+                <h3>אין אורחים ברשימה</h3>
+                <Button size="small" onClick={() => setIsAddGuestModalOpen(true)}>
+                  הוספת אורח
+                </Button>
+              </Box>
+            )}
+
+            <Modal isOpen={isAddGuestModalOpen}>
+              {weddingInfo && (
+                <AddGuestModal
+                  primaryGuestsList={guests}
+                  setIsAddGuestModalOpen={setIsAddGuestModalOpen}
+                  userID={user.userID}
+                  eventId={weddingInfo.id}
+                  onEventGuestsChange={handleEventGuestsChange}
+                />
+              )}
+            </Modal>
+
+            <Modal isOpen={isInfoModalOpen}>
+              <InfoModal setIsInfoModalOpen={setIsInfoModalOpen} />
+            </Modal>
+
+            <Modal isOpen={isMessageGroupsModalOpen}>
+              {weddingInfo && (
+                <MessageGroupsModal
                   setIsMessageGroupsModalOpen={setIsMessageGroupsModalOpen}
                   userID={user.userID}
+                  eventId={weddingInfo.id}
+                  eventGuests={eventGuests}
+                  event={weddingInfo}
                 />
-              </Box>
-
-              {eventGuests.length > 0 ? (
-                primaryEvent ? (
-                  <GuestList
-                    userID={user.userID}
-                    eventGuests={eventGuests}
-                    eventId={primaryEvent.id}
-                    onEventGuestsChange={setEventGuests}
-                    primaryGuestsList={primaryGuestsList}
-                  />
-                ) : null
-              ) : (
-                <Box
-                  direction="vertical"
-                  align="center"
-                  background={"WHITE"}
-                  padding="20px"
-                  borderRadius="10px"
-                  gap="20px"
-                >
-                  <h3>אין אורחים ברשימה</h3>
-                  <Button size="small" onClick={() => setIsAddGuestModalOpen(true)}>
-                    הוספת אורח
-                  </Button>
-                </Box>
               )}
-
-              <Modal isOpen={isAddGuestModalOpen}>
-                {primaryEvent && (
-                  <AddGuestModal
-                    primaryGuestsList={primaryGuestsList}
-                    setIsAddGuestModalOpen={setIsAddGuestModalOpen}
-                    userID={user.userID}
-                    eventId={primaryEvent.id}
-                    onEventGuestsChange={setEventGuests}
-                  />
-                )}
-              </Modal>
-
-              <Modal isOpen={isInfoModalOpen}>
-                <InfoModal setIsInfoModalOpen={setIsInfoModalOpen} />
-              </Modal>
-
-              <Modal isOpen={isMessageGroupsModalOpen}>
-                {primaryEvent && (
-                  <MessageGroupsModal
-                    setIsMessageGroupsModalOpen={setIsMessageGroupsModalOpen}
-                    userID={user.userID}
-                    eventId={primaryEvent.id}
-                    eventGuests={eventGuests}
-                    event={primaryEvent}
-                  />
-                )}
-              </Modal>
-
-
-            </>
-          ) : (
-            <Loader size="large" />
-          )
+            </Modal>
+          </>
         )}
 
       </Box>

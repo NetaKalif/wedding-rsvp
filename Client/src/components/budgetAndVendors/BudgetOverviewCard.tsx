@@ -10,8 +10,6 @@ import {
   Text,
 } from "@wix/design-system";
 import {
-  TrendingUp,
-  TrendingDown,
   PiggyBank,
   Users,
   Edit2,
@@ -38,6 +36,7 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
 }) => {
   const [editMode, setEditMode] = useState<EditMode>(null);
   const [editValue, setEditValue] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const totalBudget = budgetData?.total_budget || 0;
   const totalExpenses = budgetData?.total_expenses || 0;
@@ -59,12 +58,17 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
   };
 
   const handleSave = async () => {
-    if (editMode === "budget") {
-      await onUpdateBudget(editValue);
-    } else if (editMode === "guests") {
-      await onUpdateGuests(editValue);
+    setIsSubmitting(true);
+    try {
+      if (editMode === "budget") {
+        await onUpdateBudget(editValue);
+      } else if (editMode === "guests") {
+        await onUpdateGuests(editValue);
+      }
+      setEditMode(null);
+    } finally {
+      setIsSubmitting(false);
     }
-    setEditMode(null);
   };
 
   const getModalTitle = () => {
@@ -105,9 +109,9 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
               className="budget-stats-container"
               align="center"
             >
-              <div
-                className="budget-stat clickable"
-                onClick={() => openEditModal("budget")}
+              <Box
+                className="budget-stat"
+                direction="vertical"
               >
                 <Text weight="bold" size="medium" className="budget-stat-value">
                   <PiggyBank
@@ -116,18 +120,20 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
                   />
                   {formatCurrency(totalBudget)}
                   <Edit2
+                    onClick={() => openEditModal("budget")}
                     size={12}
                     style={{
                       marginRight: 4,
                       verticalAlign: "middle",
                       opacity: 0.6,
+                      cursor: 'pointer'
                     }}
                   />
                 </Text>
                 <Text size="small" secondary className="budget-stat-label">
                   תקציב כולל
                 </Text>
-              </div>
+              </Box>
               <Box
                 direction="horizontal"
                 gap="16px"
@@ -206,9 +212,9 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
                 gap="16px"
                 data-hook="guests-stats-row"
               >
-                <div
-                  className="budget-stat clickable"
-                  onClick={() => openEditModal("guests")}
+                <Box
+                  className="budget-stat"
+                  direction="vertical"
                 >
                   <Text
                     weight="bold"
@@ -221,18 +227,20 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
                     />
                     {estimatedGuests}
                     <Edit2
+                      onClick={() => openEditModal("guests")}
                       size={12}
                       style={{
                         marginRight: 4,
                         verticalAlign: "middle",
                         opacity: 0.6,
+                        cursor: 'pointer'
                       }}
                     />
                   </Text>
                   <Text size="small" secondary className="budget-stat-label">
                     אורחים משוערים
                   </Text>
-                </div>
+                </Box>
 
                 <Box
                   className="budget-stat"
@@ -262,8 +270,9 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
       >
         <CustomModalLayout
           title={getModalTitle()}
-          primaryButtonText="שמור"
+          primaryButtonText={isSubmitting ? "שומר..." : "שמור"}
           primaryButtonOnClick={handleSave}
+          primaryButtonProps={{ disabled: isSubmitting }}
           secondaryButtonText="ביטול"
           secondaryButtonOnClick={() => setEditMode(null)}
           width="400px"

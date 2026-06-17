@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
-import { Box, Button, Card, Text, Loader } from "@wix/design-system";
+import React, { useState } from "react";
+import { Box, Button, Card, Text } from "@wix/design-system";
 import { Plus } from "lucide-react";
 import { Event, EventGuest, Guest } from "../../types";
-import { httpRequests } from "../../httpClient";
+import { useAppData } from "../../hooks/useAppData";
 import CreateEventWizard from "./CreateEventWizard";
 import EventDetail from "./EventDetail";
 
@@ -13,38 +13,11 @@ interface EventsListProps {
 }
 
 const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEvent }) => {
-  const [events, setEvents] = useState<Event[] | undefined>(undefined);
-  const [eventGuestCounts, setEventGuestCounts] = useState<Record<number, { total: number; confirmed: number; pending: number; declined: number }>>({});
+  const { events, eventGuestsByEventId, setEvents, updateEventGuests, refreshEvents } = useAppData();
   const [selectedEvent, setSelectedEvent] = useState<Event | undefined>(undefined);
   const [isCreating, setIsCreating] = useState(false);
 
-  const loadEvents = async () => {
-    const data = await httpRequests.getEvents(userID);
-    // Exclude the primary (wedding) event — it lives in the wedding tab
-    const secondary = data.filter((e) => !e.is_primary);
-    setEvents(secondary);
-
-    // Load guest counts for each event
-    const counts: typeof eventGuestCounts = {};
-    await Promise.all(
-      secondary.map(async (e) => {
-        try {
-          const eg: EventGuest[] = await httpRequests.getEventGuests(userID, e.id);
-          counts[e.id] = {
-            total: eg.length,
-            confirmed: eg.filter((g) => g.rsvp_status != null && g.rsvp_status > 0).length,
-            pending: eg.filter((g) => g.rsvp_status == null).length,
-            declined: eg.filter((g) => g.rsvp_status === 0).length,
-          };
-        } catch {
-          counts[e.id] = { total: 0, confirmed: 0, pending: 0, declined: 0 };
-        }
-      })
-    );
-    setEventGuestCounts(counts);
-  };
-
-  useEffect(() => { loadEvents(); }, [userID]);
+  const secondaryEvents = events.filter((e) => !e.is_primary);
 
   if (selectedEvent) {
     return (
@@ -56,11 +29,11 @@ const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEven
         onBack={() => setSelectedEvent(undefined)}
         onEventDeleted={() => {
           setSelectedEvent(undefined);
-          loadEvents();
+          refreshEvents();
         }}
         onEventUpdated={(updated) => {
           setSelectedEvent(updated);
-          setEvents((prev) => prev?.map((e) => (e.id === updated.id ? updated : e)));
+          setEvents((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
         }}
       />
     );
@@ -77,9 +50,7 @@ const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEven
         </Button>
       </Box>
 
-      {!events ? (
-        <Loader size="medium" />
-      ) : events.length === 0 ? (
+      {secondaryEvents.length === 0 ? (
         <Box direction="vertical" align="center" background="WHITE" padding="32px" borderRadius="8px" gap={2}>
           <Text secondary>אין אירועים עדיין</Text>
           <Text size="small" secondary>
@@ -90,9 +61,15 @@ const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEven
           </Button>
         </Box>
       ) : (
-        <Box direction="vertical" gap={2} width={"100%"} >
-          {events.map((event) => {
-            const counts = eventGuestCounts[event.id];
+        <Box direction="vertical" gap={2} width={"100%"}>
+          {secondaryEvents.map((event) => {
+            const eg: EventGuest[] = eventGuestsByEventId[event.id] ?? [];
+            const counts = {
+              total: eg.length,
+              confirmed: eg.filter((g) => g.rsvp_status != null && g.rsvp_status > 0).length,
+              pending: eg.filter((g) => g.rsvp_status == null).length,
+              declined: eg.filter((g) => g.rsvp_status === 0).length,
+            };
             return (
               <div
                 key={event.id}
@@ -114,7 +91,7 @@ const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEven
                             <Text size="small" secondary>📍 {event.location}</Text>
                           )}
                         </Box>
-                        {counts && counts.total > 0 && (
+                        {counts.total > 0 && (
                           <Box direction="horizontal" gap={2}>
                             <Text size="small" secondary>{counts.total} מוזמנים</Text>
                             <Text size="small" skin="success">✅ {counts.confirmed}</Text>
@@ -122,7 +99,7 @@ const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEven
                             {counts.declined > 0 && <Text size="small" skin="error">❌ {counts.declined}</Text>}
                           </Box>
                         )}
-                        {counts && counts.total === 0 && (
+                        {counts.total === 0 && (
                           <Text size="small" secondary>אין אורחים עדיין</Text>
                         )}
                       </Box>
@@ -143,11 +120,8 @@ const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEven
           onClose={() => setIsCreating(false)}
           onCreated={(event) => {
             setIsCreating(false);
-            setEvents((prev) => [event, ...(prev || [])]);
-            setEventGuestCounts((prev) => ({
-              ...prev,
-              [event.id]: { total: 0, confirmed: 0, pending: 0, declined: 0 },
-            }));
+            setEvents((prev) => [event, ...prev]);
+            updateEventGuests(event.id, []);
             setSelectedEvent(event);
           }}
         />

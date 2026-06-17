@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Box, Button, Card, Checkbox, Input, Modal, SidePanel, Text } from "@wix/design-system";
 import { Event, EventGuest, Guest } from "../../types";
 import { httpRequests } from "../../httpClient";
+import { useAppData } from "../../hooks/useAppData";
+import { useConfirm } from "../../hooks/useConfirm";
 import { ArrowRight, Check, Clock, Download, Edit2, MessageSquare, Trash2, UserPlus, X } from "lucide-react";
 import GuestList from "./GuestList";
 import MessageGroupsModal from "./MessageGroupsModal";
@@ -28,36 +30,54 @@ const EventDetail: React.FC<EventDetailProps> = ({
   onEventDeleted,
   onEventUpdated,
 }) => {
+  const { eventGuestsByEventId, updateEventGuests } = useAppData();
+  const { confirm, ConfirmDialog } = useConfirm();
   const [event, setEvent] = useState<Event>(initialEvent);
-  const [eventGuests, setEventGuests] = useState<EventGuest[]>([]);
+  const [eventGuests, setEventGuests] = useState<EventGuest[]>(
+    () => eventGuestsByEventId[initialEvent.id] ?? []
+  );
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddFromListOpen, setIsAddFromListOpen] = useState(false);
   const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set());
   const [guestSearchQuery, setGuestSearchQuery] = useState("");
 
-  const loadGuests = async () => {
+  const syncGuests = async () => {
     const guests = await httpRequests.getEventGuests(userID, event.id);
     setEventGuests(guests);
+    updateEventGuests(event.id, guests);
   };
-
-  useEffect(() => { loadGuests(); }, [userID, event.id]);
 
   // Remove from event only (not from global guests table)
   const handleDeleteFromEvent = async (guest: EventGuest) => {
-    await httpRequests.removeEventGuests(userID, event.id, [guest.guest_id]);
-    await loadGuests();
+    const ok = await confirm({ message: `להסיר את ${guest.name} מהאירוע?`, confirmText: "הסר" });
+    if (!ok) return;
+    const updated = eventGuests.filter((g) => g.guest_id !== guest.guest_id);
+    setEventGuests(updated);
+    updateEventGuests(event.id, updated);
+    try {
+      await httpRequests.removeEventGuests(userID, event.id, [guest.guest_id]);
+    } catch (error) {
+      console.error("Error removing from event:", error);
+      await syncGuests(); // rollback
+    }
   };
 
   const handleRemoveAll = async () => {
     if (!eventGuests.length) return;
-    if (!window.confirm(`להסיר את כל ${eventGuests.length} האורחים מ"${event.ceremony_name}"?\n(הם לא יימחקו מרשימת האורחים הכללית)`)) return;
+    const ok = await confirm({
+      message: `להסיר את כל ${eventGuests.length} האורחים מ״${event.ceremony_name}״? (הם לא יימחקו מרשימת האורחים הכללית)`,
+      confirmText: "הסר הכל",
+    });
+    if (!ok) return;
     await httpRequests.removeEventGuests(userID, event.id, eventGuests.map((g) => g.guest_id));
     setEventGuests([]);
+    updateEventGuests(event.id, []);
   };
 
   const handleDeleteEvent = async () => {
-    if (!window.confirm(`האם למחוק את האירוע "${event.ceremony_name}"?`)) return;
+    const ok = await confirm({ message: `למחוק את האירוע ״${event.ceremony_name}״?` });
+    if (!ok) return;
     await httpRequests.deleteEvent(userID, event.id);
     onEventDeleted();
   };
@@ -71,9 +91,9 @@ const EventDetail: React.FC<EventDetailProps> = ({
   const handleAddFromList = async () => {
     const ids = Array.from(selectedGuestIds);
     if (!ids.length) return;
+    closeAddFromList(); // close panel immediately
     await httpRequests.setEventGuests(userID, event.id, ids);
-    await loadGuests();
-    closeAddFromList();
+    await syncGuests();
   };
 
   const toggleGuest = (id: number, checked: boolean) => {
@@ -206,7 +226,7 @@ const EventDetail: React.FC<EventDetailProps> = ({
         <MessageGroupsModal
           setIsMessageGroupsModalOpen={(open) => {
             setIsSendModalOpen(open);
-            if (!open) loadGuests();
+            if (!open) syncGuests();
           }}
           userID={userID}
           eventId={event.id}
@@ -276,6 +296,7 @@ const EventDetail: React.FC<EventDetailProps> = ({
           />
         </Modal>
       )}
+      {ConfirmDialog}
     </Box>
   );
 };

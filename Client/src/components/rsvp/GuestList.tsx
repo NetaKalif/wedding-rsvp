@@ -21,6 +21,8 @@ import {
 import { Check, ChevronDown, ChevronUp, Clock, Trash2, X } from "lucide-react";
 import { filterGuests, getRsvpStatus } from "./logic";
 import { httpRequests } from "../../httpClient";
+import { useAppData } from "../../hooks/useAppData";
+import { useConfirm } from "../../hooks/useConfirm";
 import SearchAndFilterBar from "./SearchAndFilterBar";
 import { RowDataDefaultType } from "@wix/design-system/dist/types/Table/DataTable";
 
@@ -42,15 +44,27 @@ const GuestList: React.FC<GuestListProps> = ({
   primaryGuestsList,
   onDeleteGuest: onDeleteGuestProp,
 }) => {
+  const { setGuests } = useAppData();
+  const { confirm, ConfirmDialog } = useConfirm();
+
   const onDeleteGuest = async (guest: EventGuest) => {
+    const ok = await confirm({ message: `למחוק את ${guest.name} מרשימת האורחים?`, confirmText: "מחק" });
+    if (!ok) return;
+
     if (onDeleteGuestProp) {
       await onDeleteGuestProp(guest);
       return;
     }
     if (!guest.guest_id) return;
-    await httpRequests.deleteGuest(userID, guest.guest_id);
-    const updatedEventGuests = await httpRequests.getEventGuests(userID, eventId);
-    onEventGuestsChange(updatedEventGuests);
+    // Optimistic: remove immediately
+    onEventGuestsChange(eventGuests.filter((g) => g.guest_id !== guest.guest_id));
+    try {
+      await httpRequests.deleteGuest(userID, guest.guest_id);
+      setGuests((prev) => prev.filter((g) => g.id !== guest.guest_id));
+    } catch (error) {
+      console.error("Error deleting guest:", error);
+      onEventGuestsChange(eventGuests); // rollback
+    }
   };
 
   const [sortField, setSortField] = useState<keyof EventGuest>("name");
@@ -108,14 +122,22 @@ const GuestList: React.FC<GuestListProps> = ({
   const handleRsvpSave = async () => {
     if (!rsvpModal.guest) return;
     const guestId = rsvpModal.guest.guest_id;
-    const updatedEventGuests = await httpRequests.setRSVP(
-      userID,
-      eventId,
-      guestId,
-      rsvpModal.value ?? null
-    );
-    onEventGuestsChange(updatedEventGuests);
+    const newValue = rsvpModal.value ?? null;
+
+    // Optimistic update — close modal and reflect change immediately
+    onEventGuestsChange(eventGuests.map(g =>
+      g.guest_id === guestId ? { ...g, rsvp_status: newValue } : g
+    ));
     setRsvpModal({ isOpen: false, guest: null, value: undefined });
+
+    try {
+      const updatedEventGuests = await httpRequests.setRSVP(userID, eventId, guestId, newValue);
+      onEventGuestsChange(updatedEventGuests);
+    } catch (error) {
+      console.error("Error saving RSVP:", error);
+      const fresh = await httpRequests.getEventGuests(userID, eventId);
+      onEventGuestsChange(fresh);
+    }
   };
 
   const renderRsvpStatus = (status: RsvpStatus) => {
@@ -321,6 +343,7 @@ const GuestList: React.FC<GuestListProps> = ({
           </Box>
         </Box>
       </Modal>
+      {ConfirmDialog}
     </div>
   );
 };

@@ -11,6 +11,7 @@ import {
   Button,
   Text,
   Divider,
+  SectionHelper,
 } from "@wix/design-system";
 import { Upload, FileText, X } from "lucide-react";
 import {
@@ -40,7 +41,7 @@ interface VendorModalProps {
       | "is_favorite"
     >,
     files?: File[]
-  ) => void;
+  ) => Promise<void>;
   onClose: () => void;
 }
 
@@ -64,6 +65,8 @@ const VendorModal: React.FC<VendorModalProps> = ({
     is_favorite: false,
   });
   const [newFiles, setNewFiles] = useState<File[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   useEffect(() => {
     if (vendor) {
@@ -84,23 +87,27 @@ const VendorModal: React.FC<VendorModalProps> = ({
     }
   }, [vendor, selectedCategoryId]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.name || !formData.category_id) return;
-
-    onSave(
-      {
-        name: formData.name,
-        job_title: formData.job_title || undefined,
-        category_id: formData.category_id,
-        agreed_cost: formData.agreed_cost || 0,
-        status: formData.status,
-        phone: formData.phone || undefined,
-        email: formData.email || undefined,
-        notes: formData.notes || undefined,
-        is_favorite: formData.is_favorite,
-      },
-      newFiles.length > 0 ? newFiles : undefined
-    );
+    setIsSubmitting(true);
+    try {
+      await onSave(
+        {
+          name: formData.name,
+          job_title: formData.job_title || undefined,
+          category_id: formData.category_id,
+          agreed_cost: formData.agreed_cost || 0,
+          status: formData.status,
+          phone: formData.phone || undefined,
+          email: formData.email || undefined,
+          notes: formData.notes || undefined,
+          is_favorite: formData.is_favorite,
+        },
+        newFiles.length > 0 ? newFiles : undefined
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,10 +115,10 @@ const VendorModal: React.FC<VendorModalProps> = ({
     if (!file) return;
 
     if (file.size > 100 * 1024 * 1024) {
-      alert("גודל הקובץ חייב להיות פחות מ-100MB");
+      setFileError("גודל הקובץ חייב להיות פחות מ-100MB");
       return;
     }
-
+    setFileError(null);
     setNewFiles((prev) => [...prev, file]);
 
     if (fileInputRef.current) {
@@ -169,9 +176,9 @@ const VendorModal: React.FC<VendorModalProps> = ({
   return (
     <CustomModalLayout
       title={vendor ? "עריכת ספק" : "הוספת ספק"}
-      primaryButtonText={vendor ? "שמור שינויים" : "הוסף ספק"}
+      primaryButtonText={isSubmitting ? "שומר..." : vendor ? "שמור שינויים" : "הוסף ספק"}
       primaryButtonOnClick={handleSubmit}
-      primaryButtonProps={{ disabled: !isFormValid }}
+      primaryButtonProps={{ disabled: !isFormValid || isSubmitting }}
       secondaryButtonText="ביטול"
       secondaryButtonOnClick={onClose}
       onCloseButtonClick={onClose}
@@ -329,6 +336,9 @@ const VendorModal: React.FC<VendorModalProps> = ({
                 <Text secondary size="tiny">
                   אין קבצים מצורפים
                 </Text>
+              )}
+              {fileError && (
+                <SectionHelper skin="danger">{fileError}</SectionHelper>
               )}
             </Box>
           </Box>

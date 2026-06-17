@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { Box, Button, FieldSet, Input, InputArea, Loader, SidePanel, Text } from "@wix/design-system";
 import { Event } from "../../types";
-import { httpRequests } from "../../httpClient";
 
 interface EventEditModalProps {
   event: Event;

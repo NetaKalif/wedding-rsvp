@@ -108,122 +108,129 @@ export const requiredFields: (keyof typeof formFieldsData)[] = Object.keys(
   (field) => formFieldsData[field as keyof typeof formFieldsData].mandatory
 ) as (keyof typeof formFieldsData)[];
 
+export type RejectedGuest = {
+  guest: Guest;
+  reason: "invalid_phone" | "duplicate_phone" | "missing_field";
+  reasonHe: string;
+};
+
 export const validateGuestsInfo = (
   importedGuestsList: Guest[],
   currentGuestsList: Guest[]
-) => {
-  const badPhoneNumbers: { name: string; phone: string }[] = [];
-  const duplicatedPhoneNumbers: { name: string; phone: string }[] = [];
-  const guestsWithMissingData: { name: string; missingField: string }[] = [];
-  const uniquePhones = new Set(currentGuestsList.map((guest) => guest.phone));
-  const goodGuests = importedGuestsList.filter((row) => {
-    const isGuestRequiredFieldsAreNotFull = requiredFields.some((field) => {
-      if (!row[field] || row[field] === "") {
-        guestsWithMissingData.push({ name: row.name, missingField: field });
-        return true;
-      }
-      return false;
-    });
-    if (isGuestRequiredFieldsAreNotFull) {
+): { valid: Guest[]; rejected: RejectedGuest[] } => {
+  const rejected: RejectedGuest[] = [];
+  const uniquePhones = new Set(currentGuestsList.map((g) => g.phone));
+
+  const valid = importedGuestsList.filter((row) => {
+    const missingField = requiredFields.find((f) => !row[f] || row[f] === "");
+    if (missingField) {
+      rejected.push({ guest: row, reason: "missing_field", reasonHe: `שדה חסר: ${missingField}` });
       return false;
     }
     const formattedPhone = validatePhoneNumber(row.phone);
     if (!formattedPhone) {
-      badPhoneNumbers.push({ name: row.name, phone: row.phone });
+      rejected.push({ guest: row, reason: "invalid_phone", reasonHe: "מספר טלפון לא תקין" });
       return false;
-    } else {
-      row.phone = formattedPhone;
-      if (uniquePhones.has(row.phone)) {
-        duplicatedPhoneNumbers.push({ name: row.name, phone: row.phone });
-        return false;
-      } else {
-        uniquePhones.add(row.phone);
-      }
-
-      return true;
     }
+    row.phone = formattedPhone;
+    if (uniquePhones.has(row.phone)) {
+      rejected.push({ guest: row, reason: "duplicate_phone", reasonHe: "מספר טלפון כבר קיים" });
+      return false;
+    }
+    uniquePhones.add(row.phone);
+    return true;
   });
-  if (badPhoneNumbers.length) {
-    alert(
-      "Some phone numbers are invalid. This numbers will not be added now.\n You can add them manually later: \n" +
-        badPhoneNumbers
-          .map((row) => row.name + " phone number: " + row.phone)
-          .join("\n")
-    );
-  }
-  if (duplicatedPhoneNumbers.length) {
-    alert(
-      "Some phone numbers are duplicated. This numbers will not be added now.\n You can add them manually later: \n" +
-        duplicatedPhoneNumbers
-          .map((row) => row.name + " phone number: " + row.phone)
-          .join("\n")
-    );
-  }
-  if (guestsWithMissingData.length) {
-    alert(
-      "Some guests are missing required fields. This guests will not be added now.\n You can add them manually later: \n" +
-        guestsWithMissingData
-          .map((row) => row.name + "  missing field: " + row.missingField)
-          .join("\n")
-    );
-  }
-  return goodGuests;
+
+  return { valid, rejected };
+};
+
+export const downloadRejectedGuests = async (rejected: RejectedGuest[]) => {
+  const workbook = new Workbook();
+  const worksheet = workbook.addWorksheet("אורחים שלא נוספו");
+  worksheet.columns = [
+    { header: "שם", key: "name", width: 20 },
+    { header: "טלפון", key: "phone", width: 16 },
+    { header: "מוזמן ע״י", key: "whose", width: 14 },
+    { header: "מעגל", key: "circle", width: 18 },
+    { header: "מספר אורחים", key: "number_of_guests", width: 14 },
+    { header: "סיבה", key: "reason", width: 28 },
+  ];
+  rejected.forEach(({ guest, reasonHe }) => {
+    worksheet.addRow({
+      name: guest.name ?? "",
+      phone: guest.phone ?? "",
+      whose: (guest as any).whose ?? "",
+      circle: (guest as any).circle ?? "",
+      number_of_guests: (guest as any).number_of_guests ?? "",
+      reason: reasonHe,
+    });
+  });
+  await downloadXlsx(workbook, "rejected_guests.xlsx");
 };
 export const handleImport = (
   userID: User["userID"],
   file: File,
   guestsList: Guest[],
   setGuestsList: SetGuestsList
-) => {
-  const reader = new FileReader();
+): Promise<{ rejected: RejectedGuest[]; addedCount: number; fileError?: string }> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
 
-  reader.onload = async (event) => {
-    if (!event.target?.result) return;
+    reader.onload = async (event) => {
+      try {
+        if (!event.target?.result) { resolve({ rejected: [], addedCount: 0 }); return; }
 
-    const workbook = new Workbook();
-    await workbook.xlsx.load(event.target.result as Buffer);
-    const worksheet = workbook.worksheets[0];
+        const workbook = new Workbook();
+        await workbook.xlsx.load(event.target.result as Buffer);
+        const worksheet = workbook.worksheets[0];
 
-    const headers: Record<number, string> = {};
-    worksheet.getRow(1).eachCell((cell, colNumber) => {
-      headers[colNumber] = String(cell.value);
-    });
+        const headers: Record<number, string> = {};
+        worksheet.getRow(1).eachCell((cell, colNumber) => {
+          headers[colNumber] = String(cell.value);
+        });
 
-    const rawJSON: Guest[] = [];
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return;
-      const guest: Record<string, unknown> = {};
-      Object.entries(headers).forEach(([colStr, header]) => {
-        const cell = row.getCell(Number(colStr));
-        guest[header] = cell.value ?? null;
-      });
-      rawJSON.push(guest as unknown as Guest);
-    });
+        const rawJSON: Guest[] = [];
+        worksheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return;
+          const guest: Record<string, unknown> = {};
+          Object.entries(headers).forEach(([colStr, header]) => {
+            const cell = row.getCell(Number(colStr));
+            guest[header] = cell.value ?? null;
+          });
+          rawJSON.push(guest as unknown as Guest);
+        });
 
-    const json = rawJSON.filter((row) =>
-      Object.values(row).some((value) => value !== null && value !== "")
-    );
+        const json = rawJSON.filter((row) =>
+          Object.values(row).some((value) => value !== null && value !== "")
+        );
 
-    const missingColumns = requiredFields.filter(
-      (field) => !Object.keys(json[0]).includes(field)
-    );
+        const missingColumns = requiredFields.filter(
+          (field) => !Object.keys(json[0] ?? {}).includes(field)
+        );
 
-    if (!json.length || requiredFields.some((field) => !(field in json[0]))) {
-      alert(
-        "Defected file. the columns: " +
-          missingColumns.join(", ") +
-          " are missing. Make sure the table has all required columns: " +
-          requiredFields.join(", ")
-      );
-      return;
-    }
-    const goodGuests = validateGuestsInfo(json, guestsList);
-    if (goodGuests.length === 0) return;
-    const updatedGuestsList = await httpRequests.addGuests(userID, goodGuests);
-    setGuestsList(updatedGuestsList);
-  };
+        if (!json.length || requiredFields.some((field) => !(field in (json[0] ?? {})))) {
+          resolve({
+            rejected: [],
+            addedCount: 0,
+            fileError: `הקובץ פגום — העמודות הבאות חסרות: ${missingColumns.join(", ")}. יש לוודא שהקובץ מכיל את כל העמודות הנדרשות: ${requiredFields.join(", ")}`,
+          });
+          return;
+        }
 
-  reader.readAsArrayBuffer(file);
+        const { valid, rejected } = validateGuestsInfo(json, guestsList);
+        if (valid.length > 0) {
+          const updatedGuestsList = await httpRequests.addGuests(userID, valid);
+          await setGuestsList(updatedGuestsList);
+        }
+        resolve({ rejected, addedCount: valid.length });
+      } catch (err) {
+        reject(err);
+      }
+    };
+
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsArrayBuffer(file);
+  });
 };
 
 export const getUniqueValues = <T extends keyof Guest>(

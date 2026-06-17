@@ -13,7 +13,7 @@ interface PaymentModalProps {
     amount: number;
     payment_date: string;
     notes?: string;
-  }) => void;
+  }) => Promise<void>;
   onClose: () => void;
 }
 
@@ -23,15 +23,20 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onSave, onClose }) => {
     payment_date: new Date(),
     notes: "",
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.amount || !formData.payment_date) return;
-
-    onSave({
-      amount: formData.amount,
-      payment_date: formData.payment_date.toISOString().split("T")[0],
-      notes: formData.notes || undefined,
-    });
+    setIsSubmitting(true);
+    try {
+      await onSave({
+        amount: formData.amount,
+        payment_date: formData.payment_date.toISOString().split("T")[0],
+        notes: formData.notes || undefined,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const isFormValid = formData.amount > 0 && formData.payment_date;
@@ -39,9 +44,9 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onSave, onClose }) => {
   return (
     <CustomModalLayout
       title="הוספת תשלום"
-      primaryButtonText="הוסף תשלום"
+      primaryButtonText={isSubmitting ? "שומר..." : "הוסף תשלום"}
       primaryButtonOnClick={handleSubmit}
-      primaryButtonProps={{ disabled: !isFormValid }}
+      primaryButtonProps={{ disabled: !isFormValid || isSubmitting }}
       secondaryButtonText="ביטול"
       secondaryButtonOnClick={onClose}
       onCloseButtonClick={onClose}

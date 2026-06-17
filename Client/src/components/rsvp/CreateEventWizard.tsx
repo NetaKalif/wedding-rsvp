@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import {
   Box,
   Button,
-  Checkbox,
   FieldSet,
   Input,
   InputArea,
@@ -12,7 +11,7 @@ import {
 } from "@wix/design-system";
 import { Guest, Event } from "../../types";
 import { httpRequests } from "../../httpClient";
-import { getCirclesValues, getUniqueValues } from "./logic";
+import { getUniqueValues } from "./logic";
 import { FilterOptions } from "../../types";
 
 interface CreateEventWizardProps {
@@ -47,7 +46,7 @@ const CreateEventWizard: React.FC<CreateEventWizardProps> = ({
   });
 
   const invitedByOptions = getUniqueValues(guestsList, "whose");
-  const circleOptions = getCirclesValues(guestsList);
+  const allCircleOptions = getUniqueValues(guestsList, "circle");
   const filteredGuests = guestsList.filter((guest) => {
     const matchesWhose = filterOptions.whose.length === 0 || filterOptions.whose.includes(guest.whose);
     const matchesCircle = filterOptions.circle.length === 0 || filterOptions.circle.includes(guest.circle);
@@ -163,88 +162,167 @@ const CreateEventWizard: React.FC<CreateEventWizardProps> = ({
     </Box>
   );
 
+  const activeFilterCount = filterOptions.whose.length + filterOptions.circle.length;
+  const clearFilters = () => setFilterOptions({ whose: [], circle: [], rsvpStatus: [], searchTerm: "" });
+
+  const renderFilterPill = (
+    label: string,
+    isActive: boolean,
+    onClick: () => void
+  ) => (
+    <button
+      key={label}
+      onClick={onClick}
+      style={{
+        padding: "4px 12px",
+        borderRadius: 20,
+        border: `1.5px solid ${isActive ? "#3b6ef6" : "#d9d9d9"}`,
+        background: isActive ? "#eef2ff" : "#fafafa",
+        color: isActive ? "#3b6ef6" : "#555",
+        fontWeight: isActive ? 600 : 400,
+        fontSize: 13,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+        transition: "all 0.15s",
+      }}
+    >
+      {label}
+    </button>
+  );
+
   const renderStep2 = () => (
     <Box direction="vertical" gap={3}>
-      <Text size="medium" weight="bold">
-        בחירת אורחים לאירוע — {form.ceremony_name}
-      </Text>
-      <Text size="small" secondary>
-        {selectedGuestIds.size} אורחים נבחרו
-      </Text>
+      {/* Header */}
+      <Box direction="vertical" gap="3px">
+        <Text size="medium" weight="bold">
+          בחירת אורחים — {form.ceremony_name}
+        </Text>
+        <Text size="small" secondary>
+          בחר את האורחים שיוזמנו לאירוע זה
+        </Text>
+      </Box>
+
+      {/* Search */}
+      <Input
+        placeholder="חיפוש לפי שם או טלפון..."
+        value={filterOptions.searchTerm}
+        onChange={(e) => setFilterOptions((f) => ({ ...f, searchTerm: e.target.value }))}
+      />
 
       {/* Filters */}
-      <Box direction="horizontal" gap={2} style={{ flexWrap: "wrap", display: "flex" }}>
-        <Input
-          placeholder="חיפוש..."
-          value={filterOptions.searchTerm}
-          onChange={(e) => setFilterOptions((f) => ({ ...f, searchTerm: e.target.value }))}
-          size="small"
-        />
+      {(invitedByOptions.length > 0 || allCircleOptions.length > 0) && (
+        <Box direction="vertical" gap={2} style={{ background: "#f8f8f8", borderRadius: 8, padding: "12px 14px" }}>
+          {invitedByOptions.length > 0 && (
+            <Box direction="vertical" gap={1}>
+              <Text size="tiny" secondary weight="bold">לפי צד</Text>
+              <Box direction="horizontal" gap={1} style={{ flexWrap: "wrap" }}>
+                {invitedByOptions.map((whose) =>
+                  renderFilterPill(whose, filterOptions.whose.includes(whose), () =>
+                    setFilterOptions((f) => ({
+                      ...f,
+                      whose: f.whose.includes(whose)
+                        ? f.whose.filter((w) => w !== whose)
+                        : [...f.whose, whose],
+                    }))
+                  )
+                )}
+              </Box>
+            </Box>
+          )}
 
-        <FieldSet legend="צד">
-          <Box direction="horizontal" gap={1} style={{ flexWrap: "wrap", display: "flex" }}>
-            {invitedByOptions.map((whose) => (
-              <Checkbox
-                key={whose}
-                checked={filterOptions.whose.includes(whose)}
-                onChange={() =>
-                  setFilterOptions((f) => ({
-                    ...f,
-                    whose: f.whose.includes(whose)
-                      ? f.whose.filter((w) => w !== whose)
-                      : [...f.whose, whose],
-                  }))
-                }
-              >
-                {whose}
-              </Checkbox>
-            ))}
-          </Box>
-        </FieldSet>
-
-        {Object.entries(circleOptions).map(([whose, circles]) => (
-          <FieldSet key={whose} legend={`קשרים — ${whose}`}>
-            <Box direction="horizontal" gap={1} style={{ flexWrap: "wrap", display: "flex" }}>
-              {(circles as string[]).map((circle) => (
-                <Checkbox
-                  key={circle}
-                  checked={filterOptions.circle.includes(circle)}
-                  onChange={() =>
+          {allCircleOptions.length > 0 && (
+            <Box direction="vertical" gap={1}>
+              <Text size="tiny" secondary weight="bold">לפי קשר</Text>
+              <Box direction="horizontal" gap={1} style={{ flexWrap: "wrap" }}>
+                {allCircleOptions.map((circle) =>
+                  renderFilterPill(circle, filterOptions.circle.includes(circle), () =>
                     setFilterOptions((f) => ({
                       ...f,
                       circle: f.circle.includes(circle)
                         ? f.circle.filter((c) => c !== circle)
                         : [...f.circle, circle],
                     }))
-                  }
-                >
-                  {circle}
-                </Checkbox>
-              ))}
+                  )
+                )}
+              </Box>
             </Box>
-          </FieldSet>
-        ))}
+          )}
+
+          {activeFilterCount > 0 && (
+            <button
+              onClick={clearFilters}
+              style={{ background: "none", border: "none", color: "#888", fontSize: 12, cursor: "pointer", textAlign: "right", padding: 0 }}
+            >
+              נקה סינון ({activeFilterCount})
+            </button>
+          )}
+        </Box>
+      )}
+
+      {/* Summary row */}
+      <Box direction="horizontal" style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <Text size="small" secondary>
+          {filteredGuests.length} אורחים מוצגים
+          {selectedGuestIds.size > 0 && ` · ${selectedGuestIds.size} נבחרו`}
+        </Text>
+        <button
+          onClick={toggleAll}
+          style={{
+            background: "none",
+            border: "none",
+            color: "#3b6ef6",
+            fontSize: 13,
+            cursor: "pointer",
+            fontWeight: 600,
+            padding: 0,
+          }}
+        >
+          {allFilteredSelected ? "בטל בחירת כולם" : "בחר כולם"}
+        </button>
       </Box>
 
-      {/* Select all toggle */}
-      <Checkbox checked={allFilteredSelected} onChange={toggleAll}>
-        {allFilteredSelected ? "בטל בחירת כולם" : "בחר כולם"} ({filteredGuests.length} מסוננים)
-      </Checkbox>
-
       {/* Guest list */}
-      <Box direction="vertical" gap={1} style={{ maxHeight: 300, overflowY: "auto" }}>
-        {filteredGuests.map((guest) => (
-          <Checkbox
-            key={guest.phone}
-            checked={guest.id != null && selectedGuestIds.has(guest.id)}
-            onChange={() => guest.id != null && toggleGuest(guest.id)}
-          >
-            <Box direction="horizontal" gap={1}>
-              <Text>{guest.name}</Text>
-              <Text size="small" secondary>({guest.whose} · {guest.circle})</Text>
-            </Box>
-          </Checkbox>
-        ))}
+      <Box
+        direction="vertical"
+        gap={0}
+        style={{ maxHeight: 260, overflowY: "auto", border: "1px solid #e8e8e8", borderRadius: 8 }}
+      >
+        {filteredGuests.length === 0 ? (
+          <Box style={{ padding: "20px", textAlign: "center" }}>
+            <Text size="small" secondary>לא נמצאו אורחים</Text>
+          </Box>
+        ) : (
+          filteredGuests.map((guest, idx) => {
+            const isChecked = guest.id != null && selectedGuestIds.has(guest.id);
+            return (
+              <div
+                key={guest.phone}
+                onClick={() => guest.id != null && toggleGuest(guest.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "9px 14px",
+                  cursor: "pointer",
+                  background: isChecked ? "#f0f4ff" : "white",
+                  borderTop: idx > 0 ? "1px solid #f0f0f0" : "none",
+                  transition: "background 0.1s",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => {}}
+                  style={{ accentColor: "#3b6ef6", width: 15, height: 15, cursor: "pointer", flexShrink: 0 }}
+                />
+                <span style={{ flex: 1, fontSize: 14, color: "#222" }}>{guest.name}</span>
+                <span style={{ fontSize: 12, color: "#aaa", direction: "rtl" }}>
+                  {guest.whose} · {guest.circle}
+                </span>
+              </div>
+            );
+          })
+        )}
       </Box>
 
       <Box direction="horizontal" gap={2} align="right">

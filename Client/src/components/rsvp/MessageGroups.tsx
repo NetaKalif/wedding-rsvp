@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { Box, Button, Card, Checkbox, Text } from "@wix/design-system";
-import { Event, EventGuest, Guest, SetGuestsList, User } from "../../types";
-import { httpRequests } from "../../httpClient";
+import { Event, Guest, SetGuestsList, User } from "../../types";
 import { Send, Loader2 } from "lucide-react";
 import { MessageType } from "./MessageGroupsModal";
 
@@ -88,13 +87,7 @@ export const MessageGroups: React.FC<MessageGroupsProps> = ({
     }
 
     // Create final guest list with assigned groups
-    const updatedGuests = guestsList.map((guest) => {
-      // Find which group contains this guest
-      const groupIndex = groups.findIndex((group) =>
-        group.some((g) => g.name === guest.name && g.phone === guest.phone)
-      );
-      return { ...guest };
-    });
+    const updatedGuests = guestsList.map((guest) => ({ ...guest }));
 
     try {
       // messageGroup concept removed — no-op

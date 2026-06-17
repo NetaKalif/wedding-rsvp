@@ -4,7 +4,7 @@ import { BudgetCategoryName } from "../../types";
 
 interface AddCategoryModalProps {
   existingCategories: BudgetCategoryName[];
-  onSave: (name: BudgetCategoryName) => void;
+  onSave: (name: BudgetCategoryName) => Promise<void>;
   onClose: () => void;
 }
 
@@ -29,22 +29,28 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 }) => {
   const [selectedCategory, setSelectedCategory] =
     useState<BudgetCategoryName | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const availableCategories = ALL_CATEGORIES.filter(
     (cat) => !existingCategories.includes(cat)
   );
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedCategory) return;
-    onSave(selectedCategory);
+    setIsSubmitting(true);
+    try {
+      await onSave(selectedCategory);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <CustomModalLayout
       title="הוספת קטגוריה"
-      primaryButtonText="הוסף קטגוריה"
+      primaryButtonText={isSubmitting ? "שומר..." : "הוסף קטגוריה"}
       primaryButtonOnClick={handleSubmit}
-      primaryButtonProps={{ disabled: !selectedCategory }}
+      primaryButtonProps={{ disabled: !selectedCategory || isSubmitting }}
       secondaryButtonText="ביטול"
       secondaryButtonOnClick={onClose}
       onCloseButtonClick={onClose}

@@ -13,23 +13,23 @@
     "@wix/design-system": "^1.177.0",
     "@wix/wix-ui-icons-common": "^3.66.0",
     "emoji-picker-react": "^4.12.2",
+    "exceljs": "^4.4.0",
+    "jwt-decode": "^4.0.0",
     "lucide-react": "^0.462.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.6.0",
     "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4",
-    "exceljs": "^4.4.0",
-    "jwt-decode": "^4.0.0"
+    "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "start-tmp": "REACT_APP_STATUS=prod react-scripts start",
-    "start:local": "newsh 'cd ../WeddingRSVP && node app.js' --split && REACT_APP_STATUS=dev react-scripts start",
+    "start": "craco start",
+    "start-tmp": "REACT_APP_STATUS=prod craco start",
+    "start:local": "newsh 'cd ../WeddingRSVP && node app.js' --split && REACT_APP_STATUS=dev craco start",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build",
-    "build": "CI=false react-scripts build",
-    "test": "react-scripts test",
+    "build": "CI=false craco build",
+    "test": "craco test",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
@@ -52,6 +52,7 @@
   },
   "overrides": {},
   "devDependencies": {
+    "@craco/craco": "^7.1.0",
     "@types/lodash": "^4.17.16",
     "gh-pages": "^6.3.0",
     "newsh": "^0.7.4"

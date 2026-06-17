@@ -18,6 +18,7 @@ import {
   Loader,
   Image,
   RadioGroup,
+  SectionHelper,
 } from "@wix/design-system";
 import { Event } from "../../types";
 import { UploadExport } from "@wix/wix-ui-icons-common";
@@ -56,6 +57,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
   });
   const [imageUrl, setImageUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Initialize form with data from context
   useEffect(() => {
@@ -103,20 +105,19 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
       !eventDetails.waze_link ||
       (!file && !imageUrl)
     ) {
-      alert("אנא מלאו את כל השדות הנדרשים והעלו תמונת הזמנה");
+      setFormError("אנא מלאו את כל השדות הנדרשים והעלו תמונת הזמנה");
       return;
     }
 
+    setFormError(null);
     try {
       setIsSubmitting(true);
-      // Save wedding information and upload image
       await httpRequests.saveEventInfo(user.userID, eventDetails, file);
-      // Refresh wedding info in context
       await refreshWeddingInfo();
       setIsInfoModalOpen(false);
     } catch (error) {
       console.error("Error saving wedding information:", error);
-      alert("אירעה שגיאה. אנא נסו שנית.");
+      setFormError("אירעה שגיאה. אנא נסו שנית.");
     } finally {
       setIsSubmitting(false);
     }
@@ -447,6 +448,11 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
               ביטול
             </Button>
           </Box>
+          {formError && (
+            <Box paddingTop="8px">
+              <SectionHelper skin="danger">{formError}</SectionHelper>
+            </Box>
+          )}
         </Box>
       </SidePanel.Content>
     </SidePanel>

@@ -1,10 +1,12 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Box, Heading, Text, Loader } from "@wix/design-system";
+import { Box, Heading, Text } from "@wix/design-system";
 import "@wix/design-system/styles.global.css";
 import { Task, TimelineGroup, TaskPriority, TaskAssignee } from "../../types";
 import { httpRequests } from "../../httpClient";
 import { useAuth } from "../../hooks/useAuth";
+import { useAppData } from "../../hooks/useAppData";
+import { useConfirm } from "../../hooks/useConfirm";
 import Header from "../global/Header";
 import TaskProgressCard from "./TaskProgressCard";
 import TaskGroup from "./TaskGroup";
@@ -17,65 +19,39 @@ interface GroupedTasks {
 }
 
 export const TasksDashboard: React.FC = () => {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, weddingInfo } = useAuth();
+  const { tasks, setTasks } = useAppData();
+  const { confirm, ConfirmDialog } = useConfirm();
   const navigate = useNavigate();
 
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     new Set(TIMELINE_GROUPS)
   );
   const [showAddTask, setShowAddTask] = useState(false);
   const [hideCompleted, setHideCompleted] = useState(false);
-  const [brideAndGroomNames, setBrideAndGroomNames] = useState<{
-    bride_name: string;
-    groom_name: string;
-  }>({
-    bride_name: "",
-    groom_name: "",
-  });
 
-  const fetchData = useCallback(async () => {
-    if (!user) return;
-    try {
-      setIsLoading(true);
-      const weddingInfoPromise = httpRequests.getPrimaryEvent(user.userID);
-      const tasksPromise = httpRequests.getTasks(user.userID);
-      const [weddingInfo, fetchedTasks] = await Promise.all([
-        weddingInfoPromise,
-        tasksPromise,
-      ]);
-      setBrideAndGroomNames({
-        bride_name: weddingInfo?.bride_name || "",
-        groom_name: weddingInfo?.groom_name || "",
-      });
-      setTasks(fetchedTasks);
-    } catch (error) {
-      console.error("Error fetching tasks:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user]);
+  const brideAndGroomNames = {
+    bride_name: weddingInfo?.bride_name || "",
+    groom_name: weddingInfo?.groom_name || "",
+  };
 
   useEffect(() => {
-    if (user && !authLoading) {
-      fetchData();
+    if (!authLoading && !user) {
+      navigate("/");
     }
-  }, [user, authLoading, fetchData]);
+  }, [user, authLoading, navigate]);
+
+  if (authLoading || !user) return null;
 
   const handleToggleComplete = async (task: Task) => {
-    if (!user) return;
+    // Optimistic update
+    setTasks(prev => prev.map(t => t.task_id === task.task_id ? { ...t, is_completed: !t.is_completed } : t));
     try {
-      const updatedTask = await httpRequests.updateTaskCompletion(
-        user.userID,
-        task.task_id,
-        !task.is_completed
-      );
-      setTasks((prev) =>
-        prev.map((t) => (t.task_id === task.task_id ? updatedTask : t))
-      );
+      const updatedTask = await httpRequests.updateTaskCompletion(user.userID, task.task_id, !task.is_completed);
+      setTasks(prev => prev.map(t => t.task_id === task.task_id ? updatedTask : t));
     } catch (error) {
       console.error("Error updating task:", error);
+      setTasks(prev => prev.map(t => t.task_id === task.task_id ? task : t));
     }
   };
 
@@ -85,7 +61,6 @@ export const TasksDashboard: React.FC = () => {
     priority: TaskPriority;
     assignee: TaskAssignee;
   }) => {
-    if (!user) return;
     try {
       const createdTask = await httpRequests.addTask(user.userID, newTask);
       setTasks((prev) => [...prev, createdTask]);
@@ -95,7 +70,9 @@ export const TasksDashboard: React.FC = () => {
   };
 
   const handleDeleteTask = async (taskId: number) => {
-    if (!user) return;
+    const task = tasks.find((t) => t.task_id === taskId);
+    const ok = await confirm({ message: `למחוק את המשימה ״${task?.title ?? ""}״?` });
+    if (!ok) return;
     try {
       await httpRequests.deleteTask(user.userID, taskId);
       setTasks((prev) => prev.filter((t) => t.task_id !== taskId));
@@ -106,17 +83,10 @@ export const TasksDashboard: React.FC = () => {
 
   const handleEditTask = async (
     taskId: number,
-    updates: Partial<
-      Pick<Task, "title" | "priority" | "assignee" | "timeline_group">
-    >
+    updates: Partial<Pick<Task, "title" | "priority" | "assignee" | "timeline_group">>
   ) => {
-    if (!user) return;
     try {
-      const updatedTask = await httpRequests.updateTask(
-        user.userID,
-        taskId,
-        updates
-      );
+      const updatedTask = await httpRequests.updateTask(user.userID, taskId, updates);
       setTasks((prev) =>
         prev.map((t) => (t.task_id === taskId ? updatedTask : t))
       );
@@ -129,11 +99,8 @@ export const TasksDashboard: React.FC = () => {
   const toggleGroup = (group: string) => {
     setExpandedGroups((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(group)) {
-        newSet.delete(group);
-      } else {
-        newSet.add(group);
-      }
+      if (newSet.has(group)) newSet.delete(group);
+      else newSet.add(group);
       return newSet;
     });
   };
@@ -141,48 +108,19 @@ export const TasksDashboard: React.FC = () => {
   const allExpanded = expandedGroups.size === TIMELINE_GROUPS.length;
 
   const toggleAllGroups = () => {
-    if (allExpanded) {
-      setExpandedGroups(new Set());
-    } else {
-      setExpandedGroups(new Set(TIMELINE_GROUPS));
-    }
+    if (allExpanded) setExpandedGroups(new Set());
+    else setExpandedGroups(new Set(TIMELINE_GROUPS));
   };
 
-  // Group tasks by timeline
   const groupedTasks: GroupedTasks = tasks.reduce((acc, task) => {
     const group = task.timeline_group;
-    if (!acc[group]) {
-      acc[group] = [];
-    }
+    if (!acc[group]) acc[group] = [];
     acc[group].push(task);
     return acc;
   }, {} as GroupedTasks);
 
   const completedCount = tasks.filter((t) => t.is_completed).length;
   const totalCount = tasks.length;
-
-  // Loading state
-  if (authLoading || isLoading) {
-    return (
-      <div className="tasks-dashboard">
-        <Header />
-        <Box
-          direction="vertical"
-          align="center"
-          verticalAlign="middle"
-          height="50vh"
-        >
-          <Loader size="medium" />
-        </Box>
-      </div>
-    );
-  }
-
-  // Redirect if not logged in
-  if (!user) {
-    navigate("/");
-    return null;
-  }
 
   return (
     <div className="tasks-dashboard">
@@ -194,7 +132,6 @@ export const TasksDashboard: React.FC = () => {
         padding="24px 16px"
         className="tasks-content"
       >
-        {/* Header */}
         <Box direction="vertical" gap="4px">
           <Heading size="large">משימות לחתונה</Heading>
           <Text size="small" secondary>
@@ -202,7 +139,6 @@ export const TasksDashboard: React.FC = () => {
           </Text>
         </Box>
 
-        {/* Progress Card */}
         <TaskProgressCard
           completedCount={completedCount}
           totalCount={totalCount}
@@ -213,7 +149,6 @@ export const TasksDashboard: React.FC = () => {
           onToggleAllGroups={toggleAllGroups}
         />
 
-        {/* Add Task Form */}
         {showAddTask && (
           <TaskForm
             onSubmit={handleAddTask}
@@ -222,7 +157,6 @@ export const TasksDashboard: React.FC = () => {
           />
         )}
 
-        {/* Task Groups */}
         <Box direction="vertical" gap="16px" className="task-groups">
           {TIMELINE_GROUPS.map((group) => (
             <TaskGroup
@@ -240,6 +174,7 @@ export const TasksDashboard: React.FC = () => {
           ))}
         </Box>
       </Box>
+      {ConfirmDialog}
     </div>
   );
 };

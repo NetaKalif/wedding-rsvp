@@ -130,15 +130,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
     await httpRequests.addUser(loggedInUser);
 
-    // Fetch all data before setting state to batch updates
+    // Set user early so useAppData starts fetching in parallel with the auth calls below
+    setUser(loggedInUser);
+
     const [partnerInfoData, adminStatus, weddingInfoData] = await Promise.all([
       httpRequests.getPartnerInfo(loggedInUser.userID),
       httpRequests.checkAdmin(loggedInUser.userID).catch(() => false),
       httpRequests.getPrimaryEvent(loggedInUser.userID).catch(() => null),
     ]);
 
-    // Batch all state updates together
-    setUser(loggedInUser);
     setPartnerInfo(partnerInfoData);
     setWeddingInfo(weddingInfoData);
     setIsAdmin(adminStatus);

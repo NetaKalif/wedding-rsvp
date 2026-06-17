@@ -1,10 +1,9 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
   Heading,
   Text,
-  Loader,
   Card,
   Modal,
   Button,
@@ -16,13 +15,13 @@ import {
 import "@wix/design-system/styles.global.css";
 import { Plus } from "lucide-react";
 import {
-  BudgetOverview,
   BudgetCategoryWithSpending,
   BudgetCategoryName,
   VendorWithPayments,
 } from "../../types";
 import { httpRequests } from "../../httpClient";
 import { useAuth } from "../../hooks/useAuth";
+import { useAppData } from "../../hooks/useAppData";
 import Header from "../global/Header";
 import BudgetCategoryCard from "./BudgetCategoryCard";
 import BudgetOverviewCard from "./BudgetOverviewCard";
@@ -44,40 +43,19 @@ export const VENDOR_STATUS_OPTIONS_DD = VENDOR_STATUS_OPTIONS.map((status) => ({
 
 export const BudgetDashboard: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
+  const { budgetOverview: budgetData, refreshBudget, setBudgetOverview } = useAppData();
   const navigate = useNavigate();
 
-  const [budgetData, setBudgetData] = useState<BudgetOverview | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [expandedCategory, setExpandedCategory] = useState<number | null>(null);
-
-  // Modal states
   const [showAddCategory, setShowAddCategory] = useState(false);
-
-  // Filter states
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [highlightedVendorId, setHighlightedVendorId] = useState<number | null>(
-    null
-  );
-
-  const fetchBudgetData = useCallback(async () => {
-    if (!user) return;
-    try {
-      const data = await httpRequests.getBudgetOverview(user.userID);
-      setBudgetData(data);
-    } catch (error) {
-      console.error("Error fetching budget data:", error);
-    } finally {
-    }
-  }, [user]);
+  const [highlightedVendorId, setHighlightedVendorId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (user && !authLoading) {
-      fetchBudgetData();
-      setIsLoading(false);
-    }
-  }, [user, authLoading, fetchBudgetData]);
+    if (!authLoading && !user) navigate("/");
+  }, [user, authLoading, navigate]);
 
   // Calculate alerts
   const getAlerts = () => {
@@ -118,30 +96,47 @@ export const BudgetDashboard: React.FC = () => {
   // Handler functions
   const handleUpdateTotalBudget = async (value: number) => {
     if (!user) return;
+    setBudgetOverview(prev => {
+      if (!prev) return prev;
+      const remaining = value - prev.planned_expenses;
+      const usage = value > 0 ? (prev.planned_expenses / value) * 100 : 0;
+      return { ...prev, total_budget: value, remaining_budget: remaining, usage_percentage: usage };
+    });
     try {
       await httpRequests.updateTotalBudget(user.userID, value);
-      fetchBudgetData();
     } catch (error) {
       console.error("Error updating total budget:", error);
+      refreshBudget();
     }
   };
 
   const handleUpdateEstimatedGuests = async (value: number) => {
     if (!user) return;
+    setBudgetOverview(prev => {
+      if (!prev) return prev;
+      const pricePerGuest = value > 0 ? prev.planned_expenses / value : 0;
+      return { ...prev, estimated_guests: value, price_per_guest: pricePerGuest };
+    });
     try {
       await httpRequests.updateEstimatedGuests(user.userID, value);
-      fetchBudgetData();
     } catch (error) {
       console.error("Error updating estimated guests:", error);
+      refreshBudget();
     }
   };
 
   const handleAddCategory = async (name: BudgetCategoryName) => {
     if (!user) return;
     try {
-      await httpRequests.addBudgetCategory(user.userID, name);
+      const newCat = await httpRequests.addBudgetCategory(user.userID, name);
       setShowAddCategory(false);
-      fetchBudgetData();
+      setBudgetOverview(prev => {
+        if (!prev) return prev;
+        const newCatWithSpending: BudgetCategoryWithSpending = {
+          ...newCat, vendors: [], actual_spending: 0, agreed_cost: 0,
+        };
+        return { ...prev, categories: [...prev.categories, newCatWithSpending] };
+      });
     } catch (error: any) {
       alert(error.message || "Failed to add category");
     }
@@ -176,28 +171,7 @@ export const BudgetDashboard: React.FC = () => {
     }));
   };
 
-  // Loading state
-  if (authLoading || isLoading) {
-    return (
-      <div className="budget-dashboard">
-        <Header />
-        <Box
-          direction="vertical"
-          align="center"
-          verticalAlign="middle"
-          height="50vh"
-        >
-          <Loader size="medium" />
-        </Box>
-      </div>
-    );
-  }
-
-  // Redirect if not logged in
-  if (!user) {
-    navigate("/");
-    return null;
-  }
+  if (authLoading || !user) return null;
 
   const alerts = getAlerts();
   const filteredCategories = getFilteredCategories();
@@ -382,7 +356,6 @@ export const BudgetDashboard: React.FC = () => {
                           : category.category_id
                       )
                     }
-                    onDataRefresh={fetchBudgetData}
                     formatCurrency={formatCurrency}
                     highlightedVendorId={highlightedVendorId}
                   />
