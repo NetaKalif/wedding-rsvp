@@ -99,10 +99,28 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
       .finally(() => setIsSending(false));
   };
 
+  const targetGuestCount = (() => {
+    if (messageType === "rsvpReminder") {
+      return eventGuests.filter((g) => g.rsvp_status == null).length;
+    }
+    if (messageType === "weddingReminder") {
+      return eventGuests.filter((g) => g.rsvp_status != null && g.rsvp_status > 0).length;
+    }
+    return eventGuests.length;
+  })();
+
+  const emptyGroupMessage = (() => {
+    if (selectSpecificGuests || targetGuestCount > 0) return null;
+    if (messageType === "rsvpReminder") return "אין אורחים שממתינים לתגובה";
+    if (messageType === "weddingReminder") return "אין אורחים שאישרו הגעה";
+    return "אין אורחים לשליחה";
+  })();
+
   const isSendDisabled =
     isSending ||
     (messageType === "freeText" && (!customText || customText.trim() === "")) ||
-    (selectSpecificGuests && selectedGuestIds.size === 0);
+    (selectSpecificGuests && selectedGuestIds.size === 0) ||
+    (!selectSpecificGuests && targetGuestCount === 0);
 
   const renderResponseMessage = () => {
     if (messageResults) {
@@ -245,6 +263,12 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                 </FormField>
               )}
             </Box>
+
+            {emptyGroupMessage && (
+              <Text size="small" secondary skin="error">
+                ⚠️ {emptyGroupMessage}
+              </Text>
+            )}
 
             <Button
               onClick={handleSend}
