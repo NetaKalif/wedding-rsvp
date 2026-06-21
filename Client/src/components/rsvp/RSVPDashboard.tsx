@@ -19,7 +19,7 @@ const CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
 export const RSVPDashboard = () => {
   const navigate = useNavigate();
   const { user, isLoading, weddingInfo } = useAuth();
-  const { guests, eventGuestsByEventId, updateEventGuests, refreshGuests, refreshEventGuests } = useAppData();
+  const { guests, eventGuestsByEventId, updateEventGuests, refreshGuests, refreshEvents } = useAppData();
 
   const [activeTab, setActiveTab] = useState<"guests" | "events">("guests");
   const [isAddGuestModalOpen, setIsAddGuestModalOpen] = useState(false);
@@ -48,7 +48,7 @@ export const RSVPDashboard = () => {
     try {
       await Promise.all([
         refreshGuests(),
-        weddingInfo ? refreshEventGuests(weddingInfo.id) : Promise.resolve(),
+        refreshEvents(),
       ]);
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 1000);

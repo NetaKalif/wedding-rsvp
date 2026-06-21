@@ -36,6 +36,10 @@ const EventDetail: React.FC<EventDetailProps> = ({
   const [eventGuests, setEventGuests] = useState<EventGuest[]>(
     () => eventGuestsByEventId[initialEvent.id] ?? []
   );
+
+  React.useEffect(() => {
+    setEventGuests(eventGuestsByEventId[event.id] ?? []);
+  }, [eventGuestsByEventId, event.id]);
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddFromListOpen, setIsAddFromListOpen] = useState(false);
