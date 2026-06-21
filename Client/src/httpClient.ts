@@ -29,7 +29,7 @@ interface RequestOptions {
 
 const request = async <T>(endpoint: string, options: RequestOptions = {}): Promise<T> => {
   const { method = "GET", body } = options;
-  const config: RequestInit = { method, headers: { "Content-Type": "application/json" } };
+  const config: RequestInit = { method, headers: { "Content-Type": "application/json" }, cache: "no-store" };
   if (body) config.body = JSON.stringify(body);
   const response = await fetch(`${url}${endpoint}`, config);
   const text = await response.text();
