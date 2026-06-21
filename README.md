@@ -120,6 +120,68 @@ REACT_APP_GOOGLE_CLIENT_SECRET=your_google_client_secret
 
 ---
 
+## 🧪 Running Tests
+
+The test suite covers full RSVP flows, multi-event routing, guest management, and event management. Tests run against a real local database and a mock WhatsApp server, so no real WhatsApp account is needed.
+
+### Prerequisites
+
+- [Docker](https://www.docker.com/) — for the local test database
+
+### Setup (one-time)
+
+```bash
+cd Server
+npm install
+```
+
+Create `Server/.server.test.env`:
+
+```env
+DATABASE_URL=postgres://postgres:test@localhost:5433/wedding_test
+WHATSAPP_PHONE_NUMBER_ID=test-phone-id
+WHATSAPP_API_BASE_URL=http://localhost:3001
+WHATSAPP_ACCESS_TOKEN=mock-access-token
+REAL_SERVER_URL=http://localhost:8080
+```
+
+### Running the test suite
+
+Open four terminals from the `Server/` directory:
+
+```bash
+# Terminal 1 — start the local test database (Docker)
+npm run test:db:start
+
+# Terminal 2 — start the server pointed at the test database
+npm run test:server
+
+# Terminal 3 — start the mock WhatsApp API
+npm run mock-wa
+
+# Terminal 4 — run the tests
+npm test
+```
+
+When finished:
+
+```bash
+npm run test:db:stop
+```
+
+### What's tested
+
+| File | Coverage |
+|---|---|
+| `rsvp-approve.test.ts` | Approve, decline, pending, and mistake-correction flows |
+| `rsvp-edge-cases.test.ts` | Invalid replies, out-of-range numbers, unknown phones, RSVP changes |
+| `rsvp-filters.test.ts` | `rsvpReminder` / `weddingReminder` recipient filtering, `guestIds` scoping |
+| `multi-event-rsvp.test.ts` | Per-event guest targeting, cross-event RSVP isolation |
+| `guest-management.test.ts` | Add, assign, remove from event, delete guest |
+| `event-management.test.ts` | Event listing, creation, auth checks, error handling |
+
+---
+
 ## 🌐 Local Development with WhatsApp Webhooks
 
 To receive WhatsApp responses locally, you'll need to expose your server using [ngrok](https://ngrok.com/):
