@@ -219,6 +219,22 @@ app.patch("/addGuests", async (req: Request, res: Response) => {
   }
 });
 
+app.patch("/updateGuest", async (req: Request, res: Response) => {
+  const { userID, guestId, updates } = req.body;
+  try {
+    const dataOwner = await resolveDataOwner(userID);
+    const updated = await db.updateGuest(dataOwner, Number(guestId), updates);
+    if (!updated) return res.status(404).send("Guest not found");
+    await logMessage(dataOwner, `✏️ Guest ${guestId} updated`);
+    res.status(200).json(updated);
+  } catch (error: any) {
+    if (error.code === "23505") {
+      return res.status(400).send("מספר הטלפון כבר קשור לאורח קיים ברשימה.");
+    }
+    return handleError(res, error, "Failed to update guest", userID);
+  }
+});
+
 app.patch("/addUser", async (req: Request, res: Response) => {
   try {
     console.log("Adding user");

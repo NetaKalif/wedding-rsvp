@@ -18,12 +18,13 @@ import {
   Text,
   TableColumn,
 } from "@wix/design-system";
-import { Check, ChevronDown, ChevronUp, Clock, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Clock, Pencil, Trash2, X } from "lucide-react";
 import { filterGuests, getRsvpStatus } from "./logic";
 import { httpRequests } from "../../httpClient";
 import { useAppData } from "../../hooks/useAppData";
 import { useConfirm } from "../../hooks/useConfirm";
 import SearchAndFilterBar from "./SearchAndFilterBar";
+import EditGuestModal from "./EditGuestModal";
 import { RowDataDefaultType } from "@wix/design-system/dist/types/Table/DataTable";
 
 interface GuestListProps {
@@ -81,6 +82,10 @@ const GuestList: React.FC<GuestListProps> = ({
     guest: EventGuest | null;
     value: number | undefined;
   }>({ isOpen: false, guest: null, value: undefined });
+  const [editGuestModal, setEditGuestModal] = useState<{
+    isOpen: boolean;
+    guest: EventGuest | null;
+  }>({ isOpen: false, guest: null });
 
   useEffect(() => {
     const handleResize = () => {
@@ -257,7 +262,16 @@ const GuestList: React.FC<GuestListProps> = ({
     {
       title: "פעולות",
       render: (row: EventGuest) => (
-        <Box justifyItems="start">
+        <Box gap="8px" justifyItems="start">
+          <Button
+            onClick={() => setEditGuestModal({ isOpen: true, guest: row })}
+            skin="standard"
+            priority="secondary"
+            size="small"
+            justifySelf="start"
+          >
+            <Pencil />
+          </Button>
           <Button
             onClick={() => onDeleteGuest(row)}
             skin="destructive"
@@ -342,6 +356,21 @@ const GuestList: React.FC<GuestListProps> = ({
             </Button>
           </Box>
         </Box>
+      </Modal>
+
+      <Modal isOpen={editGuestModal.isOpen}>
+        {editGuestModal.guest && (
+          <EditGuestModal
+            guest={editGuestModal.guest}
+            primaryGuestsList={primaryGuestsList}
+            setIsEditGuestModalOpen={(isOpen) =>
+              setEditGuestModal((prev) => ({ ...prev, isOpen }))
+            }
+            userID={userID}
+            eventId={eventId}
+            onEventGuestsChange={onEventGuestsChange}
+          />
+        )}
       </Modal>
       {ConfirmDialog}
     </div>

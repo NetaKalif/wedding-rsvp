@@ -271,6 +271,20 @@ class Database {
     );
   }
 
+  async updateGuest(
+    userID: string,
+    guestId: number,
+    updates: Pick<Guest, "name" | "phone" | "whose" | "circle" | "number_of_guests">,
+  ): Promise<Guest | undefined> {
+    const rows = await this.runQuery(
+      `UPDATE guests SET name=$1, phone=$2, whose=$3, circle=$4, number_of_guests=$5
+       WHERE id=$6 AND user_id=$7
+       RETURNING ${guestColumns};`,
+      [updates.name, updates.phone, updates.whose, updates.circle, updates.number_of_guests, guestId, userID],
+    );
+    return rows[0];
+  }
+
   async deleteGuest(userID: string, guestId: number): Promise<void> {
     await this.runQuery(`DELETE FROM guests WHERE id=$1 AND user_id=$2;`, [guestId, userID]);
   }

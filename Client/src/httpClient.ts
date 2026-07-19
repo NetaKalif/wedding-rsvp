@@ -55,6 +55,9 @@ const getGuests = (userID: string) => post<Guest[]>("/guestsList", { userID });
 const addGuests = (userID: string, guestsToAdd: Omit<Guest, "id" | "user_id">[]) =>
   patch<Guest[]>("/addGuests", { guestsToAdd, userID });
 
+const updateGuest = (userID: string, guestId: number, updates: Omit<Guest, "id" | "user_id">) =>
+  patch<Guest>("/updateGuest", { userID, guestId, updates });
+
 const deleteGuest = (userID: string, guestId: number) =>
   del<Guest[]>("/deleteGuest", { userID, guestId });
 
@@ -254,7 +257,7 @@ export const httpRequests = {
   // User
   addUser, deleteUser,
   // Guests
-  getGuests, addGuests, deleteGuest, deleteAllGuests,
+  getGuests, addGuests, updateGuest, deleteGuest, deleteAllGuests,
   // Events
   getPrimaryEvent, saveEventInfo, getEvents, createEvent, deleteEvent,
   getEventImageUrl, getPrimaryImageUrl,
