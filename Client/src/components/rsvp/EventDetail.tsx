@@ -1,14 +1,14 @@
 import React, { useState } from "react";
-import { Box, Button, Card, Checkbox, Input, Modal, SidePanel, Text } from "@wix/design-system";
+import { Box, Button, Card, Checkbox, Input, Modal, Popover, SidePanel, Text } from "@wix/design-system";
 import { Event, EventGuest, Guest } from "../../types";
 import { httpRequests } from "../../httpClient";
 import { useAppData } from "../../hooks/useAppData";
 import { useConfirm } from "../../hooks/useConfirm";
-import { ArrowRight, Check, Clock, Download, Edit2, MessageSquare, Trash2, UserPlus, X } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Download, Edit2, Filter, MessageSquare, Trash2, UserPlus, X } from "lucide-react";
 import GuestList from "./GuestList";
 import MessageGroupsModal from "./MessageGroupsModal";
 import EventEditModal from "./EventEditModal";
-import { getNumberOfGuests, getNumberOfGuestsDeclined, getNumberOfGuestsRSVP, getRsvpCounts, handleExport } from "./logic";
+import { getNumberOfGuests, getNumberOfGuestsDeclined, getNumberOfGuestsRSVP, getRsvpCounts, getUniqueValues, handleExport } from "./logic";
 import "./css/ControlPanel.css";
 
 interface EventDetailProps {
@@ -45,6 +45,15 @@ const EventDetail: React.FC<EventDetailProps> = ({
   const [isAddFromListOpen, setIsAddFromListOpen] = useState(false);
   const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set());
   const [guestSearchQuery, setGuestSearchQuery] = useState("");
+  const [addGuestFilters, setAddGuestFilters] = useState<{ whose: string[]; circle: string[] }>({
+    whose: [],
+    circle: [],
+  });
+  const [isAddGuestFilterOpen, setIsAddGuestFilterOpen] = useState(false);
+  const [filterSectionsOpen, setFilterSectionsOpen] = useState<{ whose: boolean; circle: boolean }>({
+    whose: false,
+    circle: false,
+  });
 
   const syncGuests = async () => {
     const guests = await httpRequests.getEventGuests(userID, event.id);
@@ -90,6 +99,9 @@ const EventDetail: React.FC<EventDetailProps> = ({
     setIsAddFromListOpen(false);
     setSelectedGuestIds(new Set());
     setGuestSearchQuery("");
+    setAddGuestFilters({ whose: [], circle: [] });
+    setIsAddGuestFilterOpen(false);
+    setFilterSectionsOpen({ whose: false, circle: false });
   };
 
   const handleAddFromList = async () => {
@@ -110,9 +122,47 @@ const EventDetail: React.FC<EventDetailProps> = ({
 
   const eventGuestIdSet = new Set(eventGuests.map((g) => g.guest_id));
   const availableGuests = guestsList.filter((g) => g.id != null && !eventGuestIdSet.has(g.id!));
-  const filteredGuests = availableGuests.filter((g) =>
-    g.name.toLowerCase().includes(guestSearchQuery.toLowerCase())
-  );
+  const invitedByOptions = getUniqueValues(availableGuests, "whose");
+  const circleOptions = getUniqueValues(availableGuests, "circle");
+  const filteredGuests = availableGuests.filter((g) => {
+    const matchesSearch = g.name.toLowerCase().includes(guestSearchQuery.toLowerCase());
+    const matchesWhose = addGuestFilters.whose.length === 0 || addGuestFilters.whose.includes(g.whose);
+    const matchesCircle = addGuestFilters.circle.length === 0 || addGuestFilters.circle.includes(g.circle);
+    return matchesSearch && matchesWhose && matchesCircle;
+  });
+
+  const allFilteredSelected =
+    filteredGuests.length > 0 && filteredGuests.every((g) => g.id != null && selectedGuestIds.has(g.id!));
+
+  const toggleSelectAll = () => {
+    setSelectedGuestIds((prev) => {
+      const next = new Set(prev);
+      filteredGuests.forEach((g) => {
+        if (g.id == null) return;
+        if (allFilteredSelected) next.delete(g.id);
+        else next.add(g.id);
+      });
+      return next;
+    });
+  };
+
+  const toggleWhoseFilter = (whose: string) => {
+    setAddGuestFilters((prev) => ({
+      ...prev,
+      whose: prev.whose.includes(whose) ? prev.whose.filter((item) => item !== whose) : [...prev.whose, whose],
+    }));
+  };
+
+  const toggleCircleFilter = (circle: string) => {
+    setAddGuestFilters((prev) => ({
+      ...prev,
+      circle: prev.circle.includes(circle) ? prev.circle.filter((item) => item !== circle) : [...prev.circle, circle],
+    }));
+  };
+
+  const toggleFilterSection = (section: "whose" | "circle") => {
+    setFilterSectionsOpen((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
 
   const rsvpCounts = getRsvpCounts(eventGuests);
 
@@ -245,43 +295,147 @@ const EventDetail: React.FC<EventDetailProps> = ({
 
       {/* Add guests from global list */}
       <Modal isOpen={isAddFromListOpen}>
-        <SidePanel onCloseButtonClick={closeAddFromList} skin="floating" height="auto">
+        <SidePanel onCloseButtonClick={closeAddFromList} skin="floating" height="80vh" maxHeight="85vh">
           <SidePanel.Header title="הוספת אורחים לאירוע" />
           <SidePanel.Content>
             <Box direction="vertical" gap="12px">
-              <Input
-                value={guestSearchQuery}
-                onChange={(e) => setGuestSearchQuery(e.target.value)}
-                placeholder="חיפוש לפי שם..."
-              />
+              <Box direction="horizontal" gap="8px" verticalAlign="middle">
+                <Box flex="1">
+                  <Input
+                    value={guestSearchQuery}
+                    onChange={(e) => setGuestSearchQuery(e.target.value)}
+                    placeholder="חיפוש לפי שם..."
+                  />
+                </Box>
+                {(invitedByOptions.length > 0 || circleOptions.length > 0) && (
+                  <Popover
+                    shown={isAddGuestFilterOpen}
+                    placement="bottom-end"
+                    onClickOutside={() => setIsAddGuestFilterOpen(false)}
+                    appendTo="window"
+                    width={300}
+                    zIndex={6000}
+                  >
+                    <Popover.Element>
+                      <Button
+                        priority="secondary"
+                        size="small"
+                        onClick={() => setIsAddGuestFilterOpen((prev) => !prev)}
+                      >
+                        <Filter size={16} />
+                        <span style={{ marginRight: "6px" }}>
+                          סינון{addGuestFilters.whose.length + addGuestFilters.circle.length > 0
+                            ? ` (${addGuestFilters.whose.length + addGuestFilters.circle.length})`
+                            : ""}
+                        </span>
+                      </Button>
+                    </Popover.Element>
+                    <Popover.Content>
+                      <Box
+                        direction="vertical"
+                        gap="8px"
+                        padding="16px"
+                        style={{ width: 300, maxWidth: 300, maxHeight: 360, overflowY: "auto" }}
+                      >
+                        {invitedByOptions.length > 0 && (
+                          <Box direction="vertical" gap="4px">
+                            <div
+                              onClick={() => toggleFilterSection("whose")}
+                              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                            >
+                              <Text size="small" weight="bold">מוזמן ע״י</Text>
+                              {filterSectionsOpen.whose ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </div>
+                            {filterSectionsOpen.whose && (
+                              <Box direction="vertical" gap="2px">
+                                {invitedByOptions.map((whose) => (
+                                  <Checkbox
+                                    key={whose}
+                                    checked={addGuestFilters.whose.includes(whose)}
+                                    size="small"
+                                    onChange={() => toggleWhoseFilter(whose)}
+                                  >
+                                    {whose}
+                                  </Checkbox>
+                                ))}
+                              </Box>
+                            )}
+                          </Box>
+                        )}
+                        {circleOptions.length > 0 && (
+                          <Box direction="vertical" gap="4px">
+                            <div
+                              onClick={() => toggleFilterSection("circle")}
+                              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                            >
+                              <Text size="small" weight="bold">מעגל</Text>
+                              {filterSectionsOpen.circle ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </div>
+                            {filterSectionsOpen.circle && (
+                              <Box direction="vertical" gap="2px">
+                                {circleOptions.map((circle) => (
+                                  <Checkbox
+                                    key={circle}
+                                    checked={addGuestFilters.circle.includes(circle)}
+                                    size="small"
+                                    onChange={() => toggleCircleFilter(circle)}
+                                  >
+                                    {circle}
+                                  </Checkbox>
+                                ))}
+                              </Box>
+                            )}
+                          </Box>
+                        )}
+                        <Button
+                          priority="secondary"
+                          size="tiny"
+                          onClick={() => setAddGuestFilters({ whose: [], circle: [] })}
+                        >
+                          נקה מסננים
+                        </Button>
+                      </Box>
+                    </Popover.Content>
+                  </Popover>
+                )}
+              </Box>
               {filteredGuests.length === 0 ? (
                 <Text secondary size="small">
                   {availableGuests.length === 0 ? "כל האורחים כבר נמצאים באירוע" : "לא נמצאו תוצאות"}
                 </Text>
               ) : (
-                <Box direction="vertical" gap="8px" style={{ maxHeight: 360, overflowY: "auto" }}>
-                  {filteredGuests.map((g) => (
-                    <Box key={g.id} direction="horizontal" gap="8px" verticalAlign="middle">
-                      <Checkbox
-                        checked={selectedGuestIds.has(g.id!)}
-                        onChange={(e) => toggleGuest(g.id!, e.target.checked)}
-                      />
-                      <Box direction="vertical" gap="2px">
-                        <Text size="small" weight="bold">{g.name}</Text>
-                        <Text size="tiny" secondary>{g.phone}</Text>
+                <>
+                  <Box align="space-between" verticalAlign="middle">
+                    <Checkbox checked={allFilteredSelected} onChange={toggleSelectAll}>
+                      בחר הכל ({filteredGuests.length})
+                    </Checkbox>
+                  </Box>
+                  <Box direction="vertical" gap="8px" style={{ maxHeight: 360, overflowY: "auto" }}>
+                    {filteredGuests.map((g) => (
+                      <Box key={g.id} direction="horizontal" gap="8px" verticalAlign="middle">
+                        <Checkbox
+                          checked={selectedGuestIds.has(g.id!)}
+                          onChange={(e) => toggleGuest(g.id!, e.target.checked)}
+                        />
+                        <Box direction="vertical" gap="2px">
+                          <Text size="small" weight="bold">{g.name}</Text>
+                          <Text size="tiny" secondary>{g.phone}</Text>
+                        </Box>
                       </Box>
-                    </Box>
-                  ))}
-                </Box>
+                    ))}
+                  </Box>
+                </>
               )}
-              <Box align="space-between" style={{ marginTop: 8 }}>
-                <Button priority="secondary" onClick={closeAddFromList}>ביטול</Button>
-                <Button disabled={selectedGuestIds.size === 0} onClick={handleAddFromList}>
-                  הוסף ({selectedGuestIds.size})
-                </Button>
-              </Box>
             </Box>
           </SidePanel.Content>
+          <SidePanel.Footer>
+            <Box align="space-between">
+              <Button priority="secondary" onClick={closeAddFromList}>ביטול</Button>
+              <Button disabled={selectedGuestIds.size === 0} onClick={handleAddFromList}>
+                הוסף ({selectedGuestIds.size})
+              </Button>
+            </Box>
+          </SidePanel.Footer>
         </SidePanel>
       </Modal>
 
