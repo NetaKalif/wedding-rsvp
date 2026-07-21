@@ -17,6 +17,13 @@ interface WeddingSetupModalProps {
   onComplete: () => void;
 }
 
+const getTodayDateString = () => {
+  const today = new Date();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${today.getFullYear()}-${month}-${day}`;
+};
+
 const WeddingSetupModal: React.FC<WeddingSetupModalProps> = ({
   onComplete,
 }) => {
@@ -25,7 +32,7 @@ const WeddingSetupModal: React.FC<WeddingSetupModalProps> = ({
   >({
     bride_name: "",
     groom_name: "",
-    date: "2026-05-01",
+    date: getTodayDateString(),
     time: "10:00",
     location: "",
   });
