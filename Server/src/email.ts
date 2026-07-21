@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { logWarn } from "./logger";
 
 const transporter =
   process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD
@@ -12,14 +13,17 @@ const transporter =
     : null;
 
 export const sendApprovalRequestEmail = async ({
+  userID,
   name,
   email,
 }: {
+  userID: string;
   name: string;
   email: string;
 }): Promise<void> => {
   if (!transporter) {
-    console.warn(
+    logWarn(
+      userID,
       `[email] EMAIL_USER/EMAIL_APP_PASSWORD not set — skipping approval email for ${name} <${email}>`,
     );
     return;

@@ -4,6 +4,7 @@ import FormData from "form-data";
 import { messagesMap } from "./messages";
 import { getAccessToken } from "./whatsappTokenManager";
 import Database from "./dbUtils";
+import { log, logError } from "./logger";
 
 // Constants
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -277,7 +278,7 @@ export const uploadImage = async (file: UploadedFile): Promise<string> => {
 // ============================================================================
 
 export const logMessage = async (userID: string, message: string): Promise<void> => {
-  console.log(message);
+  log(userID, message);
   const db = Database.getInstance();
   if (db && userID) await db.addClientLog(userID, message);
 };
@@ -285,13 +286,13 @@ export const logMessage = async (userID: string, message: string): Promise<void>
 export const batchLogMessageResults = async (results: MessageResult[]): Promise<void> => {
   const db = Database.getInstance();
   if (!db || results.length === 0) return;
-  results.forEach((r) => console.log(r.logMessage));
+  results.forEach((r) => log(r.userID, r.logMessage));
   const logs = results.filter((r) => r.userID).map((r) => ({ userID: r.userID, message: r.logMessage }));
   if (logs.length > 0) {
     try {
       await db.addClientLogsBatch(logs);
     } catch (error) {
-      console.error("Failed to batch log message results:", error);
+      logError(undefined, "Failed to batch log message results:", error);
     }
   }
 };

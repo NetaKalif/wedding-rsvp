@@ -26,6 +26,7 @@ import {
   issueSessionToken,
 } from "./auth";
 import { sendApprovalRequestEmail } from "./email";
+import { log, logError } from "./logger";
 
 const upload = multer({ storage: multer.memoryStorage() });
 dotenv.config({ path: ".server.env" });
@@ -89,7 +90,7 @@ const handleError = async (
   message: string,
   userID?: string,
 ): Promise<Response> => {
-  console.error(message, error);
+  logError(userID, message, error);
   if (userID) {
     await logMessage(userID, `❌ ${message}: ${error.message}`);
   }
@@ -154,7 +155,7 @@ app.get("/sms", (req, res) => {
 
   if (mode && token) {
     if (mode === "subscribe" && token === VERIFY_TOKEN) {
-      console.log("✅ Webhook verified");
+      log(undefined, "✅ Webhook verified");
       res.status(200).send(challenge);
     } else {
       res.sendStatus(403);
@@ -176,7 +177,7 @@ app.post("/sms", async (req: Request, res: Response) => {
     const candidates = await db.getAllRsvpCandidatesByPhone(sender);
 
     if (candidates.length === 0) {
-      console.log(`Phone number not found in guest list or events: ${sender}`);
+      log(undefined, `Phone number not found in guest list or events: ${sender}`);
       return res.sendStatus(200);
     }
 
@@ -199,21 +200,21 @@ app.post("/sms", async (req: Request, res: Response) => {
       msg = message.button?.payload || message.button?.text || "";
       await logMessage(candidateUserID, `🔘 SMS button reply for event ${eventId} from ${guestName} (${phone}): ${msg}`);
       await handleButtonReply(msg, phone, candidateUserID, eventId, guestId, guestName).catch((error) => {
-        console.error("Error processing SMS:", error);
+        logError(candidateUserID, "Error processing SMS:", error);
         return res.status(500).send(error.message);
       });
     } else if (message.type === "text") {
       msg = message.text.body;
       await logMessage(candidateUserID, `📥 SMS text from ${guestName} (${phone}): ${msg}`);
       await handleTextResponse(msg, phone, candidateUserID, eventId, guestId, guestName).catch((error) => {
-        console.error("Error processing SMS:", error);
+        logError(candidateUserID, "Error processing SMS:", error);
         return res.status(500).send(error.message);
       });
     }
 
     res.sendStatus(200);
   } catch (error) {
-    console.error("Error processing SMS:", error);
+    logError(undefined, "Error processing SMS:", error);
     return res.status(500).send("Server error");
   }
 });
@@ -248,8 +249,8 @@ app.post("/auth/google", async (req: Request, res: Response) => {
 
     if (effectiveStatus !== "approved") {
       if (shouldNotifyAdmin) {
-        sendApprovalRequestEmail({ name: identity.name, email: identity.email }).catch(
-          (error) => console.error("Failed to send approval-request email:", error),
+        sendApprovalRequestEmail({ userID: identity.userID, name: identity.name, email: identity.email }).catch(
+          (error) => logError(identity.userID, "Failed to send approval-request email:", error),
         );
       }
       await logMessage(identity.userID, `⏳ Pending approval: ${identity.name} (${identity.email})`);
@@ -332,7 +333,7 @@ app.post("/updateRsvp", async (req: Request, res: Response) => {
     const guests = await db.getEventGuests(Number(eventId));
     res.status(200).json(guests);
   } catch (error) {
-    console.error("Error updating RSVP:", error);
+    logError(req.auth?.userID, "Error updating RSVP:", error);
     return res.status(500).send("Failed to update RSVP");
   }
 });
@@ -344,7 +345,7 @@ app.post("/guestsList", async (req: Request, res: Response) => {
     const guestsList = await db.getGuests(dataOwner);
     res.status(200).json(guestsList);
   } catch (error) {
-    console.error("Error retrieving guest list:", error);
+    logError(req.auth?.userID, "Error retrieving guest list:", error);
     return res.status(500).send("Error retrieving guest list");
   }
 });
@@ -554,7 +555,7 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
 
     return res.status(200).send(results);
   } catch (error) {
-    console.error("Error sending messages:", error);
+    logError(req.auth?.userID, "Error sending messages:", error);
     return res.status(500).send(error.message);
   }
 });
@@ -628,10 +629,12 @@ const buildMessagePromises = (
 };
 
 app.get("/getImage", async (req: Request, res: Response) => {
+  let mediaUserID: string | undefined;
   try {
     const mediaToken = req.query.mediaToken as string;
     const payload = verifyMediaToken(mediaToken, "primaryImage");
     if (!payload) return res.status(401).send("Invalid or expired media token");
+    mediaUserID = payload.userID;
 
     const dataOwner = await resolveDataOwner(payload.userID);
     const primary = await db.getPrimaryEvent(dataOwner);
@@ -662,7 +665,7 @@ app.get("/getImage", async (req: Request, res: Response) => {
     res.setHeader("Content-Type", imageResponse.headers["content-type"] as string);
     imageResponse.data.pipe(res);
   } catch (err) {
-    console.error(err);
+    logError(mediaUserID, err);
     return res.status(500).json({ error: "Failed to fetch image" });
   }
 });
@@ -674,7 +677,7 @@ app.get("/logs", async (req: Request, res: Response) => {
     const logs = await db.getClientLogs(dataOwner);
     res.status(200).json(logs);
   } catch (error) {
-    console.error("Error retrieving logs:", error);
+    logError(req.auth?.userID, "Error retrieving logs:", error);
     return res.status(500).send("Failed to retrieve logs");
   }
 });
@@ -689,7 +692,7 @@ app.get("/tasks", async (req: Request, res: Response) => {
     const tasks = await db.getTasks(dataOwner);
     res.status(200).json(tasks);
   } catch (error) {
-    console.error("Error retrieving tasks:", error);
+    logError(req.auth?.userID, "Error retrieving tasks:", error);
     return res.status(500).send("Failed to retrieve tasks");
   }
 });
@@ -709,7 +712,7 @@ app.post("/tasks", async (req: Request, res: Response) => {
     await logMessage(dataOwner, `📝 New task added: "${task.title}"`);
     res.status(201).json(newTask);
   } catch (error) {
-    console.error("Error adding task:", error);
+    logError(req.auth?.userID, "Error adding task:", error);
     return res.status(500).send("Failed to add task");
   }
 });
@@ -734,7 +737,7 @@ app.patch("/tasks/:taskId/complete", async (req: Request, res: Response) => {
     }
     res.status(200).json(updatedTask);
   } catch (error) {
-    console.error("Error updating task completion:", error);
+    logError(req.auth?.userID, "Error updating task completion:", error);
     return res.status(500).send("Failed to update task");
   }
 });
@@ -756,7 +759,7 @@ app.patch("/tasks/:taskId", async (req: Request, res: Response) => {
     }
     res.status(200).json(updatedTask);
   } catch (error) {
-    console.error("Error updating task:", error);
+    logError(req.auth?.userID, "Error updating task:", error);
     return res.status(500).send("Failed to update task");
   }
 });
@@ -774,7 +777,7 @@ app.delete("/tasks/:taskId", async (req: Request, res: Response) => {
     await logMessage(dataOwner, `🗑️ Task deleted`);
     res.status(200).send("Task deleted successfully");
   } catch (error) {
-    console.error("Error deleting task:", error);
+    logError(req.auth?.userID, "Error deleting task:", error);
     return res.status(500).send("Failed to delete task");
   }
 });
@@ -918,7 +921,7 @@ app.patch("/budget/total", async (req: Request, res: Response) => {
     await logMessage(dataOwner, `💰 Total budget updated to ₪${total_budget}`);
     res.status(200).json({ total_budget });
   } catch (error) {
-    console.error("Error updating total budget:", error);
+    logError(req.auth?.userID, "Error updating total budget:", error);
     return res.status(500).send("Failed to update total budget");
   }
 });
@@ -942,7 +945,7 @@ app.patch("/budget/estimated-guests", async (req: Request, res: Response) => {
     );
     res.status(200).json({ estimated_guests });
   } catch (error) {
-    console.error("Error updating estimated guests:", error);
+    logError(req.auth?.userID, "Error updating estimated guests:", error);
     return res.status(500).send("Failed to update estimated guests");
   }
 });
@@ -954,7 +957,7 @@ app.get("/budget/overview", async (req: Request, res: Response) => {
     const overview = await db.getBudgetOverview(dataOwner);
     res.status(200).json(overview);
   } catch (error) {
-    console.error("Error retrieving budget overview:", error);
+    logError(req.auth?.userID, "Error retrieving budget overview:", error);
     return res.status(500).send("Failed to retrieve budget overview");
   }
 });
@@ -966,7 +969,7 @@ app.get("/budget/categories", async (req: Request, res: Response) => {
     const categories = await db.getBudgetCategories(dataOwner);
     res.status(200).json(categories);
   } catch (error) {
-    console.error("Error retrieving budget categories:", error);
+    logError(req.auth?.userID, "Error retrieving budget categories:", error);
     return res.status(500).send("Failed to retrieve budget categories");
   }
 });
@@ -986,7 +989,7 @@ app.post("/budget/categories", async (req: Request, res: Response) => {
     if (error.code === "23505") {
       return res.status(400).send("Category already exists");
     }
-    console.error("Error adding budget category:", error);
+    logError(req.auth?.userID, "Error adding budget category:", error);
     return res.status(500).send("Failed to add budget category");
   }
 });
@@ -1008,7 +1011,7 @@ app.delete(
       await logMessage(dataOwner, `🗑️ Budget category deleted`);
       res.status(200).send("Category deleted successfully");
     } catch (error) {
-      console.error("Error deleting budget category:", error);
+      logError(req.auth?.userID, "Error deleting budget category:", error);
       return res.status(500).send("Failed to delete budget category");
     }
   },
@@ -1021,7 +1024,7 @@ app.get("/budget/vendors", async (req: Request, res: Response) => {
     const vendors = await db.getVendors(dataOwner);
     res.status(200).json(vendors);
   } catch (error) {
-    console.error("Error retrieving vendors:", error);
+    logError(req.auth?.userID, "Error retrieving vendors:", error);
     return res.status(500).send("Failed to retrieve vendors");
   }
 });
@@ -1092,7 +1095,7 @@ app.post(
 
       res.status(201).json(newVendor);
     } catch (error) {
-      console.error("Error adding vendor:", error);
+      logError(req.auth?.userID, "Error adding vendor:", error);
       return res.status(500).send("Failed to add vendor");
     }
   },
@@ -1126,7 +1129,7 @@ app.patch(
 
       res.status(200).json(vendor);
     } catch (error) {
-      console.error("Error updating vendor:", error);
+      logError(req.auth?.userID, "Error updating vendor:", error);
       return res.status(500).send("Failed to update vendor");
     }
   },
@@ -1144,7 +1147,7 @@ app.delete("/budget/vendors/:vendorId", async (req: Request, res: Response) => {
     await logMessage(dataOwner, `🗑️ Vendor deleted`);
     res.status(200).send("Vendor deleted successfully");
   } catch (error) {
-    console.error("Error deleting vendor:", error);
+    logError(req.auth?.userID, "Error deleting vendor:", error);
     return res.status(500).send("Failed to delete vendor");
   }
 });
@@ -1165,7 +1168,7 @@ app.patch(
       }
       res.status(200).json(vendor);
     } catch (error) {
-      console.error("Error toggling vendor favorite:", error);
+      logError(req.auth?.userID, "Error toggling vendor favorite:", error);
       return res.status(500).send("Failed to toggle vendor favorite");
     }
   },
@@ -1189,7 +1192,7 @@ app.post("/budget/payments", async (req: Request, res: Response) => {
     await logMessage(dataOwner, `💰 Payment of ₪${amount} recorded`);
     res.status(201).json(payment);
   } catch (error) {
-    console.error("Error adding payment:", error);
+    logError(req.auth?.userID, "Error adding payment:", error);
     return res.status(500).send("Failed to add payment");
   }
 });
@@ -1208,7 +1211,7 @@ app.delete(
       await logMessage(dataOwner, `🗑️ Payment deleted`);
       res.status(200).send("Payment deleted successfully");
     } catch (error) {
-      console.error("Error deleting payment:", error);
+      logError(req.auth?.userID, "Error deleting payment:", error);
       return res.status(500).send("Failed to delete payment");
     }
   },
@@ -1241,7 +1244,7 @@ app.post(
       await logMessage(dataOwner, `📎 File uploaded: ${finalFileName}`);
       res.status(201).json(vendorFile);
     } catch (error: any) {
-      console.error("Error uploading file:", error);
+      logError(req.auth?.userID, "Error uploading file:", error);
       return res.status(500).send(error.message || "Failed to upload file");
     }
   },
@@ -1251,11 +1254,13 @@ app.post(
 app.get(
   "/budget/files/:fileId/download",
   async (req: Request, res: Response) => {
+    let mediaUserID: string | undefined;
     try {
       const { fileId } = req.params;
       const mediaToken = req.query.mediaToken as string;
       const payload = verifyMediaToken(mediaToken, "vendorFile", parseInt(fileId));
       if (!payload) return res.status(401).send("Invalid or expired media token");
+      mediaUserID = payload.userID;
 
       const dataOwner = await resolveDataOwner(payload.userID);
       const fileData = await db.getVendorFileData(dataOwner, parseInt(fileId));
@@ -1271,7 +1276,7 @@ app.get(
       res.setHeader("Content-Type", fileData.file_type);
       res.send(fileData.file_data);
     } catch (error) {
-      console.error("Error downloading file:", error);
+      logError(mediaUserID, "Error downloading file:", error);
       return res.status(500).send("Failed to download file");
     }
   },
@@ -1291,7 +1296,7 @@ app.delete("/budget/files/:fileId", async (req: Request, res: Response) => {
     await logMessage(dataOwner, `🗑️ Vendor file deleted`);
     res.status(200).send("File deleted successfully");
   } catch (error) {
-    console.error("Error deleting file:", error);
+    logError(req.auth?.userID, "Error deleting file:", error);
     return res.status(500).send("Failed to delete file");
   }
 });
@@ -1328,7 +1333,7 @@ app.post(
       await logMessage(dataOwner, `🎉 Event created: "${ceremony_name}"`);
       return res.status(201).json(event);
     } catch (error) {
-      console.error("Error creating event:", error);
+      logError(req.auth?.userID, "Error creating event:", error);
       return res.status(500).send("Failed to create event");
     }
   },
@@ -1340,7 +1345,7 @@ app.get("/events", async (req: Request, res: Response) => {
     const events = await db.getEvents(dataOwner);
     return res.status(200).json(events);
   } catch (error) {
-    console.error("Error fetching events:", error);
+    logError(req.auth?.userID, "Error fetching events:", error);
     return res.status(500).send("Failed to fetch events");
   }
 });
@@ -1356,7 +1361,7 @@ app.patch("/events/:eventId", async (req: Request, res: Response) => {
     await logMessage(dataOwner, `✏️ Event updated: "${event.ceremony_name}"`);
     return res.status(200).json(updated);
   } catch (error) {
-    console.error("Error updating event:", error);
+    logError(req.auth?.userID, "Error updating event:", error);
     return res.status(500).send("Failed to update event");
   }
 });
@@ -1373,7 +1378,7 @@ app.delete("/events/:eventId", async (req: Request, res: Response) => {
     await logMessage(dataOwner, `🗑️ Event deleted: "${event.ceremony_name}"`);
     return res.status(200).send("Event deleted");
   } catch (error) {
-    console.error("Error deleting event:", error);
+    logError(req.auth?.userID, "Error deleting event:", error);
     return res.status(500).send("Failed to delete event");
   }
 });
@@ -1392,7 +1397,7 @@ app.post("/events/:eventId/guests", async (req: Request, res: Response) => {
     const guests = await db.getEventGuests(parseInt(eventId));
     return res.status(200).json(guests);
   } catch (error) {
-    console.error("Error adding event guests:", error);
+    logError(req.auth?.userID, "Error adding event guests:", error);
     return res.status(500).send("Failed to add event guests");
   }
 });
@@ -1411,7 +1416,7 @@ app.delete("/events/:eventId/guests", async (req: Request, res: Response) => {
     const guests = await db.getEventGuests(parseInt(eventId));
     return res.status(200).json(guests);
   } catch (error) {
-    console.error("Error removing event guests:", error);
+    logError(req.auth?.userID, "Error removing event guests:", error);
     return res.status(500).send("Failed to remove event guests");
   }
 });
@@ -1427,17 +1432,19 @@ app.get("/events/:eventId/guests", async (req: Request, res: Response) => {
     const guests = await db.getEventGuests(parseInt(eventId));
     return res.status(200).json(guests);
   } catch (error) {
-    console.error("Error fetching event guests:", error);
+    logError(req.auth?.userID, "Error fetching event guests:", error);
     return res.status(500).send("Failed to fetch event guests");
   }
 });
 
 app.get("/events/:eventId/image", async (req: Request, res: Response) => {
+  let mediaUserID: string | undefined;
   try {
     const { eventId } = req.params;
     const mediaToken = req.query.mediaToken as string;
     const payload = verifyMediaToken(mediaToken, "eventImage", parseInt(eventId));
     if (!payload) return res.status(401).send("Invalid or expired media token");
+    mediaUserID = payload.userID;
 
     const event = await db.getEventById(parseInt(eventId));
     if (!event?.file_id) return res.status(404).send("No image");
@@ -1455,7 +1462,7 @@ app.get("/events/:eventId/image", async (req: Request, res: Response) => {
     res.setHeader("Content-Type", imageResponse.headers["content-type"] as string);
     imageResponse.data.pipe(res);
   } catch (err) {
-    console.error(err);
+    logError(mediaUserID, err);
     return res.status(500).json({ error: "Failed to fetch event image" });
   }
 });
@@ -1472,7 +1479,7 @@ const sendScheduledMessages = async () => {
     const today = getDateFormat(new Date());
     const events = await db.getEventsForScheduledMessages();
     if (events.length === 0) return;
-    console.log(`📝 Processing ${events.length} events for scheduled messages`);
+    log(undefined, `📝 Processing ${events.length} events for scheduled messages`);
 
     for (const event of events) {
       const userID = event.user_id;
@@ -1511,17 +1518,17 @@ const sendScheduledMessages = async () => {
       }
     }
   } catch (error) {
-    console.error("Error sending scheduled messages:", error);
+    logError(undefined, "Error sending scheduled messages:", error);
   }
 };
 
 const cleanupOldLogs = async () => {
   try {
-    console.log("🧹 Starting log cleanup...");
+    log(undefined, "🧹 Starting log cleanup...");
     const deletedCount = await db.cleanupOldLogs();
-    console.log(`🗑️ Deleted ${deletedCount} old log entries`);
+    log(undefined, `🗑️ Deleted ${deletedCount} old log entries`);
   } catch (error) {
-    console.error("Error cleaning up logs:", error);
+    logError(undefined, "Error cleaning up logs:", error);
   }
 };
 
@@ -1537,14 +1544,14 @@ const PORT = process.env.PORT || 8080;
 async function startServer() {
   try {
     db = await Database.connect();
-    console.log("Connected to database");
+    log(undefined, "Connected to database");
 
     app.listen(PORT, () => {
-      console.log(`Server listening on port ${PORT}`);
+      log(undefined, `Server listening on port ${PORT}`);
       sendScheduledMessages();
     });
   } catch (error) {
-    console.error("Database connection failed:", error);
+    logError(undefined, "Database connection failed:", error);
     process.exit(1);
   }
 }

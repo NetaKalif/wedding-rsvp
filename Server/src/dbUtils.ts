@@ -19,6 +19,7 @@ import {
 import defaultTasks from "./defaultTasks.json";
 import { getDateStrings } from "./dateUtils";
 import { Pool } from "pg";
+import { loadUserNames, setUserName, removeUserName, log, logError } from "./logger";
 
 require("dotenv").config({ path: ".server.env" });
 
@@ -34,6 +35,7 @@ const pool = new Pool({
   ssl: needsSSL ? { rejectUnauthorized: false } : false,
 });
 const guestColumns = `id, user_id, name, phone, whose, circle, number_of_guests`;
+const USER_NAME_CACHE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 class Database {
   private static instance: Database | null = null;
@@ -56,11 +58,21 @@ class Database {
       Database.connectPromise = (async () => {
         const db = new Database();
         await db.initializeTables();
+        await db.refreshUserNameCache();
+        // Belt-and-suspenders: addUser/deleteUser keep the cache in sync as
+        // they happen, but this catches any drift (e.g. a name edited
+        // directly in the DB) so the cache is never stale for more than a day.
+        setInterval(() => db.refreshUserNameCache(), USER_NAME_CACHE_REFRESH_INTERVAL_MS).unref();
         Database.instance = db;
         return db;
       })();
     }
     return Database.connectPromise;
+  }
+
+  private async refreshUserNameCache(): Promise<void> {
+    const users = await this.runQuery(`SELECT "userID", name FROM users;`, []);
+    loadUserNames(users);
   }
 
   private async initializeTables(): Promise<void> {
@@ -222,6 +234,7 @@ class Database {
   `;
     const values = [userID, email, name, initialStatus];
     const result = await this.runQuery(query, values);
+    setUserName(userID, name);
     return { isNewUser, status: result[0].status };
   }
 
@@ -324,7 +337,9 @@ class Database {
   }
 
   async deleteUser(userID: User["userID"]): Promise<any> {
-    return this.runQuery(`DELETE FROM "users" WHERE "userID" = $1;`, [userID]);
+    const result = await this.runQuery(`DELETE FROM "users" WHERE "userID" = $1;`, [userID]);
+    removeUserName(userID);
+    return result;
   }
 
   // ==================== Event Methods ====================
@@ -495,7 +510,7 @@ class Database {
   async addClientLogsBatch(
     logs: Array<{ userID: string | null; message: string }>,
   ): Promise<void> {
-    console.log("Adding client logs batch:", logs.length);
+    log(undefined, "Adding client logs batch:", logs.length);
     if (logs.length === 0) return;
 
     const values: any[] = [];
@@ -1422,7 +1437,7 @@ class Database {
       const result = await pool.query(query, values);
       return result.rows;
     } catch (err) {
-      console.error("Query failed:", query, values, err);
+      logError(undefined, "Query failed:", query, values, err);
       throw err;
     }
   }

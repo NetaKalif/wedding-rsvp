@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 
 const WHATSAPP_API_BASE = process.env.WHATSAPP_API_BASE_URL ?? "https://graph.facebook.com";
 import Database from "./dbUtils";
+import { log, logError } from "./logger";
 
 dotenv.config();
 
@@ -88,22 +89,26 @@ export const refreshAccessToken = async () => {
     cachedToken = newToken;
 
     const timestamp = new Date().toLocaleTimeString();
-    console.log(
+    log(
+      undefined,
       `✅ Access token refreshed and stored at ${timestamp}:`,
       newToken.slice(0, 10) + "..."
     );
   } catch (error) {
-    console.error(
+    logError(
+      undefined,
       "❌ Failed to refresh access token:",
       error.response?.data || error.message
     );
 
     // Check if this is an expired token error
     if (error.response?.data?.error?.code === 190) {
-      console.log(
+      log(
+        undefined,
         "🔄 Token has expired. Please update WHATSAPP_ACCESS_TOKEN with a new token from Facebook Developer Console."
       );
-      console.log(
+      log(
+        undefined,
         "📖 Instructions: https://developers.facebook.com/docs/whatsapp/business-management-api/get-started"
       );
     }
@@ -114,7 +119,7 @@ export const refreshAccessToken = async () => {
 };
 
 // Initialize the database connection
-initializeDB().catch(console.error);
+initializeDB().catch((error) => logError(undefined, error));
 
 // Refresh token every 50 minutes
 setInterval(refreshAccessToken, 50 * 60 * 1000);
