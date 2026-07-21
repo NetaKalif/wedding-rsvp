@@ -1,5 +1,6 @@
 Client/node_modules/
 Server/node_modules/
+Server/test/.test-port
 
 Client/build
 .wwebjs_auth/

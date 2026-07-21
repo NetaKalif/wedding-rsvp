@@ -28,7 +28,9 @@ npm test                # runs Jest against the running server
 
 Tear down with `npm run test:db:stop` when done. Test env values (other than the ones the `test:server` script inlines) live in `Server/.server.test.env`, which must be created manually (see README for the required keys).
 
-To run a single test file: `npx jest test/flows/rsvp-approve.test.ts --runInBand` (server + mock WhatsApp must already be running). Test files live under `Server/test/flows/`; shared test helpers are in `Server/test/helpers/` and `Server/test/mock-whatsapp/`.
+To run a single test file: `npm test -- test/flows/rsvp-approve.test.ts` (server + mock WhatsApp must already be running). Test files live under `Server/test/flows/`; shared test helpers are in `Server/test/helpers/` and `Server/test/mock-whatsapp/`.
+
+**Test server port is never 8080.** `npm run dev`/`npm start` (the real dev server, reading `Server/.server.env` — a real, production-connected DB and email account) also defaults to port 8080. To make it impossible for test traffic to silently land on that real server, `test:server`/`mock-wa`/`test` are thin wrappers (`Server/test/start-test-server.sh`, `start-mock-wa.sh`, `run-tests.sh`) around the same commands as before, except: `test:server` picks its own port (8090, falling back to 8081) and records it in `Server/test/.test-port`; `mock-wa` and `test` read that file and point `REAL_SERVER_URL` at it automatically. If `.test-port` is missing, `mock-wa`/`test` fail loudly instead of guessing — start `test:server` first. `test:server` also explicitly blanks `EMAIL_USER`/`EMAIL_APP_PASSWORD` so retention/warning-email code paths never send real email during tests (leaving them unset would let `dotenv` fill them in from `.server.env`'s real Gmail credentials).
 
 ### Client (`cd Client`)
 

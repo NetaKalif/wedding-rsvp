@@ -149,7 +149,7 @@ const updateEvent = (eventId: number, updates: Partial<Event>) =>
 // These mint a short-lived, resource-scoped token before building the URL,
 // since <img src>/<a href> can't carry an Authorization header.
 
-type MediaResource = "primaryImage" | "eventImage" | "vendorFile";
+type MediaResource = "primaryImage" | "eventImage" | "vendorFile" | "dataExport";
 
 const mintMediaToken = (resource: MediaResource, resourceId?: number) =>
   post<{ token: string }>("/media/token", { resource, resourceId });
@@ -162,6 +162,11 @@ const getPrimaryImageUrl = async (): Promise<string> => {
 const getEventImageUrl = async (eventId: number): Promise<string> => {
   const { token } = await mintMediaToken("eventImage", eventId);
   return `${url}/events/${eventId}/image?mediaToken=${encodeURIComponent(token)}`;
+};
+
+const getMyDataExportUrl = async (): Promise<string> => {
+  const { token } = await mintMediaToken("dataExport");
+  return `${url}/export/my-data/download?mediaToken=${encodeURIComponent(token)}`;
 };
 
 // ==================== EventGuest Methods ====================
@@ -206,6 +211,19 @@ const getUsers = () => post<User[]>("/getUsers");
 const getPendingUsers = () => post<User[]>("/admin/getPendingUsers");
 const approveUser = (userID: string) => post<void>("/admin/approveUser", { userID });
 const declineUser = (userID: string) => post<void>("/admin/declineUser", { userID });
+
+export interface ScheduledDeletion {
+  userID: string;
+  name: string;
+  email: string;
+  weddingDate: string;
+  warningSentAt: string | null;
+  cancelledAt: string | null;
+}
+
+const getScheduledDeletions = () => post<ScheduledDeletion[]>("/admin/getScheduledDeletions");
+const cancelScheduledDeletion = (userID: string) =>
+  post<void>("/admin/cancelScheduledDeletion", { userID });
 
 // ==================== Task Methods ====================
 
@@ -310,7 +328,7 @@ export const httpRequests = {
   getGuests, addGuests, updateGuest, deleteGuest, deleteAllGuests,
   // Events
   getPrimaryEvent, saveEventInfo, getEvents, createEvent, deleteEvent, updateEvent,
-  getEventImageUrl, getPrimaryImageUrl,
+  getEventImageUrl, getPrimaryImageUrl, getMyDataExportUrl,
   // Event guests + RSVP
   getEventGuests, setEventGuests, removeEventGuests, setRSVP,
   // Messages
@@ -319,6 +337,7 @@ export const httpRequests = {
   getLogs,
   // Admin
   getUsers, getPendingUsers, approveUser, declineUser,
+  getScheduledDeletions, cancelScheduledDeletion,
   // Tasks
   getTasks, addTask, updateTaskCompletion, updateTask, deleteTask,
   // Partner

@@ -61,7 +61,7 @@ app.delete("/mock/messages", (_req: any, res: any) => {
 // REAL_SERVER_URL defaults to http://localhost:3000 but can be overridden via env
 app.post("/mock/simulate-reply", async (req: any, res: any) => {
   const { from, type, payload } = req.body as { from: string; type: "button" | "text"; payload: string };
-  const realServerUrl = process.env.REAL_SERVER_URL ?? "http://localhost:8080";
+  const realServerUrl = process.env.REAL_SERVER_URL ?? "http://localhost:8081";
 
   const message =
     type === "button"

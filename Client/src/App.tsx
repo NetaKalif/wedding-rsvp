@@ -17,6 +17,7 @@ import { BudgetDashboard } from "./components/budgetAndVendors/BudgetDashboard";
 import WelcomePage from "./components/welcomePage/WelcomePage";
 import PendingApprovalPage from "./components/pendingApproval/PendingApprovalPage";
 import AdminApprovalsPage from "./components/admin/AdminApprovalsPage";
+import ScheduledDeletionsPage from "./components/admin/ScheduledDeletionsPage";
 import { useAuth, AuthProvider } from "./hooks/useAuth";
 import { AppDataProvider, useAppData } from "./hooks/useAppData";
 import { Loader } from "@wix/design-system";
@@ -69,6 +70,10 @@ function AppContent() {
           <Route
             path="/admin"
             element={isAdmin ? <AdminApprovalsPage /> : <Navigate to="/" />}
+          />
+          <Route
+            path="/admin/scheduled-deletions"
+            element={isAdmin ? <ScheduledDeletionsPage /> : <Navigate to="/" />}
           />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/terms-of-service" element={<TermsOfService />} />

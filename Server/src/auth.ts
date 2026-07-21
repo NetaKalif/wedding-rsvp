@@ -69,6 +69,7 @@ const MEDIA_ROUTE_PATTERNS = [
   /^\/getImage$/,
   /^\/events\/\d+\/image$/,
   /^\/budget\/files\/\d+\/download$/,
+  /^\/export\/my-data\/download$/,
 ];
 
 export const authenticateMiddleware: RequestHandler = (

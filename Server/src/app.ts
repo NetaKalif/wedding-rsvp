@@ -16,7 +16,7 @@ import {
   batchLogMessageResults,
   MessageResult,
 } from "./utils";
-import { getDateFormat, getWeddingDateStrings } from "./dateUtils";
+import { getDateFormat, getWeddingDateStrings, daysBetween, addDays } from "./dateUtils";
 import axios from "axios";
 import { getAccessToken } from "./whatsappTokenManager";
 import {
@@ -25,7 +25,8 @@ import {
   verifyGoogleToken,
   issueSessionToken,
 } from "./auth";
-import { sendApprovalRequestEmail } from "./email";
+import { sendApprovalRequestEmail, sendDataExportWarningEmail } from "./email";
+import { buildAllExports, zipExports } from "./dataExport";
 import { log, logError } from "./logger";
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -115,7 +116,7 @@ const resolveDataOwner = async (userID: string): Promise<string> => {
 
 // Short-lived signed tokens for image/file URLs that can't carry an
 // Authorization header (used directly as <img src>/<a href>).
-type MediaResource = "primaryImage" | "eventImage" | "vendorFile";
+type MediaResource = "primaryImage" | "eventImage" | "vendorFile" | "dataExport";
 
 interface MediaTokenPayload {
   userID: string;
@@ -266,6 +267,21 @@ app.post("/auth/google", async (req: Request, res: Response) => {
     return handleError(res, error, "Failed to sign in with Google");
   }
 });
+
+// Test-only trigger so integration tests can exercise the retention sweep
+// deterministically instead of waiting on the real 60-second interval.
+// Registered here (above the auth middleware) since it's a system-level test
+// utility, not tied to any user's session.
+if (process.env.NODE_ENV === "test") {
+  app.post("/test/run-retention-check", async (req: Request, res: Response) => {
+    try {
+      await runAccountRetentionCheck();
+      res.status(200).send("ok");
+    } catch (error) {
+      return handleError(res, error, "Failed to run retention check");
+    }
+  });
+}
 
 // ==================== Auth Middleware (everything below requires a valid session) ====================
 
@@ -824,6 +840,26 @@ app.post("/admin/declineUser", requireAdmin, async (req: Request, res: Response)
   }
 });
 
+app.post("/admin/getScheduledDeletions", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const deletions = await db.getScheduledDeletions(process.env.ADMIN_USER_ID || "");
+    res.status(200).json(deletions);
+  } catch (error) {
+    return handleError(res, error, "Failed to retrieve scheduled deletions");
+  }
+});
+
+app.post("/admin/cancelScheduledDeletion", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { userID } = req.body;
+    if (!userID) return res.status(400).send("userID is required");
+    await db.cancelScheduledDeletion(userID);
+    res.status(200).send("Scheduled deletion cancelled");
+  } catch (error) {
+    return handleError(res, error, "Failed to cancel scheduled deletion");
+  }
+});
+
 // ==================== Partner/Collaboration Endpoints ====================
 
 // Generate an invite code to share with partner
@@ -1282,6 +1318,32 @@ app.get(
   },
 );
 
+// Download a zip of the user's own data (RSVP status, tasks, budget) — on demand,
+// same three files as the 60-day pre-deletion warning email.
+app.get(
+  "/export/my-data/download",
+  async (req: Request, res: Response) => {
+    let mediaUserID: string | undefined;
+    try {
+      const mediaToken = req.query.mediaToken as string;
+      const payload = verifyMediaToken(mediaToken, "dataExport");
+      if (!payload) return res.status(401).send("Invalid or expired media token");
+      mediaUserID = payload.userID;
+
+      const dataOwner = await resolveDataOwner(payload.userID);
+      const exports = await buildAllExports(db, dataOwner);
+      const zipBuffer = await zipExports(exports);
+
+      res.setHeader("Content-Disposition", 'attachment; filename="wedding-data.zip"');
+      res.setHeader("Content-Type", "application/zip");
+      res.send(zipBuffer);
+    } catch (error) {
+      logError(mediaUserID, "Error building data export:", error);
+      return res.status(500).send("Failed to build data export");
+    }
+  },
+);
+
 // Delete a vendor file
 app.delete("/budget/files/:fileId", async (req: Request, res: Response) => {
   try {
@@ -1532,11 +1594,74 @@ const cleanupOldLogs = async () => {
   }
 };
 
+// 60 days after the wedding, an account (and its linked partner, if any) is
+// permanently deleted; 3 days before that a warning email with a full data
+// export goes out. Deletion never runs for an account until its warning has
+// been *confirmed sent* — a failed send is retried the next day instead.
+const WARNING_DAYS_BEFORE_DELETION = 57;
+const DELETION_DAYS = 60;
+
+const deleteAccountAndPartner = async (ownerID: string, weddingDate: string) => {
+  const owner = await db.getUserByID(ownerID);
+  if (!owner) return; // already deleted by a previous, interrupted run
+  const { partner } = await db.getPartnerInfo(ownerID);
+
+  await db.recordDeletedAccount({ userID: ownerID, email: owner.email, name: owner.name, weddingDate, role: "owner" });
+  if (partner) {
+    await db.recordDeletedAccount({ userID: partner.userID, email: partner.email, name: partner.name, weddingDate, role: "partner" });
+  }
+
+  // Delete the partner first (nothing references its row); only delete the
+  // owner — which cascades every owned table — once that's succeeded, so a
+  // crash mid-sequence leaves state a later run can safely retry.
+  if (partner) await db.deleteUser(partner.userID);
+  await db.deleteUser(ownerID);
+  await logMessage(undefined, `🗑️ Auto-deleted account ${ownerID} 60 days after wedding`);
+};
+
+const runAccountRetentionCheck = async () => {
+  try {
+    const events = await db.getPrimaryEventsForRetentionCheck(process.env.ADMIN_USER_ID || "");
+    for (const event of events) {
+      const daysSince = daysBetween(getIsraelTime(), event.date!);
+      if (daysSince < WARNING_DAYS_BEFORE_DELETION) continue;
+
+      if (!event.deletion_warning_sent_at) {
+        try {
+          const owner = await db.getUserByID(event.user_id);
+          if (!owner) continue;
+          const exports = await buildAllExports(db, event.user_id);
+          await sendDataExportWarningEmail({
+            userID: event.user_id,
+            name: owner.name,
+            email: owner.email,
+            weddingDate: event.date!,
+            deletionDate: addDays(event.date!, DELETION_DAYS),
+            attachments: exports,
+          });
+          await db.markDeletionWarningSent(event.id!);
+          await logMessage(event.user_id, "📧 Sent 60-day data deletion warning email");
+        } catch (err) {
+          logError(event.user_id, `Failed to send deletion warning for ${event.user_id}:`, err);
+          continue; // retried tomorrow; deletion below is gated on this succeeding
+        }
+      }
+
+      if (daysSince >= DELETION_DAYS && event.deletion_warning_sent_at) {
+        await deleteAccountAndPartner(event.user_id, event.date!);
+      }
+    }
+  } catch (error) {
+    logError(undefined, "Error running account retention check:", error);
+  }
+};
+
 setInterval(() => {
   sendScheduledMessages();
   const now = new Date();
   if (now.getHours() === 0 && now.getMinutes() === 0) {
     cleanupOldLogs();
+    runAccountRetentionCheck();
   }
 }, 60000);
 
@@ -1549,6 +1674,7 @@ async function startServer() {
     app.listen(PORT, () => {
       log(undefined, `Server listening on port ${PORT}`);
       sendScheduledMessages();
+      runAccountRetentionCheck();
     });
   } catch (error) {
     logError(undefined, "Database connection failed:", error);

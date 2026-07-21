@@ -36,3 +36,17 @@ export const getWeddingDateStrings = (
 export const getDateFormat = (date: Date): string => {
   return date.toISOString().split("T")[0];
 };
+
+/** Whole days elapsed from `fromDateStr` to `now` (midnight-to-midnight, ignoring time-of-day). */
+export const daysBetween = (now: Date, fromDateStr: string): number => {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const nowMidnight = new Date(getDateFormat(now));
+  const fromMidnight = new Date(getDateFormat(new Date(fromDateStr)));
+  return Math.round((nowMidnight.getTime() - fromMidnight.getTime()) / msPerDay);
+};
+
+export const addDays = (dateStr: string, days: number): string => {
+  const date = new Date(dateStr);
+  date.setDate(date.getDate() + days);
+  return getDateFormat(date);
+};

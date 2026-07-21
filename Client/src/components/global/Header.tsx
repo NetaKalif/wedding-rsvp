@@ -72,8 +72,22 @@ const Header = ({
             {isAdmin
               ? <PopoverMenu.MenuItem text="בקשות הרשמה ממתינות" onClick={() => navigate("/admin")} />
               : null}
+            {isAdmin
+              ? <PopoverMenu.MenuItem text="מחיקות מתוזמנות" onClick={() => navigate("/admin/scheduled-deletions")} />
+              : null}
             {isAdmin ? <PopoverMenu.Divider /> : null}
             <PopoverMenu.MenuItem text="יומן" onClick={() => setIsViewLogsModalOpen(true)} />
+            <PopoverMenu.MenuItem
+              text="הורדת הנתונים שלי"
+              onClick={async () => {
+                try {
+                  const exportUrl = await httpRequests.getMyDataExportUrl();
+                  window.open(exportUrl, "_blank");
+                } catch (error) {
+                  console.error("Error downloading data export:", error);
+                }
+              }}
+            />
             <PopoverMenu.Divider />
             <PopoverMenu.MenuItem text="התנתקות" onClick={handleLogout} />
             <PopoverMenu.MenuItem

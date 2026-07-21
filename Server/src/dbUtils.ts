@@ -211,6 +211,24 @@ class Database {
         UNIQUE(event_id, guest_id)
       );`, []);
 
+    // 60-day post-wedding data retention: warning email + hard-delete tracking
+    // on the primary event, and a standalone audit trail that outlives the
+    // deleted user row.
+    await this.runQuery(`
+      ALTER TABLE events ADD COLUMN IF NOT EXISTS deletion_warning_sent_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;`, []);
+    await this.runQuery(`
+      ALTER TABLE events ADD COLUMN IF NOT EXISTS deletion_cancelled_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;`, []);
+
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS deleted_accounts (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        email TEXT,
+        name TEXT,
+        wedding_date TEXT,
+        role TEXT NOT NULL CHECK (role IN ('owner','partner')),
+        deleted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );`, []);
   }
 
   // Add or update user (Google login). Returns whether the row was newly
@@ -385,7 +403,11 @@ class Database {
   async updateEvent(eventId: number, updates: Partial<Omit<Event, "id" | "user_id" | "created_at">>): Promise<Event | null> {
     const fields = Object.keys(updates);
     if (fields.length === 0) return this.getEventById(eventId);
-    const setClauses = fields.map((f, i) => `${f}=$${i + 2}`).join(", ");
+    // Postponing/moving the wedding date restarts the 60-day deletion countdown.
+    const clearsDeletionWarning = fields.includes("date");
+    const setClauses = fields.map((f, i) => `${f}=$${i + 2}`)
+      .concat(clearsDeletionWarning ? ["deletion_warning_sent_at=NULL"] : [])
+      .join(", ");
     const values = [eventId, ...fields.map(f => (updates as any)[f])];
     const rows = await this.runQuery(
       `UPDATE events SET ${setClauses} WHERE id=$1 RETURNING *;`,
@@ -951,6 +973,80 @@ class Database {
     return result.length > 0 ? (result[0] as User) : null;
   }
 
+  // ==================== Account Retention (60-day post-wedding deletion) ====================
+
+  /**
+   * Primary events that drive their own account's deletion countdown: only
+   * accounts that are not themselves a linked partner (partner_user_id IS NULL)
+   * get their own timeline, so a partner's stale pre-link primary event can
+   * never spawn a second, independent countdown. Cancelled and admin-excluded
+   * accounts are filtered out here too.
+   */
+  async getPrimaryEventsForRetentionCheck(adminUserID: string): Promise<Event[]> {
+    return this.runQuery(
+      `SELECT e.* FROM events e
+       JOIN users u ON u."userID" = e.user_id
+       WHERE e.is_primary = TRUE
+         AND e.date IS NOT NULL
+         AND e.deletion_cancelled_at IS NULL
+         AND u.primary_user_id IS NULL
+         AND u."userID" != $1;`,
+      [adminUserID],
+    );
+  }
+
+  async markDeletionWarningSent(eventId: number): Promise<void> {
+    await this.runQuery(
+      `UPDATE events SET deletion_warning_sent_at = CURRENT_TIMESTAMP WHERE id = $1;`,
+      [eventId],
+    );
+  }
+
+  async cancelScheduledDeletion(userID: string): Promise<void> {
+    await this.runQuery(
+      `UPDATE events SET deletion_cancelled_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND is_primary = TRUE;`,
+      [userID],
+    );
+  }
+
+  /** Admin view of every account's retention state, cancelled or not. */
+  async getScheduledDeletions(adminUserID: string): Promise<{
+    userID: string;
+    name: string;
+    email: string;
+    weddingDate: string;
+    warningSentAt: Date | null;
+    cancelledAt: Date | null;
+  }[]> {
+    const rows = await this.runQuery(
+      `SELECT u."userID" as "userID", u.name, u.email, e.date as "weddingDate",
+              e.deletion_warning_sent_at as "warningSentAt", e.deletion_cancelled_at as "cancelledAt"
+       FROM events e
+       JOIN users u ON u."userID" = e.user_id
+       WHERE e.is_primary = TRUE
+         AND e.date IS NOT NULL
+         AND u.primary_user_id IS NULL
+         AND u."userID" != $1
+       ORDER BY e.date ASC;`,
+      [adminUserID],
+    );
+    return rows;
+  }
+
+  async recordDeletedAccount(entry: {
+    userID: string;
+    email?: string | null;
+    name?: string | null;
+    weddingDate?: string | null;
+    role: "owner" | "partner";
+  }): Promise<void> {
+    await this.runQuery(
+      `INSERT INTO deleted_accounts (user_id, email, name, wedding_date, role)
+       VALUES ($1, $2, $3, $4, $5);`,
+      [entry.userID, entry.email ?? null, entry.name ?? null, entry.weddingDate ?? null, entry.role],
+    );
+  }
+
   // ==================== Budget Category Methods ====================
 
   // Get all budget categories for a user with actual spending calculated
@@ -1368,6 +1464,18 @@ class Database {
     `;
     const results = await this.runQuery(query, [vendorId]);
     return results;
+  }
+
+  // Get every uploaded file (with its binary data) across all of a user's vendors — used by the data export.
+  async getAllVendorFilesForExport(userID: string): Promise<VendorFile[]> {
+    const query = `
+      SELECT vf.file_id, vf.vendor_id, vf.file_name, vf.file_type, vf.file_size, vf.file_data, vf.uploaded_at
+      FROM vendor_files vf
+      JOIN vendors v ON vf.vendor_id = v.vendor_id
+      WHERE v.user_id = $1
+      ORDER BY vf.uploaded_at DESC;
+    `;
+    return this.runQuery(query, [userID]);
   }
 
   // Add a file to a vendor

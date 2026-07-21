@@ -45,6 +45,9 @@ export interface Event {
   estimated_guests?: number;
   total_budget?: number;
   created_at?: Date;
+  // 60-day post-wedding data retention (primary event only):
+  deletion_warning_sent_at?: Date | null;
+  deletion_cancelled_at?: Date | null;
 }
 
 /**
