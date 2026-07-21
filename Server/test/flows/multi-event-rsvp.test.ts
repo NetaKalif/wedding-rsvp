@@ -13,11 +13,11 @@
 
 import axios from "axios";
 import { MockWhatsAppClient } from "../mock-whatsapp/client";
+import { authHeader } from "../helpers/auth";
 
 const REAL_SERVER = process.env.REAL_SERVER_URL ?? "http://localhost:8080";
 const mock = new MockWhatsAppClient(3001);
 
-const USER_ID = "test-user-id";
 const WEDDING_EVENT_ID = 1;
 const HENNA_EVENT_ID = 2;
 const ALICE_ID = 2;
@@ -30,14 +30,15 @@ const CLARE_PHONE = "972503333333";
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const sendRsvpToEvent = (eventId: number, guestIds?: number[]) =>
-  axios.post(`${REAL_SERVER}/sendMessage`, {
-    userID: USER_ID,
-    options: { messageType: "rsvp", eventId, ...(guestIds ? { guestIds } : {}) },
-  });
+  axios.post(
+    `${REAL_SERVER}/sendMessage`,
+    { options: { messageType: "rsvp", eventId, ...(guestIds ? { guestIds } : {}) } },
+    { headers: authHeader() },
+  );
 
 const getEventGuests = async (eventId: number) => {
   const { data } = await axios.get(`${REAL_SERVER}/events/${eventId}/guests`, {
-    params: { userID: USER_ID },
+    headers: authHeader(),
   });
   return data as Array<{ guest_id: number; rsvp_status: number | null }>;
 };
@@ -48,12 +49,11 @@ const getRsvp = async (eventId: number, guestId: number) => {
 };
 
 const setRsvp = (eventId: number, guestId: number, rsvpStatus: number | null) =>
-  axios.post(`${REAL_SERVER}/updateRsvp`, {
-    userID: USER_ID,
-    eventId,
-    guestId,
-    rsvpStatus,
-  });
+  axios.post(
+    `${REAL_SERVER}/updateRsvp`,
+    { eventId, guestId, rsvpStatus },
+    { headers: authHeader() },
+  );
 
 // ── Setup / teardown ─────────────────────────────────────────────────────────
 

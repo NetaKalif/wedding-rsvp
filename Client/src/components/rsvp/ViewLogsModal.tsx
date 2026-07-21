@@ -6,12 +6,10 @@ import "./css/ViewLogsModal.css";
 
 interface ViewLogsModalProps {
   setIsViewLogsModalOpen: (isOpen: boolean) => void;
-  userID: string;
 }
 
 const ViewLogsModal: React.FC<ViewLogsModalProps> = ({
   setIsViewLogsModalOpen,
-  userID,
 }) => {
   const [logs, setLogs] = useState<ClientLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,7 +20,7 @@ const ViewLogsModal: React.FC<ViewLogsModalProps> = ({
       try {
         setLoading(true);
         setError(null);
-        const fetchedLogs = await httpRequests.getLogs(userID);
+        const fetchedLogs = await httpRequests.getLogs();
         setLogs(fetchedLogs);
       } catch (err) {
         setError("שגיאה בטעינת הרשומות");
@@ -33,7 +31,7 @@ const ViewLogsModal: React.FC<ViewLogsModalProps> = ({
     };
 
     fetchLogs();
-  }, [userID]);
+  }, []);
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);

@@ -9,13 +9,13 @@
 
 import axios from "axios";
 import { MockWhatsAppClient } from "../mock-whatsapp/client";
+import { authHeader } from "../helpers/auth";
 
 const REAL_SERVER = process.env.REAL_SERVER_URL ?? "http://localhost:8080";
 const MOCK_PORT = 3001;
 const mock = new MockWhatsAppClient(MOCK_PORT);
 
 // ── Seed data (created by globalSetup) ───────────────────────────────────────
-const TEST_USER_ID = "test-user-id";
 const TEST_EVENT_ID = 1;
 const TEST_GUEST_ID = 1;
 const TEST_GUEST_PHONE = "972501234567"; // without "+"
@@ -23,25 +23,25 @@ const TEST_GUEST_PHONE = "972501234567"; // without "+"
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const sendRsvp = () =>
-  axios.post(`${REAL_SERVER}/sendMessage`, {
-    userID: TEST_USER_ID,
-    options: { messageType: "rsvp", eventId: TEST_EVENT_ID, guestIds: [TEST_GUEST_ID] },
-  });
+  axios.post(
+    `${REAL_SERVER}/sendMessage`,
+    { options: { messageType: "rsvp", eventId: TEST_EVENT_ID, guestIds: [TEST_GUEST_ID] } },
+    { headers: authHeader() },
+  );
 
 const getGuest = async () => {
   const { data } = await axios.get(`${REAL_SERVER}/events/${TEST_EVENT_ID}/guests`, {
-    params: { userID: TEST_USER_ID },
+    headers: authHeader(),
   });
   return data.find((g: { guest_id: number }) => g.guest_id === TEST_GUEST_ID);
 };
 
 const resetRsvp = (rsvpStatus: number | null) =>
-  axios.post(`${REAL_SERVER}/updateRsvp`, {
-    userID: TEST_USER_ID,
-    eventId: TEST_EVENT_ID,
-    guestId: TEST_GUEST_ID,
-    rsvpStatus,
-  });
+  axios.post(
+    `${REAL_SERVER}/updateRsvp`,
+    { eventId: TEST_EVENT_ID, guestId: TEST_GUEST_ID, rsvpStatus },
+    { headers: authHeader() },
+  );
 
 // ─────────────────────────────────────────────────────────────────────────────
 

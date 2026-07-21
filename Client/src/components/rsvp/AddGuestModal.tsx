@@ -165,12 +165,12 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
     setIsAddGuestModalOpen(false);
 
     // Background sync — replace temp guest with real server data
-    const newGuests = await httpRequests.addGuests(userID, valid);
+    const newGuests = await httpRequests.addGuests(valid);
     const newGuestIds = newGuests.map((g) => g.id).filter((id): id is number => id != null);
     if (newGuestIds.length > 0) {
-      await httpRequests.setEventGuests(userID, eventId, newGuestIds);
+      await httpRequests.setEventGuests(eventId, newGuestIds);
     }
-    const updatedEventGuests = await httpRequests.getEventGuests(userID, eventId);
+    const updatedEventGuests = await httpRequests.getEventGuests(eventId);
     onEventGuestsChange(updatedEventGuests);
   };
 
@@ -189,13 +189,13 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
         .map((g) => g.id)
         .filter((id): id is number => id != null && !existingIds.has(id));
       if (newIds.length > 0) {
-        await httpRequests.setEventGuests(userID, eventId, newIds);
+        await httpRequests.setEventGuests(eventId, newIds);
       }
-      const updatedEventGuests = await httpRequests.getEventGuests(userID, eventId);
+      const updatedEventGuests = await httpRequests.getEventGuests(eventId);
       onEventGuestsChange(updatedEventGuests);
     };
 
-    const { rejected, addedCount, fileError: importFileError } = await handleImport(userID, file, primaryGuestsList, wrappedSetGuestsList);
+    const { rejected, addedCount, fileError: importFileError } = await handleImport(file, primaryGuestsList, wrappedSetGuestsList);
     setIsUploading(false);
 
     if (importFileError) {

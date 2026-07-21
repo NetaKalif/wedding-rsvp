@@ -103,7 +103,7 @@ export const BudgetDashboard: React.FC = () => {
       return { ...prev, total_budget: value, remaining_budget: remaining, usage_percentage: usage };
     });
     try {
-      await httpRequests.updateTotalBudget(user.userID, value);
+      await httpRequests.updateTotalBudget(value);
     } catch (error) {
       console.error("Error updating total budget:", error);
       refreshBudget();
@@ -118,7 +118,7 @@ export const BudgetDashboard: React.FC = () => {
       return { ...prev, estimated_guests: value, price_per_guest: pricePerGuest };
     });
     try {
-      await httpRequests.updateEstimatedGuests(user.userID, value);
+      await httpRequests.updateEstimatedGuests(value);
     } catch (error) {
       console.error("Error updating estimated guests:", error);
       refreshBudget();
@@ -128,7 +128,7 @@ export const BudgetDashboard: React.FC = () => {
   const handleAddCategory = async (name: BudgetCategoryName) => {
     if (!user) return;
     try {
-      const newCat = await httpRequests.addBudgetCategory(user.userID, name);
+      const newCat = await httpRequests.addBudgetCategory(name);
       setShowAddCategory(false);
       setBudgetOverview(prev => {
         if (!prev) return prev;

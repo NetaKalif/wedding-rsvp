@@ -82,9 +82,9 @@ const CreateEventWizard: React.FC<CreateEventWizardProps> = ({
     if (!form.ceremony_name.trim()) return;
     setIsSaving(true);
     try {
-      const event = await httpRequests.createEvent(userID, { ...form, is_primary: false }, imageFile);
+      const event = await httpRequests.createEvent({ ...form, is_primary: false }, imageFile);
       if (selectedGuestIds.size > 0) {
-        await httpRequests.setEventGuests(userID, event.id, Array.from(selectedGuestIds));
+        await httpRequests.setEventGuests(event.id, Array.from(selectedGuestIds));
       }
       onCreated(event);
     } catch (err) {

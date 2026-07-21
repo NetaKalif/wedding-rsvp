@@ -6,34 +6,34 @@
 
 import axios from "axios";
 import FormData from "form-data";
+import { authHeader, TEST_USER_ID } from "../helpers/auth";
 
 const REAL_SERVER = process.env.REAL_SERVER_URL ?? "http://localhost:8080";
 
-const USER_ID = "test-user-id";
+const USER_ID = TEST_USER_ID;
 const WEDDING_EVENT_ID = 1;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const getEvents = async () => {
-  const { data } = await axios.get(`${REAL_SERVER}/events/${USER_ID}`);
+const getEvents = async (userID = USER_ID) => {
+  const { data } = await axios.get(`${REAL_SERVER}/events`, { headers: authHeader(userID) });
   return data as Array<{ id: number; ceremony_name: string; is_primary: boolean }>;
 };
 
 const createEvent = async (ceremonyName: string) => {
   const form = new FormData();
-  form.append("userID", USER_ID);
   form.append("ceremony_name", ceremonyName);
   const { data } = await axios.post(`${REAL_SERVER}/events`, form, {
-    headers: form.getHeaders(),
+    headers: { ...form.getHeaders(), ...authHeader() },
   });
   return data as { id: number; ceremony_name: string };
 };
 
 const deleteEvent = (eventId: number) =>
-  axios.delete(`${REAL_SERVER}/events/${eventId}`, { data: { userID: USER_ID } });
+  axios.delete(`${REAL_SERVER}/events/${eventId}`, { headers: authHeader() });
 
 const getEventGuests = (eventId: number, userID = USER_ID) =>
-  axios.get(`${REAL_SERVER}/events/${eventId}/guests`, { params: { userID } });
+  axios.get(`${REAL_SERVER}/events/${eventId}/guests`, { headers: authHeader(userID) });
 
 // ── Track events created during tests ────────────────────────────────────────
 const createdEventIds: number[] = [];
@@ -80,7 +80,7 @@ describe("Create secondary event", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("Authorization", () => {
-  it("GET /events/:eventId/guests with wrong userID returns 404", async () => {
+  it("GET /events/:eventId/guests with a different user's token returns 404", async () => {
     await expect(
       getEventGuests(WEDDING_EVENT_ID, "wrong-user-id"),
     ).rejects.toMatchObject({ response: { status: 404 } });
@@ -92,19 +92,21 @@ describe("Authorization", () => {
 describe("sendMessage error handling", () => {
   it("sending to a non-existent eventId returns 404", async () => {
     await expect(
-      axios.post(`${REAL_SERVER}/sendMessage`, {
-        userID: USER_ID,
-        options: { messageType: "rsvp", eventId: 99999 },
-      }),
+      axios.post(
+        `${REAL_SERVER}/sendMessage`,
+        { options: { messageType: "rsvp", eventId: 99999 } },
+        { headers: authHeader() },
+      ),
     ).rejects.toMatchObject({ response: { status: 404 } });
   });
 
   it("sending freeText with empty customText returns 400", async () => {
     await expect(
-      axios.post(`${REAL_SERVER}/sendMessage`, {
-        userID: USER_ID,
-        options: { messageType: "freeText", eventId: WEDDING_EVENT_ID, customText: "   " },
-      }),
+      axios.post(
+        `${REAL_SERVER}/sendMessage`,
+        { options: { messageType: "freeText", eventId: WEDDING_EVENT_ID, customText: "   " } },
+        { headers: authHeader() },
+      ),
     ).rejects.toMatchObject({ response: { status: 400 } });
   });
 });

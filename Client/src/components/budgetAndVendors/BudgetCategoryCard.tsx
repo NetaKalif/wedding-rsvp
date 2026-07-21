@@ -77,7 +77,7 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
       return { ...prev, categories: cats, ...recalcBudgetTotals(cats, prev.total_budget, prev.estimated_guests) };
     });
     try {
-      await httpRequests.deleteBudgetCategory(user.userID, category.category_id);
+      await httpRequests.deleteBudgetCategory(category.category_id);
     } catch (error) {
       console.error("Error deleting category:", error);
       refreshBudget();
@@ -95,9 +95,9 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
     try {
       let savedVendor: Vendor | null = null;
       if (editingVendor) {
-        savedVendor = await httpRequests.updateVendor(user.userID, editingVendor.vendor_id, vendorData, files);
+        savedVendor = await httpRequests.updateVendor(editingVendor.vendor_id, vendorData, files);
       } else {
-        savedVendor = await httpRequests.addVendor(user.userID, { ...vendorData, category_id: category.category_id }, files);
+        savedVendor = await httpRequests.addVendor({ ...vendorData, category_id: category.category_id }, files);
       }
       setShowVendorModal(false);
       setEditingVendor(null);
@@ -176,7 +176,7 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
       return { ...prev, categories: updatedCats, ...recalcBudgetTotals(updatedCats, prev.total_budget, prev.estimated_guests) };
     });
     try {
-      await httpRequests.deleteVendor(user.userID, vendorId);
+      await httpRequests.deleteVendor(vendorId);
     } catch (error) {
       console.error("Error deleting vendor:", error);
       refreshBudget();
@@ -200,16 +200,17 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
       });
     toggle();
     try {
-      await httpRequests.toggleVendorFavorite(user.userID, vendorId);
+      await httpRequests.toggleVendorFavorite(vendorId);
     } catch (error) {
       console.error("Error toggling favorite:", error);
       toggle(); // rollback by toggling back
     }
   };
 
-  const handleDownloadFile = (fileId: number) => {
+  const handleDownloadFile = async (fileId: number) => {
     if (!user) return;
-    window.open(httpRequests.getVendorFileDownloadUrl(user.userID, fileId), "_blank");
+    const url = await httpRequests.getVendorFileDownloadUrl(fileId);
+    window.open(url, "_blank");
   };
 
   const handleDeleteFile = async (fileId: number) => {
@@ -230,7 +231,7 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
       };
     });
     try {
-      await httpRequests.deleteVendorFile(user.userID, fileId);
+      await httpRequests.deleteVendorFile(fileId);
     } catch (error) {
       console.error("Error deleting file:", error);
       refreshBudget();

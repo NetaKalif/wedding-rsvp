@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   SidePanel,
   Box,
@@ -10,14 +10,13 @@ import {
   FormField,
   Checkbox,
 } from "@wix/design-system";
-import { Event, EventGuest, User } from "../../types";
+import { Event, EventGuest } from "../../types";
 import { httpRequests } from "../../httpClient";
 import WhatsAppPreview from "./WhatsAppPreview";
 import "./css/WhatsAppMessage.css";
 
 interface MessageGroupsModalProps {
   setIsMessageGroupsModalOpen: (value: boolean) => void;
-  userID: User["userID"];
   eventId: number;
   eventGuests: EventGuest[];
   event: Event;
@@ -32,14 +31,17 @@ export type MessageType =
 
 const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   setIsMessageGroupsModalOpen,
-  userID,
   eventId,
   eventGuests,
   event,
 }) => {
-  const imageUrl = event.file_id
-    ? httpRequests.getEventImageUrl(event.id)
-    : httpRequests.getPrimaryImageUrl(userID);
+  const getImageUrl = useCallback(
+    () =>
+      event.file_id
+        ? httpRequests.getEventImageUrl(event.id)
+        : httpRequests.getPrimaryImageUrl(),
+    [event.id, event.file_id]
+  );
 
   const [messageType, setMessageType] = useState<MessageType>("rsvp");
   const [customText, setCustomText] = useState("");
@@ -79,7 +81,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
 
     setIsSending(true);
     httpRequests
-      .sendMessage(userID, {
+      .sendMessage({
         eventId,
         messageType,
         guestIds,
@@ -280,7 +282,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
 
             <WhatsAppPreview
               event={event}
-              imageUrl={imageUrl}
+              getImageUrl={getImageUrl}
               isCollapsible={true}
               showAllMessages={false}
               messageType={messageType}

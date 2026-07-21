@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
+import jwt from "jsonwebtoken";
 import Database from "./dbUtils";
 import { User, Event, EventGuest, TemplateName } from "./types";
 import { Request, Response, RequestHandler } from "express-serve-static-core";
@@ -18,13 +19,19 @@ import {
 import { getDateFormat, getWeddingDateStrings } from "./dateUtils";
 import axios from "axios";
 import { getAccessToken } from "./whatsappTokenManager";
+import {
+  authenticateMiddleware,
+  requireAdmin,
+  verifyGoogleToken,
+  issueSessionToken,
+} from "./auth";
 
 const upload = multer({ storage: multer.memoryStorage() });
 dotenv.config({ path: ".server.env" });
 
 const app = express();
 app.use(express.json() as any);
-app.use(cors() as any);
+app.use(cors({ origin: process.env.CLIENT_URL }) as any);
 app.use(express.urlencoded({ extended: true }) as any);
 
 let db: Database;
@@ -104,7 +111,40 @@ const resolveDataOwner = async (userID: string): Promise<string> => {
   return db.getEffectiveUserID(userID);
 };
 
-// ==================== Routes ====================
+// Short-lived signed tokens for image/file URLs that can't carry an
+// Authorization header (used directly as <img src>/<a href>).
+type MediaResource = "primaryImage" | "eventImage" | "vendorFile";
+
+interface MediaTokenPayload {
+  userID: string;
+  resource: MediaResource;
+  resourceId?: number;
+}
+
+const verifyMediaToken = (
+  token: string | undefined,
+  resource: MediaResource,
+  resourceId?: number,
+): MediaTokenPayload | null => {
+  if (!token) return null;
+  try {
+    const payload = jwt.verify(
+      token,
+      process.env.MEDIA_TOKEN_SECRET as string,
+    ) as MediaTokenPayload;
+    if (payload.resource !== resource) return null;
+    if (resourceId !== undefined && payload.resourceId !== resourceId) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+};
+
+// ==================== Public Routes (no auth required) ====================
+
+app.get("/health", async (req: Request, res: Response) => {
+  res.status(200).json({ "ok": ":)" });
+});
 
 app.get("/sms", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -177,10 +217,85 @@ app.post("/sms", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/auth/google", async (req: Request, res: Response) => {
+  try {
+    const { credential } = req.body;
+    if (!credential) return res.status(400).send("credential is required");
+
+    const identity = await verifyGoogleToken(credential);
+    await db.addUser(identity);
+    const isAdmin = checkAdminAccess(identity.userID);
+    const token = issueSessionToken({ ...identity, isAdmin });
+
+    await logMessage(identity.userID, `🔑 Signed in: ${identity.name} (${identity.email})`);
+
+    res.status(200).json({ token, user: identity, isAdmin });
+  } catch (error) {
+    return handleError(res, error, "Failed to sign in with Google");
+  }
+});
+
+// ==================== Auth Middleware (everything below requires a valid session) ====================
+
+app.use(authenticateMiddleware);
+
+app.get("/auth/me", async (req: Request, res: Response) => {
+  try {
+    const user = await db.getUserByID(req.auth.userID);
+    if (!user) return res.status(404).send("User not found");
+    res.status(200).json({ user, isAdmin: req.auth.isAdmin });
+  } catch (error) {
+    return handleError(res, error, "Failed to load current user");
+  }
+});
+
+app.post("/auth/impersonate", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { targetUserID } = req.body;
+    if (!targetUserID) return res.status(400).send("targetUserID is required");
+
+    const targetUser = await db.getUserByID(targetUserID);
+    if (!targetUser) return res.status(404).send("User not found");
+
+    const token = issueSessionToken({
+      userID: targetUser.userID,
+      email: targetUser.email,
+      name: targetUser.name,
+      isAdmin: true,
+      actor: req.auth.actorUserID,
+    });
+
+    await logMessage(req.auth.actorUserID, `🎭 Admin switched into account: ${targetUser.name} (${targetUser.userID})`);
+
+    res.status(200).json({ token, user: targetUser });
+  } catch (error) {
+    return handleError(res, error, "Failed to switch user");
+  }
+});
+
+app.post("/media/token", async (req: Request, res: Response) => {
+  try {
+    const { resource, resourceId }: { resource: MediaResource; resourceId?: number } = req.body;
+    if (!resource) return res.status(400).send("resource is required");
+
+    const payload: MediaTokenPayload = {
+      userID: req.auth.userID,
+      resource,
+      ...(resourceId !== undefined ? { resourceId } : {}),
+    };
+    const token = jwt.sign(payload, process.env.MEDIA_TOKEN_SECRET as string, { expiresIn: 60 });
+    res.status(200).json({ token });
+  } catch (error) {
+    return handleError(res, error, "Failed to mint media token");
+  }
+});
+
+// ==================== Routes ====================
+
 app.post("/updateRsvp", async (req: Request, res: Response) => {
   try {
-    const { userID, eventId, guestId, rsvpStatus } = req.body;
-    const dataOwner = await resolveDataOwner(userID);
+    const { eventId, guestId, rsvpStatus } = req.body;
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     await db.updateEventGuestRsvp(Number(eventId), Number(guestId), rsvpStatus ?? null);
     await logMessage(dataOwner, `📠 RSVP manually updated for guest ${guestId} in event ${eventId}: ${rsvpStatus}`);
     const guests = await db.getEventGuests(Number(eventId));
@@ -193,8 +308,7 @@ app.post("/updateRsvp", async (req: Request, res: Response) => {
 
 app.post("/guestsList", async (req: Request, res: Response) => {
   try {
-    const { userID }: { userID: User["userID"] } = req.body;
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
 
     const guestsList = await db.getGuests(dataOwner);
     res.status(200).json(guestsList);
@@ -205,24 +319,24 @@ app.post("/guestsList", async (req: Request, res: Response) => {
 });
 
 app.patch("/addGuests", async (req: Request, res: Response) => {
-  const { guestsToAdd, userID } = req.body;
+  const { guestsToAdd } = req.body;
   try {
     if (!Array.isArray(guestsToAdd)) {
       return res.status(400).send("Invalid input: expected an array of guests");
     }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const added = await db.addGuests(dataOwner, guestsToAdd);
     await logMessage(dataOwner, `👥 Added ${added.length} guests`);
     res.status(200).json(added);
   } catch (error) {
-    return handleError(res, error, "Failed to add guests", userID);
+    return handleError(res, error, "Failed to add guests", req.auth.userID);
   }
 });
 
 app.patch("/updateGuest", async (req: Request, res: Response) => {
-  const { userID, guestId, updates } = req.body;
+  const { guestId, updates } = req.body;
   try {
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const updated = await db.updateGuest(dataOwner, Number(guestId), updates);
     if (!updated) return res.status(404).send("Guest not found");
     await logMessage(dataOwner, `✏️ Guest ${guestId} updated`);
@@ -231,28 +345,12 @@ app.patch("/updateGuest", async (req: Request, res: Response) => {
     if (error.code === "23505") {
       return res.status(400).send("מספר הטלפון כבר קשור לאורח קיים ברשימה.");
     }
-    return handleError(res, error, "Failed to update guest", userID);
-  }
-});
-
-app.patch("/addUser", async (req: Request, res: Response) => {
-  try {
-    console.log("Adding user");
-    const { newUser }: { newUser: User } = req.body;
-    await db.addUser(newUser);
-    const guestsList = await db.getGuests(newUser.userID);
-    await logMessage(
-      newUser.userID,
-      `🆕 User account created: ${newUser.name} (${newUser.email}). User ID: ${newUser.userID}`,
-    );
-    res.status(200).send(guestsList);
-  } catch (error) {
-    return handleError(res, error, "Failed to add user");
+    return handleError(res, error, "Failed to update guest", req.auth.userID);
   }
 });
 
 app.delete("/deleteUser", async (req: Request, res: Response) => {
-  const { userID }: { userID: User["userID"] } = req.body;
+  const userID = req.auth.userID;
   try {
     await db.deleteAllGuests(userID);
     await db.deleteUser(userID);
@@ -265,29 +363,28 @@ app.delete("/deleteUser", async (req: Request, res: Response) => {
 });
 
 app.delete("/deleteAllGuests", async (req: Request, res: Response) => {
-  const { userID }: { userID: User["userID"] } = req.body;
   try {
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
 
     await db.deleteAllGuests(dataOwner);
     const guestsList = await db.getGuests(dataOwner);
     await logMessage(dataOwner, "🧹 All guests deleted from account");
     res.status(200).send(guestsList);
   } catch (error) {
-    return handleError(res, error, "Failed to reset database", userID);
+    return handleError(res, error, "Failed to reset database", req.auth.userID);
   }
 });
 
 app.delete("/deleteGuest", async (req: Request, res: Response) => {
-  const { userID, guestId } = req.body;
+  const { guestId } = req.body;
   try {
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     await db.deleteGuest(dataOwner, Number(guestId));
     await logMessage(dataOwner, `👋 Guest ${guestId} deleted`);
     const guests = await db.getGuests(dataOwner);
     res.status(200).json(guests);
   } catch (error) {
-    return handleError(res, error, "Failed to delete guest", userID);
+    return handleError(res, error, "Failed to delete guest", req.auth.userID);
   }
 });
 
@@ -296,9 +393,8 @@ app.post(
   "/saveWeddingInfo",
   upload.single("imageFile") as RequestHandler,
   async (req: Request, res: Response) => {
-    const userID = req.body.userID;
     try {
-      const dataOwner = await resolveDataOwner(userID);
+      const dataOwner = await resolveDataOwner(req.auth.userID);
       const info = JSON.parse(req.body.weddingInfo);
       const file = (req as any).file;
 
@@ -351,24 +447,17 @@ app.post(
       await logMessage(dataOwner, `💒 Wedding information saved`);
       res.status(200).json(primary);
     } catch (error) {
-      return handleError(res, error, "Failed to save wedding information", userID);
+      return handleError(res, error, "Failed to save wedding information", req.auth.userID);
     }
   },
 );
 
-app.get("/health", async (req: Request, res: Response) => {
-  res.status(200).json({ "ok": ":)" });
-});
-
-app.get("/getWeddingInfo/:userID", async (req: Request, res: Response) => {
+app.get("/getWeddingInfo", async (req: Request, res: Response) => {
   try {
-    const userID = req.params.userID;
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const primary = await db.getPrimaryEvent(dataOwner);
     if (!primary) return res.status(404).json(null);
-    // Include image URL for client convenience
-    const result = { ...primary, imageURL: primary.file_id ? `${process.env.SERVER_URL || ""}/getImage/${dataOwner}` : "" };
-    res.status(200).json(result);
+    res.status(200).json(primary);
   } catch (error) {
     return res.status(500).send("Failed to retrieve wedding information");
   }
@@ -377,8 +466,8 @@ app.get("/getWeddingInfo/:userID", async (req: Request, res: Response) => {
 // Send messages for a specific event
 app.post("/sendMessage", async (req: Request, res: Response) => {
   try {
-    const { userID, options } = req.body;
-    const dataOwner = await resolveDataOwner(userID);
+    const { options } = req.body;
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const messageType: string = options?.messageType || "rsvp";
     const customText: string = options?.customText;
     const selectedGuestIds: number[] | undefined = options?.guestIds;
@@ -507,11 +596,13 @@ const buildMessagePromises = (
   return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: "wedding_rsvp_action", event } }));
 };
 
-app.get("/getImage/:userID", async (req: Request, res: Response) => {
+app.get("/getImage", async (req: Request, res: Response) => {
   try {
-    const userID = req.params.userID;
-    const dataOwner = await resolveDataOwner(userID);
+    const mediaToken = req.query.mediaToken as string;
+    const payload = verifyMediaToken(mediaToken, "primaryImage");
+    if (!payload) return res.status(401).send("Invalid or expired media token");
 
+    const dataOwner = await resolveDataOwner(payload.userID);
     const primary = await db.getPrimaryEvent(dataOwner);
     if (!primary?.file_id) return res.status(404).send("No image");
     const ACCESS_TOKEN = await getAccessToken();
@@ -545,13 +636,9 @@ app.get("/getImage/:userID", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/logs/:userID", async (req: Request, res: Response) => {
+app.get("/logs", async (req: Request, res: Response) => {
   try {
-    const { userID } = req.params;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
 
     const logs = await db.getClientLogs(dataOwner);
     res.status(200).json(logs);
@@ -564,13 +651,9 @@ app.get("/logs/:userID", async (req: Request, res: Response) => {
 // ==================== Task Endpoints ====================
 
 // Get all tasks for a user (grouped by timeline)
-app.get("/tasks/:userID", async (req: Request, res: Response) => {
+app.get("/tasks", async (req: Request, res: Response) => {
   try {
-    const { userID } = req.params;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
 
     const tasks = await db.getTasks(dataOwner);
     res.status(200).json(tasks);
@@ -583,13 +666,13 @@ app.get("/tasks/:userID", async (req: Request, res: Response) => {
 // Add a new task
 app.post("/tasks", async (req: Request, res: Response) => {
   try {
-    const { userID, task } = req.body;
-    if (!userID || !task?.title || !task?.timeline_group) {
+    const { task } = req.body;
+    if (!task?.title || !task?.timeline_group) {
       return res
         .status(400)
-        .send("UserID, title, and timeline_group are required");
+        .send("title and timeline_group are required");
     }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
 
     const newTask = await db.addTask(dataOwner, task);
     await logMessage(dataOwner, `📝 New task added: "${task.title}"`);
@@ -604,11 +687,11 @@ app.post("/tasks", async (req: Request, res: Response) => {
 app.patch("/tasks/:taskId/complete", async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
-    const { userID, isCompleted } = req.body;
-    if (!userID || isCompleted === undefined) {
-      return res.status(400).send("UserID and isCompleted are required");
+    const { isCompleted } = req.body;
+    if (isCompleted === undefined) {
+      return res.status(400).send("isCompleted is required");
     }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
 
     const updatedTask = await db.updateTaskCompletion(
       dataOwner,
@@ -629,11 +712,8 @@ app.patch("/tasks/:taskId/complete", async (req: Request, res: Response) => {
 app.patch("/tasks/:taskId", async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
-    const { userID, updates } = req.body;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
-    const dataOwner = await resolveDataOwner(userID);
+    const { updates } = req.body;
+    const dataOwner = await resolveDataOwner(req.auth.userID);
 
     const updatedTask = await db.updateTask(
       dataOwner,
@@ -654,11 +734,7 @@ app.patch("/tasks/:taskId", async (req: Request, res: Response) => {
 app.delete("/tasks/:taskId", async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
-    const { userID } = req.body;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
 
     const deleted = await db.deleteTask(dataOwner, parseInt(taskId));
     if (!deleted) {
@@ -674,24 +750,8 @@ app.delete("/tasks/:taskId", async (req: Request, res: Response) => {
 
 // ==================== Admin Endpoints ====================
 
-app.post("/checkAdmin", async (req: Request, res: Response) => {
+app.post("/getUsers", requireAdmin, async (req: Request, res: Response) => {
   try {
-    const { userID }: { userID: string } = req.body;
-    const isAdmin = checkAdminAccess(userID);
-    res.status(200).json({ isAdmin });
-  } catch (error) {
-    return handleError(res, error, "Failed to check admin status");
-  }
-});
-
-app.post("/getUsers", async (req: Request, res: Response) => {
-  try {
-    const { userID }: { userID: string } = req.body;
-
-    if (!checkAdminAccess(userID)) {
-      return res.status(403).send("Access denied. Admin privileges required.");
-    }
-
     const users = await db.getAllUsers();
     res.status(200).json(users);
   } catch (error) {
@@ -704,10 +764,7 @@ app.post("/getUsers", async (req: Request, res: Response) => {
 // Generate an invite code to share with partner
 app.post("/partner/generate-invite", async (req: Request, res: Response) => {
   try {
-    const { userID }: { userID: string } = req.body;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
+    const userID = req.auth.userID;
 
     // Check if user already has a partner
     const partnerInfo = await db.getPartnerInfo(userID);
@@ -726,10 +783,10 @@ app.post("/partner/generate-invite", async (req: Request, res: Response) => {
 // Accept an invite and link accounts
 app.post("/partner/accept-invite", async (req: Request, res: Response) => {
   try {
-    const { userID, inviteCode }: { userID: string; inviteCode: string } =
-      req.body;
-    if (!userID || !inviteCode) {
-      return res.status(400).send("UserID and inviteCode are required");
+    const userID = req.auth.userID;
+    const { inviteCode }: { inviteCode: string } = req.body;
+    if (!inviteCode) {
+      return res.status(400).send("inviteCode is required");
     }
 
     const result = await db.acceptInvite(userID, inviteCode.toUpperCase());
@@ -756,10 +813,7 @@ app.post("/partner/accept-invite", async (req: Request, res: Response) => {
 // Unlink partner accounts
 app.post("/partner/unlink", async (req: Request, res: Response) => {
   try {
-    const { userID }: { userID: string } = req.body;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
+    const userID = req.auth.userID;
 
     const success = await db.unlinkPartner(userID);
 
@@ -774,15 +828,10 @@ app.post("/partner/unlink", async (req: Request, res: Response) => {
   }
 });
 
-// Get partner information for a user
-app.get("/partner/info/:userID", async (req: Request, res: Response) => {
+// Get partner information for the current user
+app.get("/partner/info", async (req: Request, res: Response) => {
   try {
-    const { userID } = req.params;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
-
-    const partnerInfo = await db.getPartnerInfo(userID);
+    const partnerInfo = await db.getPartnerInfo(req.auth.userID);
     res.status(200).json(partnerInfo);
   } catch (error) {
     return handleError(res, error, "Failed to get partner info");
@@ -794,11 +843,11 @@ app.get("/partner/info/:userID", async (req: Request, res: Response) => {
 // Update total wedding budget
 app.patch("/budget/total", async (req: Request, res: Response) => {
   try {
-    const { userID, total_budget } = req.body;
-    if (!userID || total_budget === undefined) {
-      return res.status(400).send("UserID and total_budget are required");
+    const { total_budget } = req.body;
+    if (total_budget === undefined) {
+      return res.status(400).send("total_budget is required");
     }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
 
     const primary = await db.getPrimaryEvent(dataOwner);
     if (!primary) return res.status(404).send("Wedding info not found. Please set up your wedding first.");
@@ -815,11 +864,11 @@ app.patch("/budget/total", async (req: Request, res: Response) => {
 // Update estimated guests for budget planning
 app.patch("/budget/estimated-guests", async (req: Request, res: Response) => {
   try {
-    const { userID, estimated_guests } = req.body;
-    if (!userID || estimated_guests === undefined) {
-      return res.status(400).send("UserID and estimated_guests are required");
+    const { estimated_guests } = req.body;
+    if (estimated_guests === undefined) {
+      return res.status(400).send("estimated_guests is required");
     }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
 
     const primary = await db.getPrimaryEvent(dataOwner);
     if (!primary) return res.status(404).send("Wedding info not found. Please set up your wedding first.");
@@ -837,13 +886,9 @@ app.patch("/budget/estimated-guests", async (req: Request, res: Response) => {
 });
 
 // Get budget overview with all categories and vendors
-app.get("/budget/overview/:userID", async (req: Request, res: Response) => {
+app.get("/budget/overview", async (req: Request, res: Response) => {
   try {
-    const { userID } = req.params;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const overview = await db.getBudgetOverview(dataOwner);
     res.status(200).json(overview);
   } catch (error) {
@@ -853,13 +898,9 @@ app.get("/budget/overview/:userID", async (req: Request, res: Response) => {
 });
 
 // Get all budget categories
-app.get("/budget/categories/:userID", async (req: Request, res: Response) => {
+app.get("/budget/categories", async (req: Request, res: Response) => {
   try {
-    const { userID } = req.params;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const categories = await db.getBudgetCategories(dataOwner);
     res.status(200).json(categories);
   } catch (error) {
@@ -871,11 +912,11 @@ app.get("/budget/categories/:userID", async (req: Request, res: Response) => {
 // Add a budget category
 app.post("/budget/categories", async (req: Request, res: Response) => {
   try {
-    const { userID, name } = req.body;
-    if (!userID || !name) {
-      return res.status(400).send("UserID and category name are required");
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).send("Category name is required");
     }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const category = await db.addBudgetCategory(dataOwner, name);
     await logMessage(dataOwner, `📊 Budget category added: "${name}"`);
     res.status(201).json(category);
@@ -894,11 +935,7 @@ app.delete(
   async (req: Request, res: Response) => {
     try {
       const { categoryId } = req.params;
-      const { userID } = req.body;
-      if (!userID) {
-        return res.status(400).send("UserID is required");
-      }
-      const dataOwner = await resolveDataOwner(userID);
+      const dataOwner = await resolveDataOwner(req.auth.userID);
       const deleted = await db.deleteBudgetCategory(
         dataOwner,
         parseInt(categoryId),
@@ -915,14 +952,10 @@ app.delete(
   },
 );
 
-// Get all vendors for a user
-app.get("/budget/vendors/:userID", async (req: Request, res: Response) => {
+// Get all vendors for the current user
+app.get("/budget/vendors", async (req: Request, res: Response) => {
   try {
-    const { userID } = req.params;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const vendors = await db.getVendors(dataOwner);
     res.status(200).json(vendors);
   } catch (error) {
@@ -976,17 +1009,18 @@ app.post(
   upload.array("files", 10) as RequestHandler,
   async (req: Request, res: Response) => {
     try {
-      const { userID, vendor: vendorJson, fileNames } = req.body;
+      const { vendor: vendorJson, fileNames } = req.body;
       const vendor =
         typeof vendorJson === "string" ? JSON.parse(vendorJson) : vendorJson;
       const files = (req as any).files as VendorFile[] | undefined;
 
-      if (!userID || !vendor?.name || !vendor?.category_id) {
+      if (!vendor?.name || !vendor?.category_id) {
         return res
           .status(400)
-          .send("UserID, vendor name, and category are required");
+          .send("Vendor name and category are required");
       }
 
+      const userID = req.auth.userID;
       const dataOwner = await resolveDataOwner(userID);
       const newVendor = await db.addVendor(dataOwner, vendor);
       await logMessage(dataOwner, `🏢 Vendor added: "${vendor.name}"`);
@@ -1009,15 +1043,12 @@ app.patch(
   async (req: Request, res: Response) => {
     try {
       const { vendorId } = req.params;
-      const { userID, updates: updatesJson, fileNames } = req.body;
+      const { updates: updatesJson, fileNames } = req.body;
       const updates =
         typeof updatesJson === "string" ? JSON.parse(updatesJson) : updatesJson;
       const files = (req as any).files as VendorFile[] | undefined;
 
-      if (!userID) {
-        return res.status(400).send("UserID is required");
-      }
-
+      const userID = req.auth.userID;
       const dataOwner = await resolveDataOwner(userID);
       const vendor = await db.updateVendor(
         dataOwner,
@@ -1043,11 +1074,7 @@ app.patch(
 app.delete("/budget/vendors/:vendorId", async (req: Request, res: Response) => {
   try {
     const { vendorId } = req.params;
-    const { userID } = req.body;
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const deleted = await db.deleteVendor(dataOwner, parseInt(vendorId));
     if (!deleted) {
       return res.status(404).send("Vendor not found");
@@ -1066,11 +1093,7 @@ app.patch(
   async (req: Request, res: Response) => {
     try {
       const { vendorId } = req.params;
-      const { userID } = req.body;
-      if (!userID) {
-        return res.status(400).send("UserID is required");
-      }
-      const dataOwner = await resolveDataOwner(userID);
+      const dataOwner = await resolveDataOwner(req.auth.userID);
       const vendor = await db.toggleVendorFavorite(
         dataOwner,
         parseInt(vendorId),
@@ -1089,13 +1112,13 @@ app.patch(
 // Add a payment to a vendor
 app.post("/budget/payments", async (req: Request, res: Response) => {
   try {
-    const { userID, vendor_id, amount, payment_date, notes } = req.body;
-    if (!userID || !vendor_id || !amount || !payment_date) {
+    const { vendor_id, amount, payment_date, notes } = req.body;
+    if (!vendor_id || !amount || !payment_date) {
       return res
         .status(400)
-        .send("UserID, vendor_id, amount, and payment_date are required");
+        .send("vendor_id, amount, and payment_date are required");
     }
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const payment = await db.addPayment(dataOwner, vendor_id, {
       amount,
       payment_date,
@@ -1115,11 +1138,7 @@ app.delete(
   async (req: Request, res: Response) => {
     try {
       const { paymentId } = req.params;
-      const { userID } = req.body;
-      if (!userID) {
-        return res.status(400).send("UserID is required");
-      }
-      const dataOwner = await resolveDataOwner(userID);
+      const dataOwner = await resolveDataOwner(req.auth.userID);
       const deleted = await db.deletePayment(dataOwner, parseInt(paymentId));
       if (!deleted) {
         return res.status(404).send("Payment not found");
@@ -1140,17 +1159,16 @@ app.post(
   async (req: Request, res: Response) => {
     try {
       const { vendorId } = req.params;
-      const userID = req.body.userID;
       const fileName = req.body.fileName; // Use separate field for proper Hebrew support
       const file = (req as any).file;
 
-      if (!userID || !file) {
-        return res.status(400).send("UserID and file are required");
+      if (!file) {
+        return res.status(400).send("file is required");
       }
 
       const finalFileName = fileName || file.originalname;
 
-      const dataOwner = await resolveDataOwner(userID);
+      const dataOwner = await resolveDataOwner(req.auth.userID);
       const vendorFile = await db.addVendorFile(dataOwner, parseInt(vendorId), {
         name: finalFileName,
         type: file.mimetype,
@@ -1173,13 +1191,11 @@ app.get(
   async (req: Request, res: Response) => {
     try {
       const { fileId } = req.params;
-      const userID = req.query.userID as string;
+      const mediaToken = req.query.mediaToken as string;
+      const payload = verifyMediaToken(mediaToken, "vendorFile", parseInt(fileId));
+      if (!payload) return res.status(401).send("Invalid or expired media token");
 
-      if (!userID) {
-        return res.status(400).send("UserID is required");
-      }
-
-      const dataOwner = await resolveDataOwner(userID);
+      const dataOwner = await resolveDataOwner(payload.userID);
       const fileData = await db.getVendorFileData(dataOwner, parseInt(fileId));
 
       if (!fileData) {
@@ -1203,13 +1219,7 @@ app.get(
 app.delete("/budget/files/:fileId", async (req: Request, res: Response) => {
   try {
     const { fileId } = req.params;
-    const { userID } = req.body;
-
-    if (!userID) {
-      return res.status(400).send("UserID is required");
-    }
-
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const deleted = await db.deleteVendorFile(dataOwner, parseInt(fileId));
 
     if (!deleted) {
@@ -1231,11 +1241,11 @@ app.post(
   upload.single("image") as RequestHandler,
   async (req: Request, res: Response) => {
     try {
-      const { userID, ceremony_name, date, time, location, additional_info } = req.body;
-      if (!userID || !ceremony_name) {
-        return res.status(400).send("userID and ceremony_name are required");
+      const { ceremony_name, date, time, location, additional_info } = req.body;
+      if (!ceremony_name) {
+        return res.status(400).send("ceremony_name is required");
       }
-      const dataOwner = await resolveDataOwner(userID);
+      const dataOwner = await resolveDataOwner(req.auth.userID);
 
       const event = await db.createEvent(dataOwner, {
         is_primary: false,
@@ -1262,10 +1272,9 @@ app.post(
   },
 );
 
-app.get("/events/:userID", async (req: Request, res: Response) => {
+app.get("/events", async (req: Request, res: Response) => {
   try {
-    const { userID } = req.params;
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const events = await db.getEvents(dataOwner);
     return res.status(200).json(events);
   } catch (error) {
@@ -1277,9 +1286,8 @@ app.get("/events/:userID", async (req: Request, res: Response) => {
 app.patch("/events/:eventId", async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
-    const { userID, ...updates } = req.body;
-    if (!userID) return res.status(400).send("userID is required");
-    const dataOwner = await resolveDataOwner(userID);
+    const updates = req.body;
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const event = await db.getEventById(parseInt(eventId));
     if (!event || event.user_id !== dataOwner) return res.status(404).send("Event not found");
     const updated = await db.updateEvent(parseInt(eventId), updates);
@@ -1294,9 +1302,7 @@ app.patch("/events/:eventId", async (req: Request, res: Response) => {
 app.delete("/events/:eventId", async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
-    const { userID } = req.body;
-    if (!userID) return res.status(400).send("userID is required");
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const event = await db.getEventById(parseInt(eventId));
     if (!event || event.user_id !== dataOwner) {
       return res.status(404).send("Event not found");
@@ -1313,9 +1319,9 @@ app.delete("/events/:eventId", async (req: Request, res: Response) => {
 app.post("/events/:eventId/guests", async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
-    const { userID, guestIds } = req.body;
-    if (!userID || !guestIds) return res.status(400).send("userID and guestIds are required");
-    const dataOwner = await resolveDataOwner(userID);
+    const { guestIds } = req.body;
+    if (!guestIds) return res.status(400).send("guestIds is required");
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const event = await db.getEventById(parseInt(eventId));
     if (!event || event.user_id !== dataOwner) {
       return res.status(404).send("Event not found");
@@ -1332,9 +1338,9 @@ app.post("/events/:eventId/guests", async (req: Request, res: Response) => {
 app.delete("/events/:eventId/guests", async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
-    const { userID, guestIds } = req.body;
-    if (!userID || !guestIds) return res.status(400).send("userID and guestIds are required");
-    const dataOwner = await resolveDataOwner(userID);
+    const { guestIds } = req.body;
+    if (!guestIds) return res.status(400).send("guestIds is required");
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const event = await db.getEventById(parseInt(eventId));
     if (!event || event.user_id !== dataOwner) {
       return res.status(404).send("Event not found");
@@ -1351,9 +1357,7 @@ app.delete("/events/:eventId/guests", async (req: Request, res: Response) => {
 app.get("/events/:eventId/guests", async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
-    const { userID } = req.query as { userID: string };
-    if (!userID) return res.status(400).send("userID is required");
-    const dataOwner = await resolveDataOwner(userID);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
     const event = await db.getEventById(parseInt(eventId));
     if (!event || event.user_id !== dataOwner) {
       return res.status(404).send("Event not found");
@@ -1369,6 +1373,10 @@ app.get("/events/:eventId/guests", async (req: Request, res: Response) => {
 app.get("/events/:eventId/image", async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
+    const mediaToken = req.query.mediaToken as string;
+    const payload = verifyMediaToken(mediaToken, "eventImage", parseInt(eventId));
+    if (!payload) return res.status(401).send("Invalid or expired media token");
+
     const event = await db.getEventById(parseInt(eventId));
     if (!event?.file_id) return res.status(404).send("No image");
 

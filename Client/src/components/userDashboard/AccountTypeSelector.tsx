@@ -31,7 +31,7 @@ const AccountTypeSelector: React.FC<AccountTypeSelectorProps> = ({
     setIsJoining(true);
     setError("");
     try {
-      const result = await httpRequests.acceptInvite(user.userID, joinCode);
+      const result = await httpRequests.acceptInvite(joinCode);
       if (result.success) {
         onJoinSuccess();
       } else {

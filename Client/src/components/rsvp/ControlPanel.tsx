@@ -143,7 +143,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                   confirmText: "מחק הכל",
                 });
                 if (ok) {
-                  const updatedGuestsList = await httpRequests.deleteAllGuests(userID);
+                  const updatedGuestsList = await httpRequests.deleteAllGuests();
                   setEventGuests(updatedGuestsList);
                 }
               }}

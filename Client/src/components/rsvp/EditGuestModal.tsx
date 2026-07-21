@@ -124,7 +124,7 @@ const EditGuestModal: React.FC<EditGuestModalProps> = ({
 
     setIsSaving(true);
     try {
-      const updatedGuest = await httpRequests.updateGuest(userID, guestId, updatedFields);
+      const updatedGuest = await httpRequests.updateGuest(guestId, updatedFields);
 
       const currentGuests = eventGuestsByEventId[eventId] ?? [];
       const withUpdate = currentGuests.map((g) =>

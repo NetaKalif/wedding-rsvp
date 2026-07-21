@@ -99,7 +99,6 @@ const VendorCard: React.FC<VendorCardProps> = ({
     if (!user) return;
     try {
       const newPayment = await httpRequests.addPayment(
-        user.userID,
         vendor.vendor_id,
         paymentData.amount,
         paymentData.payment_date,
@@ -122,7 +121,7 @@ const VendorCard: React.FC<VendorCardProps> = ({
     const optimisticPayments = vendor.payments.filter((p) => p.payment_id !== paymentId);
     applyPaymentUpdate(optimisticPayments);
     try {
-      await httpRequests.deletePayment(user.userID, paymentId);
+      await httpRequests.deletePayment(paymentId);
     } catch (error) {
       console.error("Error deleting payment:", error);
       refreshBudget();

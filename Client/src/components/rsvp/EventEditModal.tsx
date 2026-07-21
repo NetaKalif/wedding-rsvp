@@ -1,15 +1,15 @@
 import React, { useState } from "react";
 import { Box, Button, FieldSet, Input, InputArea, Loader, SidePanel, Text } from "@wix/design-system";
 import { Event } from "../../types";
+import { httpRequests } from "../../httpClient";
 
 interface EventEditModalProps {
   event: Event;
-  userID: string;
   onClose: () => void;
   onSaved: (updated: Event) => void;
 }
 
-const EventEditModal: React.FC<EventEditModalProps> = ({ event, userID, onClose, onSaved }) => {
+const EventEditModal: React.FC<EventEditModalProps> = ({ event, onClose, onSaved }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [imageFile, setImageFile] = useState<File | undefined>(undefined);
   const [form, setForm] = useState({
@@ -24,38 +24,7 @@ const EventEditModal: React.FC<EventEditModalProps> = ({ event, userID, onClose,
     if (!form.ceremony_name.trim()) return;
     setIsSaving(true);
     try {
-      // createEvent with is_primary=false is used for updates via the general event endpoint
-      // We use saveEventInfo if is_primary, otherwise updateEvent via createEvent API pattern
-      // For non-primary events we use the PATCH /events/:id indirectly via saveEventInfo
-      // Actually we'll just re-use the same createEvent flow but we need a PATCH endpoint
-      // For now, delete + recreate guests approach is too destructive
-      // The server has updateEvent — let's call it directly
-      const response = await fetch(
-        `${process.env.REACT_APP_SERVER_URL}/events/${event.id}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...form, userID }),
-        }
-      );
-      if (!response.ok) throw new Error(await response.text());
-      const updated: Event = await response.json();
-
-      // Upload new image if provided
-      if (imageFile) {
-        const formData = new FormData();
-        formData.append("userID", userID);
-        formData.append("image", imageFile);
-        const imgRes = await fetch(`${process.env.REACT_APP_SERVER_URL}/events/${event.id}/image`, {
-          method: "POST",
-          body: formData,
-        });
-        if (imgRes.ok) {
-          const { file_id } = await imgRes.json();
-          onSaved({ ...updated, file_id });
-          return;
-        }
-      }
+      const updated = await httpRequests.updateEvent(event.id, form);
       onSaved(updated);
     } catch (err) {
       console.error(err);

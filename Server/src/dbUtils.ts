@@ -898,6 +898,13 @@ class Database {
     return userID;
   }
 
+  // Look up a user by their userID (used by admin impersonation)
+  async getUserByID(userID: string): Promise<User | null> {
+    const query = `SELECT "userID", email, name FROM users WHERE "userID" = $1`;
+    const result = await this.runQuery(query, [userID]);
+    return result.length > 0 ? (result[0] as User) : null;
+  }
+
   // ==================== Budget Category Methods ====================
 
   // Get all budget categories for a user with actual spending calculated

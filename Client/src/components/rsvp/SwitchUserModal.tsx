@@ -49,7 +49,7 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const allUsers = await httpRequests.getUsers(currentUserID);
+      const allUsers = await httpRequests.getUsers();
       setUsers(allUsers);
     } catch (error) {
       console.error("Error fetching users:", error);

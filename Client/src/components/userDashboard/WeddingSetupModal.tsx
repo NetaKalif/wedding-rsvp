@@ -10,16 +10,14 @@ import {
 } from "@wix/design-system";
 import { Heart } from "lucide-react";
 import { httpRequests } from "../../httpClient";
-import { Event, User } from "../../types";
+import { Event } from "../../types";
 import "./css/WeddingSetupModal.css";
 
 interface WeddingSetupModalProps {
-  userID: User["userID"];
   onComplete: () => void;
 }
 
 const WeddingSetupModal: React.FC<WeddingSetupModalProps> = ({
-  userID,
   onComplete,
 }) => {
   const [weddingDetails, setWeddingDetails] = useState<
@@ -53,10 +51,8 @@ const WeddingSetupModal: React.FC<WeddingSetupModalProps> = ({
 
     try {
       setIsSubmitting(true);
-      const formData = new FormData();
-      formData.append("userID", userID);
 
-      await httpRequests.saveEventInfo(userID, {
+      await httpRequests.saveEventInfo({
         ...weddingDetails,
         is_primary: true,
         ceremony_name: "חתונה",

@@ -67,7 +67,7 @@ export const WeddingDashboard = () => {
   const handleCancelAccountSetup = () => {
     if (!user) return;
     // Delete the newly created user and log them out
-    httpRequests.deleteUser(user.userID);
+    httpRequests.deleteUser();
     handleLogout();
   };
 
@@ -108,7 +108,6 @@ export const WeddingDashboard = () => {
   if (showWeddingSetup) {
     return (
       <WeddingSetupModal
-        userID={user.userID}
         onComplete={handleSetupComplete}
       />
     );

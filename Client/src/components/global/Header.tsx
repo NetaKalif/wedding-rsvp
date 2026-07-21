@@ -77,7 +77,7 @@ const Header = ({
               text="מחיקת חשבון"
               onClick={async () => {
                 try {
-                  await httpRequests.deleteUser(user.userID);
+                  await httpRequests.deleteUser();
                   handleLogout();
                 } catch (error) {
                   console.error("Error deleting account:", error);
@@ -104,7 +104,6 @@ const Header = ({
           )}
           <Modal isOpen={isViewLogsModalOpen}>
             <ViewLogsModal
-              userID={user.userID}
               setIsViewLogsModalOpen={setIsViewLogsModalOpen}
             />
           </Modal>

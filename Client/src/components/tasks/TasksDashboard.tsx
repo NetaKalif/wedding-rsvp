@@ -47,7 +47,7 @@ export const TasksDashboard: React.FC = () => {
     // Optimistic update
     setTasks(prev => prev.map(t => t.task_id === task.task_id ? { ...t, is_completed: !t.is_completed } : t));
     try {
-      const updatedTask = await httpRequests.updateTaskCompletion(user.userID, task.task_id, !task.is_completed);
+      const updatedTask = await httpRequests.updateTaskCompletion(task.task_id, !task.is_completed);
       setTasks(prev => prev.map(t => t.task_id === task.task_id ? updatedTask : t));
     } catch (error) {
       console.error("Error updating task:", error);
@@ -62,7 +62,7 @@ export const TasksDashboard: React.FC = () => {
     assignee: TaskAssignee;
   }) => {
     try {
-      const createdTask = await httpRequests.addTask(user.userID, newTask);
+      const createdTask = await httpRequests.addTask(newTask);
       setTasks((prev) => [...prev, createdTask]);
     } catch (error) {
       console.error("Error adding task:", error);
@@ -74,7 +74,7 @@ export const TasksDashboard: React.FC = () => {
     const ok = await confirm({ message: `למחוק את המשימה ״${task?.title ?? ""}״?` });
     if (!ok) return;
     try {
-      await httpRequests.deleteTask(user.userID, taskId);
+      await httpRequests.deleteTask(taskId);
       setTasks((prev) => prev.filter((t) => t.task_id !== taskId));
     } catch (error) {
       console.error("Error deleting task:", error);
@@ -86,7 +86,7 @@ export const TasksDashboard: React.FC = () => {
     updates: Partial<Pick<Task, "title" | "priority" | "assignee" | "timeline_group">>
   ) => {
     try {
-      const updatedTask = await httpRequests.updateTask(user.userID, taskId, updates);
+      const updatedTask = await httpRequests.updateTask(taskId, updates);
       setTasks((prev) =>
         prev.map((t) => (t.task_id === taskId ? updatedTask : t))
       );

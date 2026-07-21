@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import "./css/InfoModal.css";
 import "./css/WhatsAppMessage.css";
 import { httpRequests } from "../../httpClient";
@@ -27,10 +27,11 @@ import WhatsAppPreview from "./WhatsAppPreview";
 import { useAuth } from "../../hooks/useAuth";
 
 interface InfoModalProps {
+  isOpen: boolean;
   setIsInfoModalOpen: (value: boolean) => void;
 }
 
-const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
+const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => {
   const {
     user,
     weddingInfo: contextWeddingInfo,
@@ -62,15 +63,22 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
   // Initialize form with data from context
   useEffect(() => {
     if (contextWeddingInfo) {
-      const { imageURL, ...rest } = contextWeddingInfo as Event & {
-        imageURL?: string;
-      };
-      setEventDetails((prev) => ({ ...prev, ...rest }));
-      if (imageURL) {
-        setImageUrl(`${imageURL}?t=${Date.now()}`);
-      }
+      setEventDetails((prev) => ({ ...prev, ...contextWeddingInfo }));
     }
   }, [contextWeddingInfo]);
+
+  useEffect(() => {
+    if (!isOpen || !contextWeddingInfo?.file_id) return;
+    let cancelled = false;
+    httpRequests.getPrimaryImageUrl().then((resolvedUrl) => {
+      if (!cancelled) setImageUrl(resolvedUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, contextWeddingInfo?.file_id]);
+
+  const getPreviewImageUrl = useCallback(() => httpRequests.getPrimaryImageUrl(), []);
 
   useEffect(() => {
     if (file) {
@@ -112,7 +120,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
     setFormError(null);
     try {
       setIsSubmitting(true);
-      await httpRequests.saveEventInfo(user.userID, eventDetails, file);
+      await httpRequests.saveEventInfo(eventDetails, file);
       await refreshWeddingInfo();
       setIsInfoModalOpen(false);
     } catch (error) {
@@ -426,7 +434,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
           {/* Message Previews */}
           <WhatsAppPreview
             event={eventDetails as Event}
-            imageUrl={imageUrl}
+            getImageUrl={getPreviewImageUrl}
             showAllMessages={true}
           />
 
@@ -437,7 +445,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ setIsInfoModalOpen }) => {
           )}
           {/* Action Buttons */}
           <Box align="space-between">
-            <Button size="small" onClick={handleSend} loading={isSubmitting}>
+            <Button size="small" onClick={handleSend} disabled={isSubmitting}>
               {isSubmitting ? <Loader size="tiny" /> : "שמירה"}
             </Button>
             <Button

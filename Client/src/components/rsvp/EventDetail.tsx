@@ -56,7 +56,7 @@ const EventDetail: React.FC<EventDetailProps> = ({
   });
 
   const syncGuests = async () => {
-    const guests = await httpRequests.getEventGuests(userID, event.id);
+    const guests = await httpRequests.getEventGuests(event.id);
     setEventGuests(guests);
     updateEventGuests(event.id, guests);
   };
@@ -69,7 +69,7 @@ const EventDetail: React.FC<EventDetailProps> = ({
     setEventGuests(updated);
     updateEventGuests(event.id, updated);
     try {
-      await httpRequests.removeEventGuests(userID, event.id, [guest.guest_id]);
+      await httpRequests.removeEventGuests(event.id, [guest.guest_id]);
     } catch (error) {
       console.error("Error removing from event:", error);
       await syncGuests(); // rollback
@@ -83,7 +83,7 @@ const EventDetail: React.FC<EventDetailProps> = ({
       confirmText: "הסר הכל",
     });
     if (!ok) return;
-    await httpRequests.removeEventGuests(userID, event.id, eventGuests.map((g) => g.guest_id));
+    await httpRequests.removeEventGuests(event.id, eventGuests.map((g) => g.guest_id));
     setEventGuests([]);
     updateEventGuests(event.id, []);
   };
@@ -91,7 +91,7 @@ const EventDetail: React.FC<EventDetailProps> = ({
   const handleDeleteEvent = async () => {
     const ok = await confirm({ message: `למחוק את האירוע ״${event.ceremony_name}״?` });
     if (!ok) return;
-    await httpRequests.deleteEvent(userID, event.id);
+    await httpRequests.deleteEvent(event.id);
     onEventDeleted();
   };
 
@@ -108,7 +108,7 @@ const EventDetail: React.FC<EventDetailProps> = ({
     const ids = Array.from(selectedGuestIds);
     if (!ids.length) return;
     closeAddFromList(); // close panel immediately
-    await httpRequests.setEventGuests(userID, event.id, ids);
+    await httpRequests.setEventGuests(event.id, ids);
     await syncGuests();
   };
 
@@ -282,7 +282,6 @@ const EventDetail: React.FC<EventDetailProps> = ({
             setIsSendModalOpen(open);
             if (!open) syncGuests();
           }}
-          userID={userID}
           eventId={event.id}
           eventGuests={eventGuests}
           event={{
@@ -444,7 +443,6 @@ const EventDetail: React.FC<EventDetailProps> = ({
         <Modal isOpen>
           <EventEditModal
             event={event}
-            userID={userID}
             onClose={() => setIsEditModalOpen(false)}
             onSaved={(updated) => {
               setEvent(updated);

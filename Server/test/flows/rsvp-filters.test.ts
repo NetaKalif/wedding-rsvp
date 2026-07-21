@@ -12,11 +12,11 @@
 
 import axios from "axios";
 import { MockWhatsAppClient } from "../mock-whatsapp/client";
+import { authHeader } from "../helpers/auth";
 
 const REAL_SERVER = process.env.REAL_SERVER_URL ?? "http://localhost:8080";
 const mock = new MockWhatsAppClient(3001);
 
-const USER_ID = "test-user-id";
 const WEDDING_EVENT_ID = 1;
 const ALICE_ID = 2;
 const BOB_ID = 3;
@@ -26,16 +26,15 @@ const BOB_PHONE = "+972502222222";
 const CLARE_PHONE = "+972503333333";
 
 const setRsvp = (guestId: number, rsvpStatus: number | null) =>
-  axios.post(`${REAL_SERVER}/updateRsvp`, {
-    userID: USER_ID,
-    eventId: WEDDING_EVENT_ID,
-    guestId,
-    rsvpStatus,
-  });
+  axios.post(
+    `${REAL_SERVER}/updateRsvp`,
+    { eventId: WEDDING_EVENT_ID, guestId, rsvpStatus },
+    { headers: authHeader() },
+  );
 
 const setAllWeddingGuestsRsvp = async (rsvpStatus: number | null) => {
   const { data } = await axios.get(`${REAL_SERVER}/events/${WEDDING_EVENT_ID}/guests`, {
-    params: { userID: USER_ID },
+    headers: authHeader(),
   });
   for (const g of data as Array<{ guest_id: number }>) {
     await setRsvp(g.guest_id, rsvpStatus);
@@ -43,17 +42,18 @@ const setAllWeddingGuestsRsvp = async (rsvpStatus: number | null) => {
 };
 
 const send = (messageType: string, guestIds?: number[]) =>
-  axios.post(`${REAL_SERVER}/sendMessage`, {
-    userID: USER_ID,
-    options: { messageType, eventId: WEDDING_EVENT_ID, ...(guestIds ? { guestIds } : {}) },
-  });
+  axios.post(
+    `${REAL_SERVER}/sendMessage`,
+    { options: { messageType, eventId: WEDDING_EVENT_ID, ...(guestIds ? { guestIds } : {}) } },
+    { headers: authHeader() },
+  );
 
 beforeEach(async () => {
   await mock.reset();
   // Reset ALL guests currently in the wedding event — guards against guests
   // added by other test files that weren't fully cleaned up.
   const { data } = await axios.get(`${REAL_SERVER}/events/${WEDDING_EVENT_ID}/guests`, {
-    params: { userID: USER_ID },
+    headers: authHeader(),
   });
   for (const g of data as Array<{ guest_id: number }>) {
     await setRsvp(g.guest_id, null);

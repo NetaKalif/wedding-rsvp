@@ -45,11 +45,11 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     setEventGuestsByEventId(prev => ({ ...prev, [eventId]: eg }));
   }, []);
 
-  const fetchEventGuestsForAll = useCallback(async (userID: string, evts: Event[]) => {
+  const fetchEventGuestsForAll = useCallback(async (evts: Event[]) => {
     const allEventGuests: Record<number, EventGuest[]> = {};
     await Promise.all(evts.map(async (e) => {
       try {
-        allEventGuests[e.id] = await httpRequests.getEventGuests(userID, e.id);
+        allEventGuests[e.id] = await httpRequests.getEventGuests(e.id);
       } catch {
         allEventGuests[e.id] = [];
       }
@@ -72,12 +72,12 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       setIsDataLoading(true);
       try {
         // Fire budget fetch immediately — it's slow and independent
-        const budgetPromise = httpRequests.getBudgetOverview(user.userID).catch(() => null);
+        const budgetPromise = httpRequests.getBudgetOverview().catch(() => null);
 
         const [fetchedGuests, fetchedEvents, fetchedTasks] = await Promise.all([
-          httpRequests.getGuests(user.userID),
-          httpRequests.getEvents(user.userID),
-          httpRequests.getTasks(user.userID),
+          httpRequests.getGuests(),
+          httpRequests.getEvents(),
+          httpRequests.getTasks(),
         ]);
         setGuests(fetchedGuests);
         setEvents(fetchedEvents);
@@ -86,7 +86,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
         // Fetch event guests and budget in parallel (event guests need event IDs first)
         const [fetchedBudget] = await Promise.all([
           budgetPromise,
-          fetchEventGuestsForAll(user.userID, fetchedEvents),
+          fetchEventGuestsForAll(fetchedEvents),
         ]);
         setBudgetOverview(fetchedBudget);
       } catch (err) {
@@ -101,20 +101,20 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshGuests = useCallback(async () => {
     if (!user) return;
-    setGuests(await httpRequests.getGuests(user.userID));
+    setGuests(await httpRequests.getGuests());
   }, [user]);
 
   const refreshEvents = useCallback(async () => {
     if (!user) return;
-    const data = await httpRequests.getEvents(user.userID);
+    const data = await httpRequests.getEvents();
     setEvents(data);
-    await fetchEventGuestsForAll(user.userID, data);
+    await fetchEventGuestsForAll(data);
   }, [user, fetchEventGuestsForAll]);
 
   const refreshEventGuests = useCallback(async (eventId: number) => {
     if (!user) return;
     try {
-      const eg = await httpRequests.getEventGuests(user.userID, eventId);
+      const eg = await httpRequests.getEventGuests(eventId);
       updateEventGuests(eventId, eg);
     } catch {
       updateEventGuests(eventId, []);
@@ -123,12 +123,12 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshTasks = useCallback(async () => {
     if (!user) return;
-    setTasks(await httpRequests.getTasks(user.userID));
+    setTasks(await httpRequests.getTasks());
   }, [user]);
 
   const refreshBudget = useCallback(async () => {
     if (!user) return;
-    setBudgetOverview(await httpRequests.getBudgetOverview(user.userID).catch(() => null));
+    setBudgetOverview(await httpRequests.getBudgetOverview().catch(() => null));
   }, [user]);
 
   return (

@@ -1,5 +1,5 @@
 import { httpRequests } from "../../httpClient";
-import { EventGuest, FilterOptions, Guest, SetGuestsList, User } from "../../types";
+import { EventGuest, FilterOptions, Guest, SetGuestsList } from "../../types";
 import { Workbook } from "exceljs";
 
 export const formatPhoneNumber = (phone: string): string => {
@@ -168,7 +168,6 @@ export const downloadRejectedGuests = async (rejected: RejectedGuest[]) => {
   await downloadXlsx(workbook, "rejected_guests.xlsx");
 };
 export const handleImport = (
-  userID: User["userID"],
   file: File,
   guestsList: Guest[],
   setGuestsList: SetGuestsList
@@ -219,7 +218,7 @@ export const handleImport = (
 
         const { valid, rejected } = validateGuestsInfo(json, guestsList);
         if (valid.length > 0) {
-          const updatedGuestsList = await httpRequests.addGuests(userID, valid);
+          const updatedGuestsList = await httpRequests.addGuests(valid);
           await setGuestsList(updatedGuestsList);
         }
         resolve({ rejected, addedCount: valid.length });

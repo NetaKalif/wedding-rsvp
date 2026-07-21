@@ -60,7 +60,7 @@ const GuestList: React.FC<GuestListProps> = ({
     // Optimistic: remove immediately
     onEventGuestsChange(eventGuests.filter((g) => g.guest_id !== guest.guest_id));
     try {
-      await httpRequests.deleteGuest(userID, guest.guest_id);
+      await httpRequests.deleteGuest(guest.guest_id);
       setGuests((prev) => prev.filter((g) => g.id !== guest.guest_id));
     } catch (error) {
       console.error("Error deleting guest:", error);
@@ -136,11 +136,11 @@ const GuestList: React.FC<GuestListProps> = ({
     setRsvpModal({ isOpen: false, guest: null, value: undefined });
 
     try {
-      const updatedEventGuests = await httpRequests.setRSVP(userID, eventId, guestId, newValue);
+      const updatedEventGuests = await httpRequests.setRSVP(eventId, guestId, newValue);
       onEventGuestsChange(updatedEventGuests);
     } catch (error) {
       console.error("Error saving RSVP:", error);
-      const fresh = await httpRequests.getEventGuests(userID, eventId);
+      const fresh = await httpRequests.getEventGuests(eventId);
       onEventGuestsChange(fresh);
     }
   };

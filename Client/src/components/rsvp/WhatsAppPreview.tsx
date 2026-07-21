@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, Image, Button, Box } from "@wix/design-system";
 import { Event } from "../../types";
 import "./css/WhatsAppMessage.css";
@@ -6,7 +6,7 @@ import { MessageType } from "./MessageGroupsModal";
 
 interface WhatsAppPreviewProps {
   event: Event;
-  imageUrl: string;
+  getImageUrl?: () => Promise<string>;
   isCollapsible?: boolean;
   isPreviewOpen?: boolean;
   setIsPreviewOpen?: (value: boolean) => void;
@@ -17,13 +17,27 @@ interface WhatsAppPreviewProps {
 
 const WhatsAppPreview: React.FC<WhatsAppPreviewProps> = ({
   event,
-  imageUrl,
+  getImageUrl,
   showAllMessages = true,
   messageType = "rsvp",
   customText = "",
 }) => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [imageUrl, setImageUrl] = useState("");
   const effectiveCeremonyType = event.ceremony_name || "חתונה";
+
+  // Media tokens are short-lived, so only mint one once the preview (and its
+  // image) is actually about to be shown, not when an ancestor modal opens.
+  useEffect(() => {
+    if (!isPreviewOpen || !getImageUrl) return;
+    let cancelled = false;
+    getImageUrl().then((resolvedUrl) => {
+      if (!cancelled) setImageUrl(resolvedUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isPreviewOpen, getImageUrl]);
 
   const rsvpTemplate = `משפחה וחברים יקרים,
 הנכם מוזמנים ל${effectiveCeremonyType} של ${event.bride_name || "{{bride_name}}"} ו${

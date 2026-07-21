@@ -45,7 +45,7 @@ export const PartnerModal: React.FC<PartnerModalProps> = ({
     setIsGenerating(true);
     setError("");
     try {
-      const code = await httpRequests.generateInviteCode(user.userID);
+      const code = await httpRequests.generateInviteCode();
       setInviteCode(code);
       await onPartnerChange();
     } catch (err: any) {
@@ -69,7 +69,7 @@ export const PartnerModal: React.FC<PartnerModalProps> = ({
     setIsJoining(true);
     setError("");
     try {
-      const result = await httpRequests.acceptInvite(user.userID, joinCode);
+      const result = await httpRequests.acceptInvite(joinCode);
       if (result.success) {
         await onPartnerChange();
         setShowJoinForm(false);
@@ -93,7 +93,7 @@ export const PartnerModal: React.FC<PartnerModalProps> = ({
     setIsUnlinking(true);
     setError("");
     try {
-      await httpRequests.unlinkPartner(user.userID);
+      await httpRequests.unlinkPartner();
       await onPartnerChange();
     } catch (err: any) {
       setError(err.message || "ביטול הקישור נכשל");

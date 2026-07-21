@@ -7,9 +7,8 @@ import React, {
   useCallback,
 } from "react";
 import { User, PartnerInfo, Event } from "../types";
-import { jwtDecode } from "jwt-decode";
 import { googleLogout } from "@react-oauth/google";
-import { httpRequests } from "../httpClient";
+import { httpRequests, setAuthToken, setUnauthorizedHandler } from "../httpClient";
 import { useNavigate } from "react-router-dom";
 
 interface AuthContextType {
@@ -37,18 +36,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const navigate = useNavigate();
 
-  const fetchPartnerInfo = useCallback(async (userID: string) => {
+  const fetchPartnerInfo = useCallback(async () => {
     try {
-      const info = await httpRequests.getPartnerInfo(userID);
+      const info = await httpRequests.getPartnerInfo();
       setPartnerInfo(info);
     } catch (error) {
       console.error("Error fetching partner info:", error);
     }
   }, []);
 
-  const fetchWeddingInfo = useCallback(async (userID: string) => {
+  const fetchWeddingInfo = useCallback(async () => {
     try {
-      const info = await httpRequests.getPrimaryEvent(userID);
+      const info = await httpRequests.getPrimaryEvent();
       setWeddingInfo(info);
       return info;
     } catch (error) {
@@ -59,106 +58,84 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshPartnerInfo = useCallback(async () => {
     if (user) {
-      await fetchPartnerInfo(user.userID);
+      await fetchPartnerInfo();
     }
   }, [user, fetchPartnerInfo]);
 
   const refreshWeddingInfo = useCallback(async () => {
     if (user) {
-      await fetchWeddingInfo(user.userID);
+      await fetchWeddingInfo();
     }
   }, [user, fetchWeddingInfo]);
 
-  useEffect(() => {
-    const initializeAuth = async () => {
-      const storedUser = localStorage.getItem("loggedInUser");
-
-      if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
-        const oneWeekInMs = 7 * 24 * 60 * 60 * 1000;
-
-        if (Date.now() - parsedUser.loginTime < oneWeekInMs) {
-          const { loginTime, ...userWithoutLoginTime } = parsedUser;
-
-          setUser(userWithoutLoginTime);
-
-          // Fetch all data before setting state to batch updates
-          const [partnerInfoData, adminStatus, weddingInfoData] =
-            await Promise.all([
-              httpRequests.getPartnerInfo(userWithoutLoginTime.userID),
-              httpRequests
-                .checkAdmin(userWithoutLoginTime.userID)
-                .catch(() => false),
-              httpRequests
-                .getPrimaryEvent(userWithoutLoginTime.userID)
-                .catch(() => null),
-            ]);
-
-          // Batch all state updates together
-          setPartnerInfo(partnerInfoData);
-          setWeddingInfo(weddingInfoData);
-          setIsAdmin(adminStatus);
-          setIsLoading(false);
-          return;
-        } else {
-          localStorage.removeItem("loggedInUser");
-        }
-      }
-      setIsLoading(false);
-    };
-
-    initializeAuth();
-  }, []);
-
-  const checkAdminStatus = async (userID: string) => {
-    try {
-      const adminStatus = await httpRequests.checkAdmin(userID);
-      setIsAdmin(adminStatus);
-    } catch (error) {
-      console.error("Error checking admin status:", error);
-      setIsAdmin(false);
-    }
-  };
-
-  const handleLoginSuccess = async (response: any) => {
-    setIsLoading(true);
-    const decoded: any = jwtDecode(response.credential);
-    const loggedInUser = {
-      name: decoded.name,
-      email: decoded.email,
-      userID: decoded.sub,
-    };
-    await httpRequests.addUser(loggedInUser);
-
-    // Set user early so useAppData starts fetching in parallel with the auth calls below
-    setUser(loggedInUser);
-
-    const [partnerInfoData, adminStatus, weddingInfoData] = await Promise.all([
-      httpRequests.getPartnerInfo(loggedInUser.userID),
-      httpRequests.checkAdmin(loggedInUser.userID).catch(() => false),
-      httpRequests.getPrimaryEvent(loggedInUser.userID).catch(() => null),
-    ]);
-
-    setPartnerInfo(partnerInfoData);
-    setWeddingInfo(weddingInfoData);
-    setIsAdmin(adminStatus);
-    setIsLoading(false);
-
-    localStorage.setItem(
-      "loggedInUser",
-      JSON.stringify({ ...loggedInUser, loginTime: Date.now() })
-    );
-    navigate("/");
-  };
-
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     googleLogout();
+    setAuthToken(null);
     setUser(undefined);
     setPartnerInfo(undefined);
     setWeddingInfo(null);
     setIsAdmin(false);
-    localStorage.removeItem("loggedInUser");
     navigate("/");
+  }, [navigate]);
+
+  useEffect(() => {
+    setUnauthorizedHandler(handleLogout);
+  }, [handleLogout]);
+
+  useEffect(() => {
+    const initializeAuth = async () => {
+      if (!localStorage.getItem("authToken")) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const [{ user: me, isAdmin: adminStatus }, partnerInfoData, weddingInfoData] =
+          await Promise.all([
+            httpRequests.getMe(),
+            httpRequests.getPartnerInfo(),
+            httpRequests.getPrimaryEvent().catch(() => null),
+          ]);
+
+        setUser(me);
+        setPartnerInfo(partnerInfoData);
+        setWeddingInfo(weddingInfoData);
+        setIsAdmin(adminStatus);
+      } catch (error) {
+        console.error("Error initializing auth:", error);
+        handleLogout();
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleLoginSuccess = async (response: any) => {
+    setIsLoading(true);
+    try {
+      const { token, user: loggedInUser, isAdmin: adminStatus } =
+        await httpRequests.loginWithGoogle(response.credential);
+      setAuthToken(token);
+
+      // Set user early so useAppData starts fetching in parallel with the auth calls below
+      setUser(loggedInUser);
+
+      const [partnerInfoData, weddingInfoData] = await Promise.all([
+        httpRequests.getPartnerInfo(),
+        httpRequests.getPrimaryEvent().catch(() => null),
+      ]);
+
+      setPartnerInfo(partnerInfoData);
+      setWeddingInfo(weddingInfoData);
+      setIsAdmin(adminStatus);
+
+      navigate("/");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const switchUser = async (targetUser: User) => {
@@ -166,19 +143,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error("Unauthorized: Only admin can switch users");
       return;
     }
-    const userWithLoginTime = { ...targetUser, loginTime: Date.now() };
-    localStorage.setItem("loggedInUser", JSON.stringify(userWithLoginTime));
+    const { token, user: impersonatedUser } = await httpRequests.impersonate(targetUser.userID);
+    setAuthToken(token);
 
     // Fetch all data for the new user
     const [partnerInfoData, weddingInfoData] = await Promise.all([
-      httpRequests.getPartnerInfo(targetUser.userID),
-      httpRequests.getPrimaryEvent(targetUser.userID).catch(() => null),
+      httpRequests.getPartnerInfo(),
+      httpRequests.getPrimaryEvent().catch(() => null),
     ]);
 
-    setUser(targetUser);
+    setUser(impersonatedUser);
     setPartnerInfo(partnerInfoData);
     setWeddingInfo(weddingInfoData);
-    checkAdminStatus(targetUser.userID);
+    // Admin authority persists through impersonation — isAdmin stays true.
   };
 
   return (

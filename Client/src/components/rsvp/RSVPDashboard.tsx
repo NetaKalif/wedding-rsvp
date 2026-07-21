@@ -167,14 +167,13 @@ export const RSVPDashboard = () => {
             </Modal>
 
             <Modal isOpen={isInfoModalOpen}>
-              <InfoModal setIsInfoModalOpen={setIsInfoModalOpen} />
+              <InfoModal isOpen={isInfoModalOpen} setIsInfoModalOpen={setIsInfoModalOpen} />
             </Modal>
 
             <Modal isOpen={isMessageGroupsModalOpen}>
               {weddingInfo && (
                 <MessageGroupsModal
                   setIsMessageGroupsModalOpen={setIsMessageGroupsModalOpen}
-                  userID={user.userID}
                   eventId={weddingInfo.id}
                   eventGuests={eventGuests}
                   event={weddingInfo}

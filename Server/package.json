@@ -13,7 +13,7 @@
     "mock-wa": "ts-node --transpile-only --project test/tsconfig.json test/mock-whatsapp/server.ts",
     "test:db:start": "docker rm -f wedding-rsvp-test-db 2>/dev/null; docker run -d --name wedding-rsvp-test-db -e POSTGRES_PASSWORD=test -e POSTGRES_DB=wedding_test -p 5433:5432 postgres:16 && echo 'Waiting for Postgres...' && until docker exec wedding-rsvp-test-db pg_isready -U postgres -q; do sleep 0.5; done && echo 'Postgres ready!'",
     "test:db:stop": "docker rm -f wedding-rsvp-test-db",
-    "test:server": "DATABASE_URL=postgres://postgres:test@localhost:5433/wedding_test WHATSAPP_API_BASE_URL=http://localhost:3001 WHATSAPP_ACCESS_TOKEN=mock-access-token ts-node-dev --respawn --transpile-only --project tsconfig.server-test.json ./src/app.ts"
+    "test:server": "DATABASE_URL=postgres://postgres:test@localhost:5433/wedding_test WHATSAPP_API_BASE_URL=http://localhost:3001 WHATSAPP_ACCESS_TOKEN=mock-access-token JWT_SECRET=test-jwt-secret-do-not-use-in-prod JWT_EXPIRES_IN=24h MEDIA_TOKEN_SECRET=test-media-token-secret-do-not-use-in-prod CLIENT_URL=http://localhost:3000 ts-node-dev --respawn --transpile-only --project tsconfig.server-test.json ./src/app.ts"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +28,8 @@
     "express": "^4.19.2",
     "express-serve-static-core": "^0.1.1",
     "form-data": "^4.0.2",
+    "google-auth-library": "^9.15.1",
+    "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.2",
     "nodemon": "^3.1.0",
     "pg": "^8.14.1",
@@ -42,6 +44,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
     "@types/jest": "^29.5.14",
+    "@types/jsonwebtoken": "^9.0.7",
     "@types/multer": "^2.1.0",
     "@types/pg": "^8.20.0",
     "jest": "^29.7.0",
