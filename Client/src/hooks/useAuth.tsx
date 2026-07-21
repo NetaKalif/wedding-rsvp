@@ -17,6 +17,7 @@ interface AuthContextType {
   weddingInfo: Event | null;
   isAdmin: boolean;
   isLoading: boolean;
+  pendingApproval: boolean;
   handleLoginSuccess: (response: any) => void;
   handleLogout: () => void;
   switchUser: (targetUser: User) => void;
@@ -34,6 +35,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [weddingInfo, setWeddingInfo] = useState<Event | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [pendingApproval, setPendingApproval] = useState<boolean>(false);
   const navigate = useNavigate();
 
   const fetchPartnerInfo = useCallback(async () => {
@@ -75,6 +77,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setPartnerInfo(undefined);
     setWeddingInfo(null);
     setIsAdmin(false);
+    setPendingApproval(false);
     navigate("/");
   }, [navigate]);
 
@@ -116,8 +119,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const handleLoginSuccess = async (response: any) => {
     setIsLoading(true);
     try {
-      const { token, user: loggedInUser, isAdmin: adminStatus } =
-        await httpRequests.loginWithGoogle(response.credential);
+      const loginResult = await httpRequests.loginWithGoogle(response.credential);
+
+      if (loginResult.status === "pending") {
+        setPendingApproval(true);
+        return;
+      }
+      setPendingApproval(false);
+
+      const { token, user: loggedInUser, isAdmin: adminStatus } = loginResult;
       setAuthToken(token);
 
       // Set user early so useAppData starts fetching in parallel with the auth calls below
@@ -166,6 +176,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         weddingInfo,
         isAdmin,
         isLoading,
+        pendingApproval,
         handleLoginSuccess,
         handleLogout,
         switchUser,

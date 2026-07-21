@@ -1,0 +1,55 @@
+.pending-approval {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: linear-gradient(
+    135deg,
+    #fce4ec 0%,
+    #fff5f5 25%,
+    #fef7f0 50%,
+    #fff0f5 75%,
+    #fce4ec 100%
+  );
+}
+
+.pending-approval-card {
+  max-width: 480px;
+  text-align: center;
+}
+
+.pending-approval-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--wedding-rose-dark, #d4919a);
+}
+
+.pending-approval-text {
+  color: var(--wedding-text, #5d4e4e);
+}
+
+.pending-approval-contact {
+  border: 1px solid var(--wedding-rose, #e8b4b8);
+}
+
+.pending-approval-phone-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--wedding-rose-dark, #d4919a);
+}
+
+.pending-approval-recheck-label {
+  color: var(--wedding-text-light, #8b7b7b);
+  font-size: 14px;
+}
+
+.pending-approval-signout {
+  background: none;
+  border: none;
+  color: var(--wedding-text-light, #8b7b7b);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 4px;
+}

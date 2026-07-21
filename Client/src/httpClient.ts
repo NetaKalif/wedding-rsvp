@@ -84,11 +84,9 @@ const rawRequest = async <T>(endpoint: string, method: "POST" | "PATCH", formDat
 
 // ==================== Auth Methods ====================
 
-interface LoginResponse {
-  token: string;
-  user: User;
-  isAdmin: boolean;
-}
+type LoginResponse =
+  | { status: "pending" }
+  | { status: "approved"; token: string; user: User; isAdmin: boolean };
 
 const loginWithGoogle = (credential: string) =>
   post<LoginResponse>("/auth/google", { credential });
@@ -205,6 +203,9 @@ const getLogs = () => get<ClientLog[]>("/logs");
 // ==================== Admin Methods ====================
 
 const getUsers = () => post<User[]>("/getUsers");
+const getPendingUsers = () => post<User[]>("/admin/getPendingUsers");
+const approveUser = (userID: string) => post<void>("/admin/approveUser", { userID });
+const declineUser = (userID: string) => post<void>("/admin/declineUser", { userID });
 
 // ==================== Task Methods ====================
 
@@ -317,7 +318,7 @@ export const httpRequests = {
   // Logs
   getLogs,
   // Admin
-  getUsers,
+  getUsers, getPendingUsers, approveUser, declineUser,
   // Tasks
   getTasks, addTask, updateTaskCompletion, updateTask, deleteTask,
   // Partner

@@ -4,6 +4,7 @@ import {
   Routes,
   Route,
   Link,
+  Navigate,
   useLocation,
 } from "react-router-dom";
 import PrivacyPolicy from "./components/global/PrivacyPolicy";
@@ -14,6 +15,8 @@ import { WeddingDashboard } from "./components/userDashboard/WeddingDashboard";
 import { TasksDashboard } from "./components/tasks/TasksDashboard";
 import { BudgetDashboard } from "./components/budgetAndVendors/BudgetDashboard";
 import WelcomePage from "./components/welcomePage/WelcomePage";
+import PendingApprovalPage from "./components/pendingApproval/PendingApprovalPage";
+import AdminApprovalsPage from "./components/admin/AdminApprovalsPage";
 import { useAuth, AuthProvider } from "./hooks/useAuth";
 import { AppDataProvider, useAppData } from "./hooks/useAppData";
 import { Loader } from "@wix/design-system";
@@ -29,7 +32,7 @@ function ScrollToTop() {
 }
 
 function AppContent() {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isAdmin, isLoading: authLoading, pendingApproval } = useAuth();
   const { isDataLoading } = useAppData();
 
   if (authLoading || isDataLoading) {
@@ -47,6 +50,10 @@ function AppContent() {
     );
   }
 
+  if (pendingApproval) {
+    return <PendingApprovalPage />;
+  }
+
   return (
     <div className="App">
       <ScrollToTop />
@@ -59,6 +66,10 @@ function AppContent() {
           <Route path="/rsvp" element={<RSVPDashboard />} />
           <Route path="/tasks" element={<TasksDashboard />} />
           <Route path="/budget" element={<BudgetDashboard />} />
+          <Route
+            path="/admin"
+            element={isAdmin ? <AdminApprovalsPage /> : <Navigate to="/" />}
+          />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/terms-of-service" element={<TermsOfService />} />
         </Routes>

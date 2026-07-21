@@ -69,6 +69,9 @@ const Header = ({
             {isAdmin
               ? <PopoverMenu.MenuItem text="החלפת משתמש" onClick={() => setIsSwitchUserModalOpen(true)} />
               : null}
+            {isAdmin
+              ? <PopoverMenu.MenuItem text="בקשות הרשמה ממתינות" onClick={() => navigate("/admin")} />
+              : null}
             {isAdmin ? <PopoverMenu.Divider /> : null}
             <PopoverMenu.MenuItem text="יומן" onClick={() => setIsViewLogsModalOpen(true)} />
             <PopoverMenu.Divider />

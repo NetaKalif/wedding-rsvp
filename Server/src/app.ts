@@ -25,6 +25,7 @@ import {
   verifyGoogleToken,
   issueSessionToken,
 } from "./auth";
+import { sendApprovalRequestEmail } from "./email";
 
 const upload = multer({ storage: multer.memoryStorage() });
 dotenv.config({ path: ".server.env" });
@@ -223,13 +224,43 @@ app.post("/auth/google", async (req: Request, res: Response) => {
     if (!credential) return res.status(400).send("credential is required");
 
     const identity = await verifyGoogleToken(credential);
-    await db.addUser(identity);
     const isAdmin = checkAdminAccess(identity.userID);
+    const { isNewUser, status: currentStatus } = await db.addUser(
+      identity,
+      isAdmin ? "approved" : "pending",
+    );
+
+    let effectiveStatus = currentStatus;
+    let shouldNotifyAdmin = false;
+
+    if (isAdmin && currentStatus !== "approved") {
+      await db.updateUserStatus(identity.userID, "approved");
+      effectiveStatus = "approved";
+    } else if (!isAdmin && isNewUser) {
+      // addUser already inserted this row as 'pending'
+      shouldNotifyAdmin = true;
+    } else if (!isAdmin && currentStatus === "declined") {
+      // Re-request after a prior decline — treat like a fresh request.
+      await db.updateUserStatus(identity.userID, "pending");
+      effectiveStatus = "pending";
+      shouldNotifyAdmin = true;
+    }
+
+    if (effectiveStatus !== "approved") {
+      if (shouldNotifyAdmin) {
+        sendApprovalRequestEmail({ name: identity.name, email: identity.email }).catch(
+          (error) => console.error("Failed to send approval-request email:", error),
+        );
+      }
+      await logMessage(identity.userID, `⏳ Pending approval: ${identity.name} (${identity.email})`);
+      return res.status(200).json({ status: "pending" });
+    }
+
     const token = issueSessionToken({ ...identity, isAdmin });
 
     await logMessage(identity.userID, `🔑 Signed in: ${identity.name} (${identity.email})`);
 
-    res.status(200).json({ token, user: identity, isAdmin });
+    res.status(200).json({ token, user: identity, isAdmin, status: "approved" });
   } catch (error) {
     return handleError(res, error, "Failed to sign in with Google");
   }
@@ -756,6 +787,37 @@ app.post("/getUsers", requireAdmin, async (req: Request, res: Response) => {
     res.status(200).json(users);
   } catch (error) {
     return handleError(res, error, "Failed to retrieve users");
+  }
+});
+
+app.post("/admin/getPendingUsers", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const users = await db.getUsersByStatus("pending");
+    res.status(200).json(users);
+  } catch (error) {
+    return handleError(res, error, "Failed to retrieve pending users");
+  }
+});
+
+app.post("/admin/approveUser", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { userID } = req.body;
+    if (!userID) return res.status(400).send("userID is required");
+    await db.updateUserStatus(userID, "approved");
+    res.status(200).send("User approved");
+  } catch (error) {
+    return handleError(res, error, "Failed to approve user");
+  }
+});
+
+app.post("/admin/declineUser", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { userID } = req.body;
+    if (!userID) return res.status(400).send("userID is required");
+    await db.updateUserStatus(userID, "declined");
+    res.status(200).send("User declined");
+  } catch (error) {
+    return handleError(res, error, "Failed to decline user");
   }
 });
 

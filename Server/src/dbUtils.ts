@@ -75,6 +75,12 @@ class Database {
         invite_code_expires_at TIMESTAMP WITH TIME ZONE
       );`, []);
 
+    // Existing rows are grandfathered as 'approved' via the column DEFAULT;
+    // new sign-ups explicitly insert 'pending' (see addUser below).
+    await this.runQuery(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved'
+        CHECK (status IN ('pending', 'approved', 'declined'));`, []);
+
     await this.runQuery(`
       CREATE TABLE IF NOT EXISTS "clientLogs" (
         id SERIAL PRIMARY KEY,
@@ -195,24 +201,48 @@ class Database {
 
   }
 
-  // Add or update user (Google login)
-  async addUser({ userID, email, name }: User): Promise<void> {
-    // Check if user already exists
+  // Add or update user (Google login). Returns whether the row was newly
+  // created and the user's current approval status (untouched on repeat logins).
+  async addUser(
+    { userID, email, name }: User,
+    initialStatus: "pending" | "approved",
+  ): Promise<{ isNewUser: boolean; status: string }> {
     const existingUser = await this.runQuery(
-      `SELECT "userID" FROM users WHERE "userID" = $1`,
+      `SELECT status FROM users WHERE "userID" = $1`,
       [userID],
     );
     const isNewUser = existingUser.length === 0;
 
     const query = `
-    INSERT INTO users ("userID", email, name) 
-    VALUES ($1, $2, $3)
-    ON CONFLICT ("userID") 
+    INSERT INTO users ("userID", email, name, status)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT ("userID")
     DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name
-    RETURNING "userID";
+    RETURNING status;
   `;
-    const values = [userID, email, name];
-    await this.runQuery(query, values);
+    const values = [userID, email, name, initialStatus];
+    const result = await this.runQuery(query, values);
+    return { isNewUser, status: result[0].status };
+  }
+
+  async updateUserStatus(
+    userID: string,
+    status: "pending" | "approved" | "declined",
+  ): Promise<void> {
+    await this.runQuery(`UPDATE users SET status = $1 WHERE "userID" = $2`, [
+      status,
+      userID,
+    ]);
+  }
+
+  async getUsersByStatus(status: string): Promise<User[]> {
+    const query = `
+      SELECT "userID", email, name, status
+      FROM users
+      WHERE status = $1
+      ORDER BY name;
+    `;
+    return this.runQuery(query, [status]);
   }
 
   // Populate default tasks for a new user
@@ -519,11 +549,12 @@ class Database {
     return results.length;
   }
 
-  // Get all users (for admin functionality)
+  // Get all approved users (for admin functionality, e.g. switch-user)
   async getAllUsers(): Promise<User[]> {
     const query = `
-      SELECT "userID", email, name
+      SELECT "userID", email, name, status
       FROM users
+      WHERE status = 'approved'
       ORDER BY name;
     `;
     const results = await this.runQuery(query, []);
