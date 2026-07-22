@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Box, Button, Card, Text } from "@wix/design-system";
 import { Plus } from "lucide-react";
 import { Event, EventGuest, Guest } from "../../types";
@@ -14,8 +15,25 @@ interface EventsListProps {
 
 const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEvent }) => {
   const { events, eventGuestsByEventId, setEvents, updateEventGuests, refreshEvents } = useAppData();
-  const [selectedEvent, setSelectedEvent] = useState<Event | undefined>(undefined);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [isCreating, setIsCreating] = useState(false);
+
+  const selectedEventId = searchParams.get("event");
+  const selectedEvent = selectedEventId
+    ? events.find((e) => e.id === Number(selectedEventId))
+    : undefined;
+
+  const selectEvent = (event: Event | undefined) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (event) {
+        next.set("event", String(event.id));
+      } else {
+        next.delete("event");
+      }
+      return next;
+    });
+  };
 
   const secondaryEvents = events.filter((e) => !e.is_primary);
 
@@ -26,13 +44,12 @@ const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEven
         userID={userID}
         guestsList={guestsList}
         primaryEvent={primaryEvent}
-        onBack={() => setSelectedEvent(undefined)}
+        onBack={() => selectEvent(undefined)}
         onEventDeleted={() => {
-          setSelectedEvent(undefined);
+          selectEvent(undefined);
           refreshEvents();
         }}
         onEventUpdated={(updated) => {
-          setSelectedEvent(updated);
           setEvents((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
         }}
       />
@@ -73,7 +90,7 @@ const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEven
             return (
               <div
                 key={event.id}
-                onClick={() => setSelectedEvent(event)}
+                onClick={() => selectEvent(event)}
                 style={{ cursor: "pointer" }}
               >
                 <Card>
@@ -122,7 +139,7 @@ const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEven
             setIsCreating(false);
             setEvents((prev) => [event, ...prev]);
             updateEventGuests(event.id, []);
-            setSelectedEvent(event);
+            selectEvent(event);
           }}
         />
       )}

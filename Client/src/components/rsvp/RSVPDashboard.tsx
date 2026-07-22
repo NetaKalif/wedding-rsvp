@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import GuestList from "./GuestList";
 import AddGuestModal from "./AddGuestModal";
@@ -21,7 +21,20 @@ export const RSVPDashboard = () => {
   const { user, isLoading, weddingInfo } = useAuth();
   const { guests, eventGuestsByEventId, updateEventGuests, refreshGuests, refreshEvents } = useAppData();
 
-  const [activeTab, setActiveTab] = useState<"guests" | "events">("guests");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab: "guests" | "events" = searchParams.get("tab") === "events" ? "events" : "guests";
+  const setActiveTab = (tab: "guests" | "events") => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (tab === "guests") {
+        next.delete("tab");
+        next.delete("event");
+      } else {
+        next.set("tab", "events");
+      }
+      return next;
+    });
+  };
   const [isAddGuestModalOpen, setIsAddGuestModalOpen] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [isMessageGroupsModalOpen, setIsMessageGroupsModalOpen] = useState(false);
