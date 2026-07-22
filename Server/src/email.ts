@@ -12,6 +12,38 @@ const transporter =
       })
     : null;
 
+export const sendApprovalDecisionEmail = async ({
+  userID,
+  name,
+  email,
+  approved,
+}: {
+  userID: string;
+  name: string;
+  email: string;
+  approved: boolean;
+}): Promise<void> => {
+  if (!transporter) {
+    logWarn(
+      userID,
+      `[email] EMAIL_USER/EMAIL_APP_PASSWORD not set — skipping approval-decision email for ${name} <${email}>`,
+    );
+    return;
+  }
+
+  const subject = approved ? "בקשתך להצטרפות אושרה" : "עדכון לגבי בקשתך להצטרפות";
+  const text = approved
+    ? `שלום ${name},\n\nבקשתך להצטרף למערכת ניהול החתונה אושרה. אפשר להתחבר עכשיו:\n${process.env.CLIENT_URL}\n\nבברכה,\nצוות ה-RSVP`
+    : `שלום ${name},\n\nלצערנו בקשתך להצטרף למערכת ניהול החתונה לא אושרה.\n\nבברכה,\nצוות ה-RSVP`;
+
+  await transporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject,
+    text,
+  });
+};
+
 export const sendDataExportWarningEmail = async ({
   userID,
   name,

@@ -26,7 +26,7 @@ import {
   verifyGoogleToken,
   issueSessionToken,
 } from "./auth";
-import { sendDataExportWarningEmail } from "./email";
+import { sendApprovalDecisionEmail, sendDataExportWarningEmail } from "./email";
 import { buildAllExports, zipExports } from "./dataExport";
 import { log, logError } from "./logger";
 
@@ -855,7 +855,13 @@ app.post("/admin/approveUser", requireAdmin, async (req: Request, res: Response)
   try {
     const { userID } = req.body;
     if (!userID) return res.status(400).send("userID is required");
+    const target = await db.getUserByID(userID);
+    if (!target) return res.status(404).send("User not found");
+
     await db.updateUserStatus(userID, "approved");
+    sendApprovalDecisionEmail({ userID, name: target.name, email: target.email, approved: true }).catch((error) =>
+      logError(userID, "Failed to send approval-decision email:", error),
+    );
     res.status(200).send("User approved");
   } catch (error) {
     return handleError(res, error, "Failed to approve user");
@@ -866,7 +872,13 @@ app.post("/admin/declineUser", requireAdmin, async (req: Request, res: Response)
   try {
     const { userID } = req.body;
     if (!userID) return res.status(400).send("userID is required");
+    const target = await db.getUserByID(userID);
+    if (!target) return res.status(404).send("User not found");
+
     await db.updateUserStatus(userID, "declined");
+    sendApprovalDecisionEmail({ userID, name: target.name, email: target.email, approved: false }).catch((error) =>
+      logError(userID, "Failed to send approval-decision email:", error),
+    );
     res.status(200).send("User declined");
   } catch (error) {
     return handleError(res, error, "Failed to decline user");

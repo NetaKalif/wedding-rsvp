@@ -94,6 +94,18 @@ describe("Pending user review", () => {
     const { data } = await getPendingUsers();
     expect(data.some((u: any) => u.userID === PENDING_USER_ID)).toBe(false);
   });
+
+  it("404s approving an unknown userID", async () => {
+    await expect(approveUser("no-such-approval-test-user")).rejects.toMatchObject({
+      response: { status: 404 },
+    });
+  });
+
+  it("404s declining an unknown userID", async () => {
+    await expect(declineUser("no-such-approval-test-user")).rejects.toMatchObject({
+      response: { status: 404 },
+    });
+  });
 });
 
 describe("Database.addUser status semantics", () => {
