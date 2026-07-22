@@ -4,7 +4,7 @@ import FormData from "form-data";
 import { messagesMap } from "./messages";
 import { getAccessToken } from "./whatsappTokenManager";
 import Database from "./dbUtils";
-import { log, logError } from "./logger";
+import { log, logError, logWarn } from "./logger";
 
 // Constants
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -248,6 +248,28 @@ export const sendWhatsAppMessage = async (
       logMessage: `❌ Failed to send message to ${recipient.name}: ${errorMessage}`,
     };
   }
+};
+
+// ============================================================================
+// Admin Notifications
+// ============================================================================
+
+// Not tied to any Event, unlike the templates above, so it bypasses
+// getTemplateParams and posts the template directly.
+export const sendNewUserRequestNotification = async (name: string, email: string): Promise<void> => {
+  const adminPhone = process.env.ADMIN_NOTIFY_WHATSAPP;
+  if (!adminPhone) {
+    logWarn(undefined, `[whatsapp] ADMIN_NOTIFY_WHATSAPP not set — skipping new-user-request notification for ${name} <${email}>`);
+    return;
+  }
+
+  const accessToken = await getAccessToken();
+  const headers = createAuthHeaders(accessToken);
+  const whatsappData = createTemplateData(adminPhone, {
+    templateName: "new_user_request",
+    bodyParams: [createTextParam("name", name), createTextParam("email", email)],
+  });
+  await axios.post(getWhatsAppApiUrl("messages"), whatsappData, { headers });
 };
 
 // ============================================================================

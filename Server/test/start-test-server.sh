@@ -27,9 +27,10 @@ PORT="$(pick_port)"
 echo "$PORT" > "$PORT_FILE"
 echo "▶ Test server starting on port $PORT (recorded in $PORT_FILE)"
 
-# EMAIL_USER/EMAIL_APP_PASSWORD are explicitly blanked (not just omitted): omitting
-# them lets dotenv fill them in from .server.env with real Gmail credentials, which
-# has previously caused test runs to send real emails to fake @test.com addresses.
+# EMAIL_USER/EMAIL_APP_PASSWORD/ADMIN_NOTIFY_WHATSAPP are explicitly overridden (not
+# just omitted): omitting them lets dotenv fill them in from .server.env with real
+# Gmail credentials / the real admin's WhatsApp number, which has previously caused
+# test runs to send real emails to fake @test.com addresses.
 NODE_ENV=test \
 DATABASE_URL=postgres://postgres:test@localhost:5433/wedding_test \
 WHATSAPP_API_BASE_URL=http://localhost:3001 \
@@ -40,5 +41,6 @@ MEDIA_TOKEN_SECRET=test-media-token-secret-do-not-use-in-prod \
 CLIENT_URL=http://localhost:3000 \
 EMAIL_USER= \
 EMAIL_APP_PASSWORD= \
+ADMIN_NOTIFY_WHATSAPP=972500000000 \
 PORT="$PORT" \
 ts-node-dev --respawn --transpile-only --project tsconfig.server-test.json ./src/app.ts

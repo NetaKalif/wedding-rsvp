@@ -14,6 +14,7 @@ import {
   getTemplateParams,
   logMessage,
   batchLogMessageResults,
+  sendNewUserRequestNotification,
   MessageResult,
 } from "./utils";
 import { getDateFormat, getWeddingDateStrings, daysBetween, addDays } from "./dateUtils";
@@ -25,7 +26,7 @@ import {
   verifyGoogleToken,
   issueSessionToken,
 } from "./auth";
-import { sendApprovalRequestEmail, sendDataExportWarningEmail } from "./email";
+import { sendDataExportWarningEmail } from "./email";
 import { buildAllExports, zipExports } from "./dataExport";
 import { log, logError } from "./logger";
 
@@ -253,8 +254,8 @@ app.post("/auth/google", async (req: Request, res: Response) => {
 
     if (effectiveStatus !== "approved") {
       if (shouldNotifyAdmin) {
-        sendApprovalRequestEmail({ userID: identity.userID, name: identity.name, email: identity.email }).catch(
-          (error) => logError(identity.userID, "Failed to send approval-request email:", error),
+        sendNewUserRequestNotification(identity.name, identity.email).catch((error) =>
+          logError(identity.userID, "Failed to send new-user-request WhatsApp notification:", error),
         );
       }
       await logMessage(identity.userID, `⏳ Pending approval: ${identity.name} (${identity.email})`);
@@ -282,6 +283,18 @@ if (process.env.NODE_ENV === "test") {
       res.status(200).send("ok");
     } catch (error) {
       return handleError(res, error, "Failed to run retention check");
+    }
+  });
+
+  // Test-only trigger for the new-user-request WhatsApp notification, since
+  // the real path (/auth/google) requires a real Google credential.
+  app.post("/test/trigger-new-user-notification", async (req: Request, res: Response) => {
+    try {
+      const { name, email } = req.body;
+      await sendNewUserRequestNotification(name, email);
+      res.status(200).send("ok");
+    } catch (error) {
+      return handleError(res, error, "Failed to send new-user-request notification");
     }
   });
 }
