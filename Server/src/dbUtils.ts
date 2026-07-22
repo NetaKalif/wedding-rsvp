@@ -1,6 +1,7 @@
 import {
   Guest,
   User,
+  AdminUserRow,
   Event,
   EventGuest,
   RsvpFilter,
@@ -592,13 +593,23 @@ class Database {
     return results.length;
   }
 
-  // Get all approved users (for admin functionality, e.g. switch-user)
-  async getAllUsers(): Promise<User[]> {
+  // Full admin view of every user, any status, with partner links and
+  // deletion-timeline status (joined off the effective owner, so a linked
+  // partner row shows the same countdown as its primary account).
+  async getAllUsersDetailed(): Promise<AdminUserRow[]> {
     const query = `
-      SELECT "userID", email, name, status
-      FROM users
-      WHERE status = 'approved'
-      ORDER BY name;
+      SELECT u."userID" as "userID", u.email, u.name, u.status,
+             u.primary_user_id as "primaryUserID",
+             owner_user.name as "linkedToName",
+             partner.name as "partnerName",
+             e.date as "weddingDate",
+             e.deletion_warning_sent_at as "warningSentAt",
+             e.deletion_cancelled_at as "cancelledAt"
+      FROM users u
+      LEFT JOIN users owner_user ON owner_user."userID" = u.primary_user_id
+      LEFT JOIN users partner ON partner.primary_user_id = u."userID"
+      LEFT JOIN events e ON e.user_id = COALESCE(u.primary_user_id, u."userID") AND e.is_primary = TRUE
+      ORDER BY u.name;
     `;
     const results = await this.runQuery(query, []);
     return results;

@@ -68,3 +68,5 @@ Admin impersonation (`/auth/impersonate` on the server) lets an admin act as ano
 ## Testing policy
 
 **Every change or new feature MUST be covered by a test.** No bug fix, behavior change, or new feature is complete until it has an accompanying test that exercises it (and fails without the change). Treat writing the test as a required part of the task, not an optional follow-up.
+
+**Only run the full test suite when the user asks to commit** (or explicitly asks for a test run). Don't run it proactively while iterating on a fix or tweak — it's noise mid-iteration; save it for right before a commit.

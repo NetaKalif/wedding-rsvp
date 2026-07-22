@@ -207,7 +207,21 @@ const getLogs = () => get<ClientLog[]>("/logs");
 
 // ==================== Admin Methods ====================
 
-const getUsers = () => post<User[]>("/getUsers");
+export interface AdminUserRow {
+  userID: string;
+  email: string;
+  name: string;
+  status: "pending" | "approved" | "declined";
+  primaryUserID: string | null;
+  linkedToName: string | null;
+  partnerName: string | null;
+  weddingDate: string | null;
+  warningSentAt: string | null;
+  cancelledAt: string | null;
+}
+
+const getAllUsersDetailed = () => post<AdminUserRow[]>("/admin/getAllUsersDetailed");
+const adminDeleteUser = (userID: string) => post<void>("/admin/deleteUser", { userID });
 const getPendingUsers = () => post<User[]>("/admin/getPendingUsers");
 const approveUser = (userID: string) => post<void>("/admin/approveUser", { userID });
 const declineUser = (userID: string) => post<void>("/admin/declineUser", { userID });
@@ -336,7 +350,7 @@ export const httpRequests = {
   // Logs
   getLogs,
   // Admin
-  getUsers, getPendingUsers, approveUser, declineUser,
+  getAllUsersDetailed, adminDeleteUser, getPendingUsers, approveUser, declineUser,
   getScheduledDeletions, cancelScheduledDeletion,
   // Tasks
   getTasks, addTask, updateTaskCompletion, updateTask, deleteTask,

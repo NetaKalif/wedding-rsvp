@@ -1,0 +1,8 @@
+.admin-action-icon-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.admin-action-icon-btn:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+}

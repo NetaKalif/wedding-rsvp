@@ -7,7 +7,6 @@ import { httpRequests } from "../../httpClient";
 import "./css/Header.css";
 import { useNavigate } from "react-router-dom";
 import PartnerModal from "../userDashboard/PartnerModal";
-import { SwitchUserModal } from "../rsvp/SwitchUserModal";
 import ViewLogsModal from "../rsvp/ViewLogsModal";
 
 type HeaderProps = {
@@ -16,11 +15,10 @@ type HeaderProps = {
 const Header = ({
   showBackToDashboardButton = false,
 }: HeaderProps): JSX.Element => {
-  const { user, isAdmin, handleLogout, partnerInfo, refreshPartnerInfo, switchUser } =
+  const { user, isAdmin, handleLogout, partnerInfo, refreshPartnerInfo } =
     useAuth();
   const navigate = useNavigate();
   const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
-  const [isSwitchUserModalOpen, setIsSwitchUserModalOpen] = useState(false);
   const [isViewLogsModalOpen, setIsViewLogsModalOpen] = useState(false);
 
   const getPartnerMenuText = () => {
@@ -67,13 +65,7 @@ const Header = ({
             />
             <PopoverMenu.Divider />
             {isAdmin
-              ? <PopoverMenu.MenuItem text="החלפת משתמש" onClick={() => setIsSwitchUserModalOpen(true)} />
-              : null}
-            {isAdmin
-              ? <PopoverMenu.MenuItem text="בקשות הרשמה ממתינות" onClick={() => navigate("/admin")} />
-              : null}
-            {isAdmin
-              ? <PopoverMenu.MenuItem text="מחיקות מתוזמנות" onClick={() => navigate("/admin/scheduled-deletions")} />
+              ? <PopoverMenu.MenuItem text="משתמשים" onClick={() => navigate("/admin")} />
               : null}
             {isAdmin ? <PopoverMenu.Divider /> : null}
             <PopoverMenu.MenuItem text="יומן" onClick={() => setIsViewLogsModalOpen(true)} />
@@ -111,14 +103,6 @@ const Header = ({
               await refreshPartnerInfo();
             }}
           />
-          {isAdmin && (
-            <SwitchUserModal
-              isOpen={isSwitchUserModalOpen}
-              onClose={() => setIsSwitchUserModalOpen(false)}
-              currentUserID={user.userID}
-              onSwitchUser={switchUser}
-            />
-          )}
           <Modal isOpen={isViewLogsModalOpen}>
             <ViewLogsModal
               setIsViewLogsModalOpen={setIsViewLogsModalOpen}

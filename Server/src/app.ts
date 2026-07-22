@@ -803,12 +803,29 @@ app.delete("/tasks/:taskId", async (req: Request, res: Response) => {
 
 // ==================== Admin Endpoints ====================
 
-app.post("/getUsers", requireAdmin, async (req: Request, res: Response) => {
+app.post("/admin/getAllUsersDetailed", requireAdmin, async (req: Request, res: Response) => {
   try {
-    const users = await db.getAllUsers();
+    const users = await db.getAllUsersDetailed();
     res.status(200).json(users);
   } catch (error) {
     return handleError(res, error, "Failed to retrieve users");
+  }
+});
+
+app.post("/admin/deleteUser", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { userID } = req.body;
+    if (!userID) return res.status(400).send("userID is required");
+    if (userID === req.auth.actorUserID) return res.status(400).send("Cannot delete your own account");
+
+    const target = await db.getUserByID(userID);
+    if (!target) return res.status(404).send("User not found");
+
+    await deleteAccountAndPartner(userID, null);
+    await logMessage(req.auth.actorUserID, `🗑️ Admin deleted account: ${target.name} (${userID})`);
+    res.status(200).send("User deleted");
+  } catch (error) {
+    return handleError(res, error, "Failed to delete user");
   }
 });
 
@@ -1604,7 +1621,7 @@ const cleanupOldLogs = async () => {
 const WARNING_DAYS_BEFORE_DELETION = 57;
 const DELETION_DAYS = 60;
 
-const deleteAccountAndPartner = async (ownerID: string, weddingDate: string) => {
+const deleteAccountAndPartner = async (ownerID: string, weddingDate: string | null) => {
   const owner = await db.getUserByID(ownerID);
   if (!owner) return; // already deleted by a previous, interrupted run
   const { partner } = await db.getPartnerInfo(ownerID);

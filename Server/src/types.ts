@@ -6,6 +6,20 @@ export interface User {
   userID: string;
 }
 
+/** Full admin-view row: every user, any status, with partner links and deletion-timeline status. */
+export interface AdminUserRow {
+  userID: string;
+  email: string;
+  name: string;
+  status: "pending" | "approved" | "declined";
+  primaryUserID: string | null;
+  linkedToName: string | null;
+  partnerName: string | null;
+  weddingDate: string | null;
+  warningSentAt: Date | null;
+  cancelledAt: Date | null;
+}
+
 /** Pure guest data — no RSVP, no event coupling. */
 export interface Guest {
   id?: number;
