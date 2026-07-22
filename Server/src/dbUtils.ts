@@ -167,12 +167,18 @@ class Database {
         id SERIAL PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
         name TEXT NOT NULL,
-        phone TEXT NOT NULL,
+        phone TEXT,
         whose TEXT NOT NULL,
         circle TEXT NOT NULL,
         number_of_guests INTEGER NOT NULL DEFAULT 1,
         UNIQUE(user_id, phone)
       );`, []);
+
+    // Guests without a cellphone (couple still wants them in the guest count,
+    // but they can't receive WhatsApp invites) — phone must be nullable.
+    // Postgres treats multiple NULLs as non-duplicates under UNIQUE(user_id, phone),
+    // so no constraint change is needed alongside this.
+    await this.runQuery(`ALTER TABLE guests ALTER COLUMN phone DROP NOT NULL;`, []);
 
     // events — wedding (is_primary=true) and any other ceremony
     await this.runQuery(`
@@ -320,7 +326,7 @@ class Database {
     if (guests.length === 0) return [];
     const values: any[] = [];
     const placeholders = guests.map((g, i) => {
-      values.push(userID, g.name, g.phone, g.whose, g.circle, g.number_of_guests);
+      values.push(userID, g.name, g.phone || null, g.whose, g.circle, g.number_of_guests);
       const o = i * 6;
       return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6})`;
     }).join(", ");
@@ -341,7 +347,7 @@ class Database {
       `UPDATE guests SET name=$1, phone=$2, whose=$3, circle=$4, number_of_guests=$5
        WHERE id=$6 AND user_id=$7
        RETURNING ${guestColumns};`,
-      [updates.name, updates.phone, updates.whose, updates.circle, updates.number_of_guests, guestId, userID],
+      [updates.name, updates.phone || null, updates.whose, updates.circle, updates.number_of_guests, guestId, userID],
     );
     return rows[0];
   }

@@ -43,6 +43,21 @@ const resetRsvp = (rsvpStatus: number | null) =>
     { headers: authHeader() },
   );
 
+const addGuest = async (name: string, phone: string | null) => {
+  const { data } = await axios.patch(
+    `${REAL_SERVER}/addGuests`,
+    { guestsToAdd: [{ name, phone, whose: "bride", circle: "friends", number_of_guests: 1 }] },
+    { headers: authHeader() },
+  );
+  return (data as Array<{ id: number; name: string }>).find((g) => g.name === name)!;
+};
+
+const addGuestToEvent = (eventId: number, guestIds: number[]) =>
+  axios.post(`${REAL_SERVER}/events/${eventId}/guests`, { guestIds }, { headers: authHeader() });
+
+const deleteGuest = (guestId: number) =>
+  axios.delete(`${REAL_SERVER}/deleteGuest`, { data: { guestId }, headers: authHeader() });
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 beforeEach(async () => {
@@ -125,5 +140,30 @@ describe("RSVP mistake correction", () => {
 
     const guest = await getGuest();
     expect(guest?.rsvp_status).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Guests without a phone are excluded from sends", () => {
+  it("/sendMessage only sends to the guest that has a phone", async () => {
+    const noPhoneGuest = await addGuest("NoPhone Guest", null);
+    try {
+      await addGuestToEvent(TEST_EVENT_ID, [noPhoneGuest.id]);
+
+      const { data } = await axios.post(
+        `${REAL_SERVER}/sendMessage`,
+        { options: { messageType: "rsvp", eventId: TEST_EVENT_ID, guestIds: [TEST_GUEST_ID, noPhoneGuest.id] } },
+        { headers: authHeader() },
+      );
+
+      expect(data.success).toBe(1);
+      expect(data.fail).toBe(0);
+
+      const msgs = await mock.waitForMessages(`+${TEST_GUEST_PHONE}`, 1);
+      expect(msgs).toHaveLength(1);
+    } finally {
+      await deleteGuest(noPhoneGuest.id);
+    }
   });
 });

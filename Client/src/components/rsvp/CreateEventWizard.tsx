@@ -52,7 +52,7 @@ const CreateEventWizard: React.FC<CreateEventWizardProps> = ({
     const matchesCircle = filterOptions.circle.length === 0 || filterOptions.circle.includes(guest.circle);
     const matchesSearch = !filterOptions.searchTerm ||
       guest.name.includes(filterOptions.searchTerm) ||
-      guest.phone.includes(filterOptions.searchTerm);
+      (guest.phone ?? "").includes(filterOptions.searchTerm);
     return matchesWhose && matchesCircle && matchesSearch;
   });
 

@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { formFieldsData, validateGuestsInfo } from "./logic";
+import { formFieldsData, validateGuestsInfo, validatePhoneNumber } from "./logic";
 import {
   Box,
   Button,
+  Checkbox,
   FormField,
   Input,
   NumberInput,
   SectionHelper,
   SidePanel,
+  Text,
 } from "@wix/design-system";
 import { EventGuest, Guest, User } from "../../types";
 import React from "react";
@@ -35,6 +37,10 @@ const EditGuestModal: React.FC<EditGuestModalProps> = ({
   const [name, setName] = useState<string>(guest.name ?? "");
   const [numberOfGuests, setNumberOfGuests] = useState<number>(guest.number_of_guests ?? 0);
   const [phone, setPhone] = useState<string>(guest.phone ?? "");
+  const [noWhatsapp, setNoWhatsapp] = useState<boolean>(!guest.phone);
+  const [isNonIsraeliPhone, setIsNonIsraeliPhone] = useState<boolean>(
+    !!guest.phone && !validatePhoneNumber(guest.phone)
+  );
   const [whose, setWhose] = useState<string>(guest.whose ?? "");
   const [circle, setCircle] = useState<string>(guest.circle ?? "");
   const [formError, setFormError] = useState<string | null>(null);
@@ -57,8 +63,8 @@ const EditGuestModal: React.FC<EditGuestModalProps> = ({
         setFormError(null);
       },
       value: phone,
-      mandatory: formFieldsData["phone"].mandatory,
-      isEmpty: () => phone.length === 0,
+      mandatory: formFieldsData["phone"].mandatory && !noWhatsapp,
+      isEmpty: () => !noWhatsapp && phone.length === 0,
     },
     {
       fieldId: formFieldsData["whose"].fieldId,
@@ -103,7 +109,8 @@ const EditGuestModal: React.FC<EditGuestModalProps> = ({
     const otherGuests = primaryGuestsList.filter((g) => g.id !== guest.guest_id);
     const { valid, rejected } = validateGuestsInfo(
       [{ name, phone, whose, circle, number_of_guests: numberOfGuests }],
-      otherGuests
+      otherGuests,
+      { allowMissingPhone: noWhatsapp, skipIsraeliValidation: isNonIsraeliPhone }
     );
 
     if (rejected.length > 0) {
@@ -169,6 +176,22 @@ const EditGuestModal: React.FC<EditGuestModalProps> = ({
             </FormField>
           </div>
         ))}
+        <Box direction="vertical" gap={2} paddingTop="6px" paddingBottom="12px">
+          <Checkbox
+            checked={noWhatsapp}
+            onChange={() => setNoWhatsapp((v) => !v)}
+          >
+            <Text size="small">לאורח זה אין טלפון (לא יישלחו אליו הודעות ווטסאפ)</Text>
+          </Checkbox>
+          {!noWhatsapp && (
+            <Checkbox
+              checked={isNonIsraeliPhone}
+              onChange={() => setIsNonIsraeliPhone((v) => !v)}
+            >
+              <Text size="small">מספר טלפון לא ישראלי</Text>
+            </Checkbox>
+          )}
+        </Box>
         <Box align="space-between">
           <Button priority="secondary" onClick={() => setIsEditGuestModalOpen(false)}>
             ביטול

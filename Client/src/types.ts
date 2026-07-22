@@ -4,7 +4,8 @@ export interface Guest {
   id?: number;
   user_id?: string;
   name: string;
-  phone: string;
+  /** Null for guests with no cellphone — they're excluded from all WhatsApp sends. */
+  phone: string | null;
   whose: string;
   circle: string;
   number_of_guests: number;
@@ -52,7 +53,7 @@ export interface EventGuest {
   last_rsvp_sent_at?: string;
   // Joined from guests table:
   name?: string;
-  phone?: string;
+  phone?: string | null;
   whose?: string;
   circle?: string;
   number_of_guests?: number;

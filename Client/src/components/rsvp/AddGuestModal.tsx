@@ -12,6 +12,7 @@ import {
   AddItem,
   Box,
   Button,
+  Checkbox,
   FileUpload,
   FormField,
   Input,
@@ -50,6 +51,8 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
   const [name, setName] = useState<string>("");
   const [numberOfGuests, setNumberOfGuests] = useState<number>(0);
   const [phone, setPhone] = useState<string>("");
+  const [noWhatsapp, setNoWhatsapp] = useState<boolean>(false);
+  const [isNonIsraeliPhone, setIsNonIsraeliPhone] = useState<boolean>(false);
   const [whose, setWhose] = useState<string>("");
   const [circle, setCircle] = useState<string>("");
   const [activeTabId, setActiveTabId] = useState<string>("1");
@@ -79,8 +82,8 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
         setFormError(null);
       },
       placeholder: "0545541120",
-      mandatory: formFieldsData["phone"].mandatory,
-      isEmpty: () => phone.length === 0,
+      mandatory: formFieldsData["phone"].mandatory && !noWhatsapp,
+      isEmpty: () => !noWhatsapp && phone.length === 0,
     },
     {
       fieldId: formFieldsData["whose"].fieldId,
@@ -124,7 +127,8 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
 
     const { valid, rejected } = validateGuestsInfo(
       [{ name, phone, whose, circle, number_of_guests: numberOfGuests }],
-      primaryGuestsList
+      primaryGuestsList,
+      { allowMissingPhone: noWhatsapp, skipIsraeliValidation: isNonIsraeliPhone }
     );
 
     if (rejected.length > 0) {
@@ -250,6 +254,22 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
                 </FormField>
               </div>
             ))}
+            <Box direction="vertical" gap={2} paddingTop="6px" paddingBottom="12px">
+              <Checkbox
+                checked={noWhatsapp}
+                onChange={() => setNoWhatsapp((v) => !v)}
+              >
+                <Text size="small">לאורח זה אין טלפון (לא יישלחו אליו הודעות ווטסאפ)</Text>
+              </Checkbox>
+              {!noWhatsapp && (
+                <Checkbox
+                  checked={isNonIsraeliPhone}
+                  onChange={() => setIsNonIsraeliPhone((v) => !v)}
+                >
+                  <Text size="small">מספר טלפון לא ישראלי</Text>
+                </Checkbox>
+              )}
+            </Box>
             <Box align="space-between">
               <Button priority="secondary" onClick={() => setIsAddGuestModalOpen(false)}>
                 ביטול

@@ -14,12 +14,15 @@ const HENNA_EVENT_ID = 2;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const addGuest = (name: string, phone: string) =>
+const addGuest = (name: string, phone: string | null) =>
   axios.patch(
     `${REAL_SERVER}/addGuests`,
     { guestsToAdd: [{ name, phone, whose: "bride", circle: "friends", number_of_guests: 1 }] },
     { headers: authHeader() },
   );
+
+const updateGuest = (guestId: number, updates: Record<string, unknown>) =>
+  axios.patch(`${REAL_SERVER}/updateGuest`, { guestId, updates }, { headers: authHeader() });
 
 const deleteGuest = (guestId: number) =>
   axios.delete(`${REAL_SERVER}/deleteGuest`, {
@@ -43,7 +46,7 @@ const getEventGuests = async (eventId: number): Promise<Array<{ guest_id: number
   return data;
 };
 
-const getAllGuests = async (): Promise<Array<{ id: number; name: string }>> => {
+const getAllGuests = async (): Promise<Array<{ id: number; name: string; phone: string | null }>> => {
   const { data } = await axios.post(`${REAL_SERVER}/guestsList`, {}, { headers: authHeader() });
   return data;
 };
@@ -77,6 +80,55 @@ describe("Add guest", () => {
 
     const eventGuests = await getEventGuests(WEDDING_EVENT_ID);
     expect(eventGuests.some((g) => g.guest_id === newGuest.id)).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Guests without a phone number", () => {
+  it("addGuests accepts a null phone and persists it as null", async () => {
+    const { data } = await addGuest("Jonah", null);
+    const newGuest = (data as Array<{ id: number; name: string; phone: string | null }>).find(
+      (g) => g.name === "Jonah",
+    );
+    expect(newGuest).toBeDefined();
+    createdGuestIds.push(newGuest!.id);
+    expect(newGuest!.phone).toBeNull();
+
+    const allGuests = await getAllGuests();
+    const persisted = allGuests.find((g) => g.id === newGuest!.id);
+    expect(persisted?.phone).toBeNull();
+  });
+
+  it("updateGuest can clear a guest's phone to null", async () => {
+    const { data } = await addGuest("Karen", "+972509999007");
+    const newGuest = (data as Array<{ id: number; name: string }>).find((g) => g.name === "Karen");
+    createdGuestIds.push(newGuest!.id);
+
+    const { data: updated } = await updateGuest(newGuest!.id, {
+      name: "Karen",
+      phone: null,
+      whose: "bride",
+      circle: "friends",
+      number_of_guests: 1,
+    });
+    expect(updated.phone).toBeNull();
+
+    const allGuests = await getAllGuests();
+    expect(allGuests.find((g) => g.id === newGuest!.id)?.phone).toBeNull();
+  });
+
+  it("accepts a non-Israeli-format phone number as-is (no server-side format validation)", async () => {
+    const foreignPhone = "+14155550123";
+    const { data } = await addGuest("Liam", foreignPhone);
+    const newGuest = (data as Array<{ id: number; name: string; phone: string | null }>).find(
+      (g) => g.name === "Liam",
+    );
+    createdGuestIds.push(newGuest!.id);
+    expect(newGuest!.phone).toBe(foreignPhone);
+
+    const allGuests = await getAllGuests();
+    expect(allGuests.find((g) => g.id === newGuest!.id)?.phone).toBe(foreignPhone);
   });
 });
 

@@ -9,7 +9,7 @@ export const formatPhoneNumber = (phone: string): string => {
 };
 
 export const validatePhoneNumber = (
-  phone: Guest["phone"]
+  phone: string
 ): string | undefined => {
   const formattedPhone = formatPhoneNumber(phone.toString());
   const phoneRegex = /^\+9725\d{8}$/;
@@ -114,25 +114,54 @@ export type RejectedGuest = {
   reasonHe: string;
 };
 
+export type ValidateGuestsOptions = {
+  /** Guest has no cellphone (won't receive WhatsApp messages) — allow a blank phone. Manual-add/edit only. */
+  allowMissingPhone?: boolean;
+  /** Guest's phone is a non-Israeli number — skip the strict Israeli mobile regex. Manual-add/edit only. */
+  skipIsraeliValidation?: boolean;
+};
+
 export const validateGuestsInfo = (
   importedGuestsList: Guest[],
-  currentGuestsList: Guest[]
+  currentGuestsList: Guest[],
+  options?: ValidateGuestsOptions
 ): { valid: Guest[]; rejected: RejectedGuest[] } => {
   const rejected: RejectedGuest[] = [];
-  const uniquePhones = new Set(currentGuestsList.map((g) => g.phone));
+  const uniquePhones = new Set(
+    currentGuestsList.filter((g) => g.phone).map((g) => g.phone)
+  );
 
   const valid = importedGuestsList.filter((row) => {
-    const missingField = requiredFields.find((f) => !row[f] || row[f] === "");
+    const missingField = requiredFields.find((f) => {
+      if (f === "phone" && options?.allowMissingPhone) return false;
+      return !row[f] || row[f] === "";
+    });
     if (missingField) {
       rejected.push({ guest: row, reason: "missing_field", reasonHe: `שדה חסר: ${missingField}` });
       return false;
     }
-    const formattedPhone = validatePhoneNumber(row.phone);
-    if (!formattedPhone) {
-      rejected.push({ guest: row, reason: "invalid_phone", reasonHe: "מספר טלפון לא תקין" });
-      return false;
+
+    const phoneProvided = !!row.phone && String(row.phone).trim() !== "";
+    if (!phoneProvided) {
+      if (!options?.allowMissingPhone) {
+        rejected.push({ guest: row, reason: "invalid_phone", reasonHe: "מספר טלפון לא תקין" });
+        return false;
+      }
+      row.phone = null;
+      return true;
     }
-    row.phone = formattedPhone;
+
+    if (options?.skipIsraeliValidation) {
+      row.phone = String(row.phone).trim();
+    } else {
+      const formattedPhone = validatePhoneNumber(row.phone as string);
+      if (!formattedPhone) {
+        rejected.push({ guest: row, reason: "invalid_phone", reasonHe: "מספר טלפון לא תקין" });
+        return false;
+      }
+      row.phone = formattedPhone;
+    }
+
     if (uniquePhones.has(row.phone)) {
       rejected.push({ guest: row, reason: "duplicate_phone", reasonHe: "מספר טלפון כבר קיים" });
       return false;

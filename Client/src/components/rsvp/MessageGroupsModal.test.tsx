@@ -102,6 +102,30 @@ describe("MessageGroupsModal - specific guest picker", () => {
     expect(screen.queryByText(/Confirmed Guest/)).not.toBeInTheDocument();
   });
 
+  it("excludes guests without a phone from the picker and from select-all", () => {
+    const guestsWithNoPhone: EventGuest[] = [
+      ...eventGuests,
+      { guest_id: 4, event_id: 1, name: "No Phone Guest", phone: null, rsvp_status: null, whose: "כלה", circle: "משפחה" },
+    ];
+
+    render(
+      <MessageGroupsModal
+        setIsMessageGroupsModalOpen={jest.fn()}
+        eventId={1}
+        eventGuests={guestsWithNoPhone}
+        event={event}
+      />
+    );
+
+    fireEvent.click(screen.getByText("בחירת אורחים ספציפיים לשליחה"));
+
+    expect(screen.queryByText(/No Phone Guest/)).not.toBeInTheDocument();
+    expect(screen.getByText("בחר הכל (3)")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/בחר הכל/));
+    expect(screen.getByText("נבחרו 3 אורחים")).toBeInTheDocument();
+  });
+
   it("selects all currently-filtered guests via the select-all checkbox", () => {
     render(
       <MessageGroupsModal

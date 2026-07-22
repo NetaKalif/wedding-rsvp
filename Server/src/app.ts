@@ -85,6 +85,9 @@ const limitGuests = <T>(guests: T[]): T[] =>
     ? guests
     : guests.slice(0, MAX_GUESTS_PER_MESSAGE_BATCH);
 
+/** Guests with no cellphone can't receive WhatsApp messages — exclude from every send. */
+const hasPhone = (eg: EventGuest): boolean => !!eg.phone;
+
 const handleError = async (
   res: Response,
   error: any,
@@ -544,7 +547,7 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
 
     // Get event guests with optional RSVP filter
     const rsvpFilter = messageType === "rsvpReminder" ? "pending" : messageType === "weddingReminder" ? "approved" : undefined;
-    let eventGuests = await db.getEventGuests(eventId, rsvpFilter);
+    let eventGuests = await db.getEventGuests(eventId, rsvpFilter).then((guests) => guests.filter(hasPhone));
 
     if (selectedGuestIds?.length) {
       eventGuests = eventGuests.filter((eg) => selectedGuestIds.includes(eg.guest_id));
@@ -1553,7 +1556,7 @@ const sendScheduledMessages = async () => {
         const isWeddingDay = event.reminder_day === "wedding_day";
         const triggerDate = isWeddingDay ? weddingDateStr : dayBeforeWeddingStr;
         if (today === triggerDate && isTimeToSend(reminderTime)) {
-          const eventGuests = limitGuests(await db.getEventGuests(event.id, "approved"));
+          const eventGuests = limitGuests((await db.getEventGuests(event.id, "approved")).filter(hasPhone));
           if (eventGuests.length > 0) {
             await logMessage(userID, `🔄 Sending ${isWeddingDay ? "wedding day" : "day before"} reminder for "${event.ceremony_name}" to ${eventGuests.length} guests`);
             const hasGiftLink = !!(event.gift_link?.trim());
@@ -1568,7 +1571,7 @@ const sendScheduledMessages = async () => {
 
       // Thank-you messages the day after
       if (event.send_thank_you && today === dayAfterWeddingStr && isTimeToSend(THANK_YOU_MESSAGE_TIME)) {
-        const eventGuests = limitGuests(await db.getEventGuests(event.id, "approved"));
+        const eventGuests = limitGuests((await db.getEventGuests(event.id, "approved")).filter(hasPhone));
         if (eventGuests.length > 0) {
           await logMessage(userID, `🔄 Sending thank-you for "${event.ceremony_name}" to ${eventGuests.length} guests`);
           const templateName = event.thank_you_message?.trim() ? "custom_thank_you_message" : "thank_you_message";

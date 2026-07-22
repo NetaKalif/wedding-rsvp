@@ -3,6 +3,7 @@ Server/node_modules/
 Server/test/.test-port
 
 Client/build
+Server/dist
 .wwebjs_auth/
 *.env
 

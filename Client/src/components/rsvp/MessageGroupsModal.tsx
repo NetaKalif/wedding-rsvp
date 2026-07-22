@@ -132,14 +132,17 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
       .finally(() => setIsSending(false));
   };
 
+  // Guests with no cellphone can't receive WhatsApp messages — exclude from picking/counting/sending.
+  const sendableGuests = eventGuests.filter((g) => !!g.phone);
+
   const selectableGuests = (() => {
     if (messageType === "rsvpReminder") {
-      return eventGuests.filter((g) => g.rsvp_status == null);
+      return sendableGuests.filter((g) => g.rsvp_status == null);
     }
     if (messageType === "weddingReminder") {
-      return eventGuests.filter((g) => g.rsvp_status != null && g.rsvp_status > 0);
+      return sendableGuests.filter((g) => g.rsvp_status != null && g.rsvp_status > 0);
     }
-    return eventGuests;
+    return sendableGuests;
   })();
 
   const targetGuestCount = selectableGuests.length;
