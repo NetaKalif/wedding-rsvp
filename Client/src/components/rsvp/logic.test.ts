@@ -1,5 +1,9 @@
-import { validateGuestsInfo } from "./logic";
-import { Guest } from "../../types";
+import {
+  validateGuestsInfo,
+  guestExportColumns,
+  guestExportRow,
+} from "./logic";
+import { EventGuest, Guest } from "../../types";
 
 const baseGuest = (overrides: Partial<Guest> = {}): Guest => ({
   name: "Test Guest",
@@ -56,5 +60,76 @@ describe("validateGuestsInfo", () => {
     expect(valid).toHaveLength(0);
     expect(rejected).toHaveLength(1);
     expect(rejected[0].reason).toBe("missing_field");
+  });
+});
+
+describe("guest export", () => {
+  const eventGuest = (overrides: Partial<EventGuest> = {}): EventGuest => ({
+    id: 42,
+    event_id: 7,
+    guest_id: 99,
+    user_id: "google-sub-123",
+    last_rsvp_sent_at: "2026-07-01T00:00:00.000Z",
+    name: "דנה כהן",
+    phone: "0501234567",
+    whose: "כלה",
+    circle: "משפחה",
+    number_of_guests: 3,
+    rsvp_status: 2,
+    ...overrides,
+  });
+
+  it("exports only the columns visible on the RSVP page, not internal identifiers", () => {
+    const keys = guestExportColumns.map((c) => c.key);
+    expect(keys).toEqual([
+      "name",
+      "phone",
+      "whose",
+      "circle",
+      "status",
+      "attending_count",
+      "number_of_guests",
+    ]);
+    // Internal fields must never leak into the export.
+    for (const internal of [
+      "id",
+      "event_id",
+      "guest_id",
+      "user_id",
+      "last_rsvp_sent_at",
+      "rsvp_status",
+    ]) {
+      expect(keys).not.toContain(internal);
+    }
+  });
+
+  it("maps a guest row to visible fields only, with a human-readable status label", () => {
+    const row = guestExportRow(eventGuest());
+    expect(row).toEqual({
+      name: "דנה כהן",
+      phone: "0501234567",
+      whose: "כלה",
+      circle: "משפחה",
+      status: "מאושר",
+      attending_count: 2,
+      number_of_guests: 3,
+    });
+    // No internal identifiers on the row.
+    expect(row).not.toHaveProperty("id");
+    expect(row).not.toHaveProperty("event_id");
+    expect(row).not.toHaveProperty("guest_id");
+    expect(row).not.toHaveProperty("user_id");
+    expect(row).not.toHaveProperty("last_rsvp_sent_at");
+  });
+
+  it("labels pending and declined guests, leaving attending count blank when pending", () => {
+    expect(guestExportRow(eventGuest({ rsvp_status: null }))).toMatchObject({
+      status: "ממתין",
+      attending_count: "",
+    });
+    expect(guestExportRow(eventGuest({ rsvp_status: 0 }))).toMatchObject({
+      status: "סירוב",
+      attending_count: 0,
+    });
   });
 });

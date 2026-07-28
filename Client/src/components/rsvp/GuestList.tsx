@@ -19,7 +19,7 @@ import {
   TableColumn,
 } from "@wix/design-system";
 import { Check, ChevronDown, ChevronUp, Clock, Pencil, Trash2, X } from "lucide-react";
-import { filterGuests, getRsvpStatus } from "./logic";
+import { filterGuests, getRsvpStatus, RSVP_STATUS_LABELS } from "./logic";
 import { httpRequests } from "../../httpClient";
 import { useAppData } from "../../hooks/useAppData";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -152,7 +152,7 @@ const GuestList: React.FC<GuestListProps> = ({
           <Check color="green" />
         ) : (
           <Badge uppercase={false} skin="neutralSuccess">
-            מאושר
+            {RSVP_STATUS_LABELS.confirmed}
           </Badge>
         );
       case "declined":
@@ -160,7 +160,7 @@ const GuestList: React.FC<GuestListProps> = ({
           <X color="red" />
         ) : (
           <Badge uppercase={false} skin="neutralDanger">
-            סירוב
+            {RSVP_STATUS_LABELS.declined}
           </Badge>
         );
       default:
@@ -168,7 +168,7 @@ const GuestList: React.FC<GuestListProps> = ({
           <Clock color="orange" />
         ) : (
           <Badge uppercase={false} skin="warningLight">
-            ממתין
+            {RSVP_STATUS_LABELS.pending}
           </Badge>
         );
     }

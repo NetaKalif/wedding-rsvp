@@ -1,6 +1,19 @@
 import { httpRequests } from "../../httpClient";
-import { EventGuest, FilterOptions, Guest, SetGuestsList } from "../../types";
+import {
+  EventGuest,
+  FilterOptions,
+  Guest,
+  RsvpStatus,
+  SetGuestsList,
+} from "../../types";
 import { Workbook } from "exceljs";
+
+/** Hebrew labels for each RSVP status, shared by the guest table and exports. */
+export const RSVP_STATUS_LABELS: Record<RsvpStatus, string> = {
+  confirmed: "מאושר",
+  declined: "סירוב",
+  pending: "ממתין",
+};
 
 export const formatPhoneNumber = (phone: string): string => {
   if (phone.startsWith("0")) return `+972${phone.slice(1)}`;
@@ -49,18 +62,42 @@ const downloadXlsx = async (workbook: Workbook, filename: string) => {
   URL.revokeObjectURL(url);
 };
 
+/** RSVP status label matching the badges shown on the RSVP page. */
+const rsvpStatusLabel = (rsvp: EventGuest["rsvp_status"]): string =>
+  RSVP_STATUS_LABELS[getRsvpStatus(rsvp)];
+
+/**
+ * The exported columns for the guest list — intentionally limited to the
+ * fields visible to the user on the RSVP page, excluding internal identifiers
+ * (id, event_id, guest_id, user_id, last_rsvp_sent_at, ...).
+ */
+export const guestExportColumns = [
+  { header: "שם", key: "name", width: 25 },
+  { header: "טלפון", key: "phone", width: 15 },
+  { header: "מוזמן ע״י", key: "whose", width: 15 },
+  { header: "מעגל", key: "circle", width: 15 },
+  { header: "סטטוס אישור", key: "status", width: 15 },
+  { header: "מספר מאושרים", key: "attending_count", width: 15 },
+  { header: "מספר אורחים", key: "number_of_guests", width: 15 },
+];
+
+/** Maps a guest to the single export row for the visible columns. */
+export const guestExportRow = (guest: EventGuest): Record<string, unknown> => ({
+  name: guest.name,
+  phone: guest.phone,
+  whose: guest.whose,
+  circle: guest.circle,
+  status: rsvpStatusLabel(guest.rsvp_status),
+  attending_count: guest.rsvp_status ?? "",
+  number_of_guests: guest.number_of_guests,
+});
+
 export const handleExport = async (guestsList: EventGuest[]) => {
   const workbook = new Workbook();
   const worksheet = workbook.addWorksheet("Guests");
 
-  if (guestsList.length > 0) {
-    worksheet.columns = (Object.keys(guestsList[0]) as (keyof EventGuest)[]).map(
-      (key) => ({ header: String(key), key: String(key) })
-    );
-    guestsList.forEach((guest) =>
-      worksheet.addRow(guest as unknown as Record<string, unknown>)
-    );
-  }
+  worksheet.columns = guestExportColumns;
+  guestsList.forEach((guest) => worksheet.addRow(guestExportRow(guest)));
 
   await downloadXlsx(workbook, "guestsListUpdated.xlsx");
 };
