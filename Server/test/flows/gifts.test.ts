@@ -22,10 +22,10 @@ const addGuest = async (name: string, phone: string): Promise<{ id: number }> =>
 const deleteGuest = (guestId: number) =>
   axios.delete(`${REAL_SERVER}/deleteGuest`, { data: { guestId }, headers: authHeader() });
 
-const addGift = (guestId: number, giftType: string, amount: number, userID?: string) =>
+const addGift = (guestId: number, giftType: string, amount: number, userID?: string, otherDescription?: string) =>
   axios.post(
     `${REAL_SERVER}/gifts`,
-    { guest_id: guestId, gift_type: giftType, amount },
+    { guest_id: guestId, gift_type: giftType, amount, other_description: otherDescription },
     { headers: authHeader(userID) },
   );
 
@@ -34,10 +34,10 @@ const getGifts = async (userID?: string): Promise<Array<{ gift_id: number; guest
   return data;
 };
 
-const updateGift = (giftId: number, giftType: string, amount: number, userID?: string) =>
+const updateGift = (giftId: number, giftType: string, amount: number, userID?: string, otherDescription?: string) =>
   axios.patch(
     `${REAL_SERVER}/gifts/${giftId}`,
-    { gift_type: giftType, amount },
+    { gift_type: giftType, amount, other_description: otherDescription },
     { headers: authHeader(userID) },
   );
 
@@ -114,6 +114,38 @@ describe("Add gift", () => {
     });
   });
 
+  it("accepts an 'other' gift with a free-text description", async () => {
+    const guest = await addGuest("Freeform", "+972509998013");
+    createdGuestIds.push(guest.id);
+
+    const { status, data } = await addGift(guest.id, "other", 350, undefined, "שובר מתנה");
+    expect(status).toBe(201);
+    createdGiftIds.push(data.gift_id);
+    expect(data.gift_type).toBe("other");
+    expect(data.other_description).toBe("שובר מתנה");
+
+    const gifts = await getGifts();
+    const persisted = gifts.find((g) => g.gift_id === data.gift_id) as any;
+    expect(persisted.other_description).toBe("שובר מתנה");
+  });
+
+  it("rejects an 'other' gift without a description, and drops the description for named types", async () => {
+    const guest = await addGuest("Vague", "+972509998014");
+    createdGuestIds.push(guest.id);
+
+    await expect(addGift(guest.id, "other", 100)).rejects.toMatchObject({
+      response: { status: 400 },
+    });
+    await expect(addGift(guest.id, "other", 100, undefined, "   ")).rejects.toMatchObject({
+      response: { status: 400 },
+    });
+
+    // A description sent with a named type is discarded, not stored
+    const { data } = await addGift(guest.id, "cash", 100, undefined, "ignore me");
+    createdGiftIds.push(data.gift_id);
+    expect(data.other_description).toBeNull();
+  });
+
   it("rejects a gift for a guest that belongs to another user", async () => {
     const guest = await addGuest("Foreign", "+972509998005");
     createdGuestIds.push(guest.id);
@@ -158,6 +190,26 @@ describe("Update gift", () => {
     await expect(updateGift(gift.gift_id, "cash", 0)).rejects.toMatchObject({
       response: { status: 400 },
     });
+  });
+
+  it("can change a gift to 'other' with a description, and back to a named type clearing it", async () => {
+    const guest = await addGuest("Flipper", "+972509998015");
+    createdGuestIds.push(guest.id);
+
+    const { data: gift } = await addGift(guest.id, "cash", 300);
+    createdGiftIds.push(gift.gift_id);
+
+    // → other requires a description
+    await expect(updateGift(gift.gift_id, "other", 300)).rejects.toMatchObject({
+      response: { status: 400 },
+    });
+    const { data: asOther } = await updateGift(gift.gift_id, "other", 300, undefined, "תכשיט");
+    expect(asOther.other_description).toBe("תכשיט");
+
+    // → back to a named type clears the stored description
+    const { data: asCheck } = await updateGift(gift.gift_id, "check", 300, undefined, "stale");
+    expect(asCheck.gift_type).toBe("check");
+    expect(asCheck.other_description).toBeNull();
   });
 
   it("cannot update another user's gift", async () => {

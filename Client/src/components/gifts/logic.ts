@@ -15,11 +15,24 @@ export const GIFT_TYPE_LABELS: Record<GiftType, string> = {
   paybox: "פייבוקס",
   bank_transfer: "העברה בנקאית",
   buyme: "BUYME",
+  other: "אחר",
 };
 
 export const GIFT_TYPE_OPTIONS = (
   Object.keys(GIFT_TYPE_LABELS) as GiftType[]
 ).map((type) => ({ id: type, value: GIFT_TYPE_LABELS[type] }));
+
+/** Whether a guest already has a recorded gift — the UI allows one gift per guest (edit/delete it from the table). */
+export const guestHasGift = (gifts: Gift[], guestId: number | undefined): boolean =>
+  guestId != null && gifts.some((gift) => gift.guest_id === guestId);
+
+/** Display label for a gift: the free text for "other", the type label otherwise. */
+export const giftTypeLabel = (
+  gift: Pick<Gift, "gift_type" | "other_description">
+): string =>
+  gift.gift_type === "other" && gift.other_description
+    ? gift.other_description
+    : GIFT_TYPE_LABELS[gift.gift_type];
 
 /**
  * A row on the gifts page: a guest (any guest, invited or not), their
@@ -110,9 +123,7 @@ export const giftExportRow = (row: GuestGiftRow): Record<string, unknown> => ({
   status: row.rsvp ? RSVP_STATUS_LABELS[getRsvpStatus(row.rsvp.rsvp_status)] : "",
   attending_count: row.rsvp?.rsvp_status ?? "",
   number_of_guests: row.guest.number_of_guests,
-  gift_types: row.gifts
-    .map((gift) => GIFT_TYPE_LABELS[gift.gift_type])
-    .join(", "),
+  gift_types: row.gifts.map(giftTypeLabel).join(", "),
   gift_amount: row.gifts.length > 0 ? row.totalAmount : "",
 });
 

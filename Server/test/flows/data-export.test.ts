@@ -8,6 +8,8 @@
  */
 
 import axios from "axios";
+import ExcelJS from "exceljs";
+import JSZip from "jszip";
 import { authHeader, TEST_USER_ID } from "../helpers/auth";
 
 const REAL_SERVER = process.env.REAL_SERVER_URL ?? "http://localhost:8080";
@@ -39,6 +41,53 @@ describe("Download my data export", () => {
     expect(response.headers["content-type"]).toBe("application/zip");
     expect(response.headers["content-disposition"]).toContain('attachment; filename="wedding-data.zip"');
     expect((response.data as Buffer).length).toBeGreaterThan(0);
+  });
+
+  it("includes a gifts xlsx in the same format as the gifts page's export button", async () => {
+    // Seeded guest "Test Guest" (id=1, in the wedding event, RSVP pending)
+    // gives a gift, then we download the export
+    const { data: gift } = await axios.post(
+      `${REAL_SERVER}/gifts`,
+      { guest_id: 1, gift_type: "other", amount: 500, other_description: "שובר מתנה" },
+      { headers: authHeader() },
+    );
+
+    try {
+      const token = await mintMediaToken("dataExport");
+      const response = await downloadExport(token);
+
+      const zip = await JSZip.loadAsync(response.data as Buffer);
+      const giftsEntry = zip.file("מתנות.xlsx");
+      expect(giftsEntry).not.toBeNull();
+
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load((await giftsEntry!.async("nodebuffer")) as any);
+      const sheet = workbook.worksheets[0];
+
+      // Same columns as the client's gifts-page export (giftExportColumns)
+      const headers: string[] = [];
+      sheet.getRow(1).eachCell((cell) => headers.push(String(cell.value)));
+      expect(headers).toEqual([
+        "שם", "טלפון", "מוזמן ע״י", "מעגל", "סטטוס אישור",
+        "מספר מאושרים", "מספר אורחים", "סוג מתנה", "סכום מתנה",
+      ]);
+
+      // One row per guest: the gifting guest carries RSVP + gift data...
+      let giftRowValues: string[] = [];
+      let aliceRowValues: string[] = [];
+      sheet.eachRow((row) => {
+        const values = (row.values as any[]).map(String);
+        if (values.includes("Test Guest")) giftRowValues = values;
+        if (values.includes("Alice")) aliceRowValues = values;
+      });
+      expect(giftRowValues).toEqual(
+        expect.arrayContaining(["Test Guest", "ממתין", "שובר מתנה", "500"]),
+      );
+      // ...and guests without gifts still appear (like the page's table export)
+      expect(aliceRowValues).toEqual(expect.arrayContaining(["Alice"]));
+    } finally {
+      await axios.delete(`${REAL_SERVER}/gifts/${gift.gift_id}`, { headers: authHeader() });
+    }
   });
 
   it("rejects a missing media token", async () => {

@@ -4,6 +4,8 @@ import {
   getGiftStats,
   giftExportColumns,
   giftExportRow,
+  giftTypeLabel,
+  guestHasGift,
   GIFT_TYPE_LABELS,
 } from "./logic";
 import { guestExportColumns } from "../rsvp/logic";
@@ -143,7 +145,40 @@ describe("getGiftStats", () => {
   });
 });
 
+describe("guestHasGift", () => {
+  it("is true only for guests that already have a gift", () => {
+    const gifts = [gift(1, 7, 100)];
+    expect(guestHasGift(gifts, 7)).toBe(true);
+    expect(guestHasGift(gifts, 8)).toBe(false);
+    expect(guestHasGift(gifts, undefined)).toBe(false);
+  });
+});
+
+describe("giftTypeLabel", () => {
+  it("returns the Hebrew label for named types", () => {
+    expect(giftTypeLabel(gift(1, 1, 100, "check"))).toBe("צ׳ק");
+  });
+
+  it("returns the free-text description for an 'other' gift", () => {
+    const otherGift = { ...gift(1, 1, 100, "other"), other_description: "שובר מתנה" };
+    expect(giftTypeLabel(otherGift)).toBe("שובר מתנה");
+  });
+
+  it("falls back to the 'other' label when the description is missing", () => {
+    expect(giftTypeLabel(gift(1, 1, 100, "other"))).toBe("אחר");
+  });
+});
+
 describe("gift export", () => {
+  it("exports the free-text description for 'other' gifts", () => {
+    const rows = buildGuestGiftRows(
+      [guest(1)],
+      [],
+      [{ ...gift(1, 1, 300, "other"), other_description: "תכשיט" }]
+    );
+    expect(giftExportRow(rows[0]).gift_types).toBe("תכשיט");
+  });
+
   it("export columns are the RSVP-page columns plus the two gift columns", () => {
     expect(giftExportColumns.slice(0, guestExportColumns.length)).toEqual(
       guestExportColumns

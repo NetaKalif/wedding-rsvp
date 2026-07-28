@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import { Document, Packer, Paragraph, HeadingLevel } from "docx";
 import archiver from "archiver";
 import Database from "./dbUtils";
-import { EventGuest, Task, VendorFile } from "./types";
+import { EventGuest, Gift, GiftType, Task, VendorFile } from "./types";
 
 /**
  * Disambiguates a file name against ones already used in the same zip folder
@@ -100,6 +100,81 @@ export const buildRsvpWorkbook = async (db: Database, userID: string): Promise<B
   return Buffer.from(buffer);
 };
 
+/** Hebrew labels matching the gifts page (Client/src/components/gifts/logic.ts). */
+const GIFT_TYPE_LABELS_HE: Record<GiftType, string> = {
+  check: "צ׳ק",
+  cash: "מזומן",
+  bit: "ביט",
+  paybox: "פייבוקס",
+  bank_transfer: "העברה בנקאית",
+  buyme: "BUYME",
+  other: "אחר",
+};
+
+const giftTypeLabel = (gift: Pick<Gift, "gift_type" | "other_description">): string =>
+  gift.gift_type === "other" && gift.other_description
+    ? gift.other_description
+    : GIFT_TYPE_LABELS_HE[gift.gift_type];
+
+/** RSVP status label matching the gifts/RSVP pages (מאושר/סירוב/ממתין). */
+const giftsPageRsvpLabel = (status: EventGuest["rsvp_status"]): string => {
+  if (status === null || status === undefined) return "ממתין";
+  if (status === 0) return "סירוב";
+  return "מאושר";
+};
+
+/**
+ * Builds the exact same file the user gets from the gifts page's
+ * "ייצוא לאקסל" button (Client/src/components/gifts/logic.ts):
+ * one row per guest — invited or not, with or without gifts — with the
+ * RSVP-page columns plus the aggregated gift type(s) and total amount.
+ */
+export const buildGiftsWorkbook = async (db: Database, userID: string): Promise<Buffer> => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Gifts");
+  sheet.columns = [
+    { header: "שם", key: "name", width: 25 },
+    { header: "טלפון", key: "phone", width: 15 },
+    { header: "מוזמן ע״י", key: "whose", width: 15 },
+    { header: "מעגל", key: "circle", width: 15 },
+    { header: "סטטוס אישור", key: "status", width: 15 },
+    { header: "מספר מאושרים", key: "attending_count", width: 15 },
+    { header: "מספר אורחים", key: "number_of_guests", width: 15 },
+    { header: "סוג מתנה", key: "gift_types", width: 20 },
+    { header: "סכום מתנה", key: "gift_amount", width: 15 },
+  ];
+
+  const [guests, gifts, primaryEvent] = await Promise.all([
+    db.getGuests(userID),
+    db.getGifts(userID),
+    db.getPrimaryEvent(userID),
+  ]);
+  const primaryEventGuests = primaryEvent ? await db.getEventGuests(primaryEvent.id!) : [];
+  const rsvpByGuestId = new Map(primaryEventGuests.map((eg) => [eg.guest_id, eg]));
+
+  guests.forEach((guest) => {
+    const guestGifts = gifts.filter((gift) => gift.guest_id === guest.id);
+    const rsvp = rsvpByGuestId.get(guest.id!);
+    sheet.addRow({
+      name: guest.name,
+      phone: guest.phone,
+      whose: guest.whose,
+      circle: guest.circle,
+      status: rsvp ? giftsPageRsvpLabel(rsvp.rsvp_status) : "",
+      attending_count: rsvp?.rsvp_status ?? "",
+      number_of_guests: guest.number_of_guests,
+      gift_types: guestGifts.map(giftTypeLabel).join(", "),
+      gift_amount:
+        guestGifts.length > 0
+          ? guestGifts.reduce((sum, gift) => sum + gift.amount, 0)
+          : "",
+    });
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+};
+
 export const buildTasksDocument = async (db: Database, userID: string): Promise<Buffer> => {
   const tasks = await db.getTasks(userID);
 
@@ -189,19 +264,21 @@ export const buildBudgetDocx = async (db: Database, userID: string): Promise<Buf
 
 export interface AccountExports {
   rsvpXlsx: Buffer;
+  giftsXlsx: Buffer;
   tasksDocx: Buffer;
   budgetDocx: Buffer;
   vendorFiles: VendorFile[];
 }
 
 export const buildAllExports = async (db: Database, userID: string): Promise<AccountExports> => {
-  const [rsvpXlsx, tasksDocx, budgetDocx, vendorFiles] = await Promise.all([
+  const [rsvpXlsx, giftsXlsx, tasksDocx, budgetDocx, vendorFiles] = await Promise.all([
     buildRsvpWorkbook(db, userID),
+    buildGiftsWorkbook(db, userID),
     buildTasksDocument(db, userID),
     buildBudgetDocx(db, userID),
     db.getAllVendorFilesForExport(userID),
   ]);
-  return { rsvpXlsx, tasksDocx, budgetDocx, vendorFiles };
+  return { rsvpXlsx, giftsXlsx, tasksDocx, budgetDocx, vendorFiles };
 };
 
 export const zipExports = async (exports: AccountExports): Promise<Buffer> => {
@@ -213,6 +290,7 @@ export const zipExports = async (exports: AccountExports): Promise<Buffer> => {
     archive.on("error", reject);
 
     archive.append(exports.rsvpXlsx, { name: "רשימת-מוזמנים.xlsx" });
+    archive.append(exports.giftsXlsx, { name: "מתנות.xlsx" });
     archive.append(exports.tasksDocx, { name: "משימות.docx" });
 
     const usedBudgetFileNames = new Set<string>();

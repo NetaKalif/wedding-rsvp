@@ -323,11 +323,11 @@ const deletePayment = (paymentId: number) => del<void>(`/budget/payments/${payme
 
 const getGifts = () => get<Gift[]>("/gifts");
 
-const addGift = (guest_id: number, gift_type: GiftType, amount: number) =>
-  post<Gift>("/gifts", { guest_id, gift_type, amount });
+const addGift = (guest_id: number, gift_type: GiftType, amount: number, other_description?: string | null) =>
+  post<Gift>("/gifts", { guest_id, gift_type, amount, other_description });
 
-const updateGift = (giftId: number, gift_type: GiftType, amount: number) =>
-  patch<Gift>(`/gifts/${giftId}`, { gift_type, amount });
+const updateGift = (giftId: number, gift_type: GiftType, amount: number, other_description?: string | null) =>
+  patch<Gift>(`/gifts/${giftId}`, { gift_type, amount, other_description });
 
 const deleteGift = (giftId: number) => del<void>(`/gifts/${giftId}`);
 

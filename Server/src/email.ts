@@ -57,7 +57,7 @@ export const sendDataExportWarningEmail = async ({
   email: string;
   weddingDate: string;
   deletionDate: string;
-  attachments: { rsvpXlsx: Buffer; tasksDocx: Buffer; budgetDocx: Buffer };
+  attachments: { rsvpXlsx: Buffer; giftsXlsx: Buffer; tasksDocx: Buffer; budgetDocx: Buffer };
 }): Promise<void> => {
   if (!transporter) {
     logWarn(
@@ -71,9 +71,10 @@ export const sendDataExportWarningEmail = async ({
     from: process.env.EMAIL_USER,
     to: email,
     subject: "החתונה שלכם עברה - תוך 3 ימים כל הנתונים באפליקציה יימחקו",
-    text: `שלום ${name},\n\nהחתונה שלכם (${weddingDate}) כבר מאחורינו במזל טוב! בהתאם למדיניות שמירת הנתונים שלנו, בתאריך ${deletionDate} (בעוד 3 ימים) כל הנתונים שלכם באפליקציה יימחקו לצמיתות - כולל החשבון עצמו.\n\nמצורפים לכם קבצים עם כל הנתונים שנשמרו במערכת: רשימת המוזמנים וסטטוס אישורי ההגעה (xlsx), רשימת המשימות שביצעתם ושטרם ביצעתם (docx), וסיכום התקציב (docx).\n\nבברכה,\nצוות ה-RSVP`,
+    text: `שלום ${name},\n\nהחתונה שלכם (${weddingDate}) כבר מאחורינו במזל טוב! בהתאם למדיניות שמירת הנתונים שלנו, בתאריך ${deletionDate} (בעוד 3 ימים) כל הנתונים שלכם באפליקציה יימחקו לצמיתות - כולל החשבון עצמו.\n\nמצורפים לכם קבצים עם כל הנתונים שנשמרו במערכת: רשימת המוזמנים וסטטוס אישורי ההגעה (xlsx), המתנות שקיבלתם (xlsx), רשימת המשימות שביצעתם ושטרם ביצעתם (docx), וסיכום התקציב (docx).\n\nבברכה,\nצוות ה-RSVP`,
     attachments: [
       { filename: "רשימת-מוזמנים.xlsx", content: attachments.rsvpXlsx },
+      { filename: "מתנות.xlsx", content: attachments.giftsXlsx },
       { filename: "משימות.docx", content: attachments.tasksDocx },
       { filename: "תקציב.docx", content: attachments.budgetDocx },
     ],

@@ -234,10 +234,18 @@ class Database {
         gift_id SERIAL PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
         guest_id INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
-        gift_type TEXT NOT NULL CHECK (gift_type IN ('check','cash','bit','paybox','bank_transfer','buyme')),
+        gift_type TEXT NOT NULL,
+        other_description TEXT,
         amount DECIMAL(12,2) NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );`, []);
+
+    // "other" gift type with a free-text description. The allowed-values CHECK
+    // was dropped in favor of app-layer validation (GIFT_TYPES in types.ts) so
+    // adding a type doesn't require a constraint migration; the drop + the
+    // column addition keep databases created before this change in sync.
+    await this.runQuery(`ALTER TABLE gifts DROP CONSTRAINT IF EXISTS gifts_gift_type_check;`, []);
+    await this.runQuery(`ALTER TABLE gifts ADD COLUMN IF NOT EXISTS other_description TEXT;`, []);
 
     await this.runQuery(`
       CREATE TABLE IF NOT EXISTS deleted_accounts (
@@ -1487,7 +1495,7 @@ class Database {
   // Get all gifts for a user
   async getGifts(userID: string): Promise<Gift[]> {
     const query = `
-      SELECT gift_id, user_id, guest_id, gift_type, amount, created_at
+      SELECT gift_id, user_id, guest_id, gift_type, other_description, amount, created_at
       FROM gifts
       WHERE user_id = $1
       ORDER BY created_at DESC;
@@ -1505,6 +1513,7 @@ class Database {
     guestId: number,
     giftType: GiftType,
     amount: number,
+    otherDescription: string | null,
   ): Promise<Gift> {
     // Verify guest belongs to user
     const guestCheck = await this.runQuery(
@@ -1516,11 +1525,11 @@ class Database {
     }
 
     const query = `
-      INSERT INTO gifts (user_id, guest_id, gift_type, amount)
-      VALUES ($1, $2, $3, $4)
-      RETURNING gift_id, user_id, guest_id, gift_type, amount, created_at;
+      INSERT INTO gifts (user_id, guest_id, gift_type, other_description, amount)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING gift_id, user_id, guest_id, gift_type, other_description, amount, created_at;
     `;
-    const result = await this.runQuery(query, [userID, guestId, giftType, amount]);
+    const result = await this.runQuery(query, [userID, guestId, giftType, otherDescription, amount]);
     return { ...result[0], amount: parseFloat(result[0].amount) };
   }
 
@@ -1528,16 +1537,17 @@ class Database {
   async updateGift(
     userID: string,
     giftId: number,
-    updates: { gift_type: GiftType; amount: number },
+    updates: { gift_type: GiftType; other_description: string | null; amount: number },
   ): Promise<Gift | null> {
     const query = `
       UPDATE gifts
-      SET gift_type = $1, amount = $2
-      WHERE gift_id = $3 AND user_id = $4
-      RETURNING gift_id, user_id, guest_id, gift_type, amount, created_at;
+      SET gift_type = $1, other_description = $2, amount = $3
+      WHERE gift_id = $4 AND user_id = $5
+      RETURNING gift_id, user_id, guest_id, gift_type, other_description, amount, created_at;
     `;
     const result = await this.runQuery(query, [
       updates.gift_type,
+      updates.other_description,
       updates.amount,
       giftId,
       userID,

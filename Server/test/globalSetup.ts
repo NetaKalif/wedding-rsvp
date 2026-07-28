@@ -156,10 +156,13 @@ async function createTables(pool: Pool): Promise<void> {
       gift_id SERIAL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
       guest_id INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
-      gift_type TEXT NOT NULL CHECK (gift_type IN ('check','cash','bit','paybox','bank_transfer','buyme')),
+      gift_type TEXT NOT NULL,
+      other_description TEXT,
       amount DECIMAL(12,2) NOT NULL,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );`);
+  await pool.query(`ALTER TABLE gifts ADD COLUMN IF NOT EXISTS other_description TEXT;`);
+  await pool.query(`ALTER TABLE gifts DROP CONSTRAINT IF EXISTS gifts_gift_type_check;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS whatsapp_token (

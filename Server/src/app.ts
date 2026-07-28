@@ -1422,23 +1422,55 @@ app.get("/gifts", async (req: Request, res: Response) => {
   }
 });
 
+// Shared field validation for POST/PATCH /gifts. Returns an error message, or
+// the normalized values (a free-text description is required for the "other"
+// type and discarded for every named type).
+const validateGiftFields = (
+  body: any,
+): { error: string } | { giftType: GiftType; amount: number; otherDescription: string | null } => {
+  const { gift_type, amount, other_description } = body;
+  if (!gift_type || amount === undefined) {
+    return { error: "gift_type and amount are required" };
+  }
+  if (!GIFT_TYPES.includes(gift_type as GiftType)) {
+    return { error: `gift_type must be one of: ${GIFT_TYPES.join(", ")}` };
+  }
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    return { error: "amount must be a positive number" };
+  }
+  const otherDescription =
+    typeof other_description === "string" ? other_description.trim() : "";
+  if (gift_type === "other" && !otherDescription) {
+    return { error: "other_description is required when gift_type is 'other'" };
+  }
+  return {
+    giftType: gift_type,
+    amount: numericAmount,
+    otherDescription: gift_type === "other" ? otherDescription : null,
+  };
+};
+
 // Add a gift from a guest
 app.post("/gifts", async (req: Request, res: Response) => {
   try {
-    const { guest_id, gift_type, amount } = req.body;
-    if (!guest_id || !gift_type || amount === undefined) {
+    const { guest_id } = req.body;
+    if (!guest_id) {
       return res.status(400).send("guest_id, gift_type and amount are required");
     }
-    if (!GIFT_TYPES.includes(gift_type as GiftType)) {
-      return res.status(400).send(`gift_type must be one of: ${GIFT_TYPES.join(", ")}`);
-    }
-    const numericAmount = Number(amount);
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      return res.status(400).send("amount must be a positive number");
+    const fields = validateGiftFields(req.body);
+    if ("error" in fields) {
+      return res.status(400).send(fields.error);
     }
     const dataOwner = await resolveDataOwner(req.auth.userID);
-    const gift = await db.addGift(dataOwner, guest_id, gift_type, numericAmount);
-    await logMessage(dataOwner, `🎁 Gift added: ₪${numericAmount} (${gift_type})`);
+    const gift = await db.addGift(
+      dataOwner,
+      guest_id,
+      fields.giftType,
+      fields.amount,
+      fields.otherDescription,
+    );
+    await logMessage(dataOwner, `🎁 Gift added: ₪${fields.amount} (${fields.giftType})`);
     res.status(201).json(gift);
   } catch (error: any) {
     if (error.message === "Guest not found or access denied") {
@@ -1453,26 +1485,20 @@ app.post("/gifts", async (req: Request, res: Response) => {
 app.patch("/gifts/:giftId", async (req: Request, res: Response) => {
   try {
     const { giftId } = req.params;
-    const { gift_type, amount } = req.body;
-    if (!gift_type || amount === undefined) {
-      return res.status(400).send("gift_type and amount are required");
-    }
-    if (!GIFT_TYPES.includes(gift_type as GiftType)) {
-      return res.status(400).send(`gift_type must be one of: ${GIFT_TYPES.join(", ")}`);
-    }
-    const numericAmount = Number(amount);
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      return res.status(400).send("amount must be a positive number");
+    const fields = validateGiftFields(req.body);
+    if ("error" in fields) {
+      return res.status(400).send(fields.error);
     }
     const dataOwner = await resolveDataOwner(req.auth.userID);
     const gift = await db.updateGift(dataOwner, parseInt(giftId), {
-      gift_type,
-      amount: numericAmount,
+      gift_type: fields.giftType,
+      other_description: fields.otherDescription,
+      amount: fields.amount,
     });
     if (!gift) {
       return res.status(404).send("Gift not found");
     }
-    await logMessage(dataOwner, `🎁 Gift updated: ₪${numericAmount} (${gift_type})`);
+    await logMessage(dataOwner, `🎁 Gift updated: ₪${fields.amount} (${fields.giftType})`);
     res.status(200).json(gift);
   } catch (error) {
     logError(req.auth?.userID, "Error updating gift:", error);

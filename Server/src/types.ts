@@ -204,9 +204,9 @@ export interface BudgetOverview {
 
 // ==================== Gift types ====================
 
-export type GiftType = "check" | "cash" | "bit" | "paybox" | "bank_transfer" | "buyme";
+export type GiftType = "check" | "cash" | "bit" | "paybox" | "bank_transfer" | "buyme" | "other";
 
-export const GIFT_TYPES: GiftType[] = ["check", "cash", "bit", "paybox", "bank_transfer", "buyme"];
+export const GIFT_TYPES: GiftType[] = ["check", "cash", "bit", "paybox", "bank_transfer", "buyme", "other"];
 
 /** A monetary wedding gift received from a guest. */
 export interface Gift {
@@ -214,6 +214,8 @@ export interface Gift {
   user_id: string;
   guest_id: number;
   gift_type: GiftType;
+  /** Free-text description, required when gift_type is "other", null otherwise. */
+  other_description?: string | null;
   amount: number;
   created_at?: Date;
 }

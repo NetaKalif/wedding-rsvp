@@ -9,9 +9,11 @@ import {
   Dropdown,
   FormField,
   Heading,
+  Input,
   Modal,
   NumberInput,
   Search,
+  SectionHelper,
   Table,
   TableColumn,
   Text,
@@ -39,8 +41,9 @@ import {
   displayedRsvpCount,
   formatCurrency,
   getGiftStats,
-  GIFT_TYPE_LABELS,
   GIFT_TYPE_OPTIONS,
+  giftTypeLabel,
+  guestHasGift,
   GuestGiftRow,
   handleGiftsExport,
 } from "./logic";
@@ -61,6 +64,7 @@ export const GiftsDashboard: React.FC = () => {
   const [rsvpValue, setRsvpValue] = useState<number | undefined>(undefined);
   const [isSavingRsvp, setIsSavingRsvp] = useState(false);
   const [giftType, setGiftType] = useState<GiftType | null>(null);
+  const [otherText, setOtherText] = useState("");
   const [amount, setAmount] = useState<number | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAddGuest, setShowAddGuest] = useState(false);
@@ -71,6 +75,7 @@ export const GiftsDashboard: React.FC = () => {
     guestName: string;
   } | null>(null);
   const [editGiftType, setEditGiftType] = useState<GiftType | null>(null);
+  const [editOtherText, setEditOtherText] = useState("");
   const [editAmount, setEditAmount] = useState<number | undefined>(undefined);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -137,6 +142,7 @@ export const GiftsDashboard: React.FC = () => {
   const selectedGuestRsvp = selectedGuest
     ? primaryEventGuests.find((eg) => eg.guest_id === selectedGuest.id) ?? null
     : null;
+  const selectedGuestHasGift = guestHasGift(gifts, selectedGuest?.id);
 
   const selectGuest = (guest: Guest) => {
     setSelectedGuest(guest);
@@ -170,12 +176,20 @@ export const GiftsDashboard: React.FC = () => {
 
   const handleAddGift = async () => {
     if (!selectedGuest?.id || !giftType || !amount || amount <= 0) return;
+    if (giftType === "other" && !otherText.trim()) return;
+    if (guestHasGift(gifts, selectedGuest.id)) return;
     setIsSubmitting(true);
     try {
-      const gift = await httpRequests.addGift(selectedGuest.id, giftType, amount);
+      const gift = await httpRequests.addGift(
+        selectedGuest.id,
+        giftType,
+        amount,
+        giftType === "other" ? otherText.trim() : null
+      );
       setGifts((prev) => [gift, ...prev]);
       clearGuestSelection();
       setGiftType(null);
+      setOtherText("");
       setAmount(undefined);
     } catch (error) {
       console.error("Error adding gift:", error);
@@ -187,23 +201,27 @@ export const GiftsDashboard: React.FC = () => {
   const openEditGift = (gift: Gift, guestName: string) => {
     setEditGiftModal({ gift, guestName });
     setEditGiftType(gift.gift_type);
+    setEditOtherText(gift.other_description ?? "");
     setEditAmount(gift.amount);
   };
 
   const closeEditGift = () => {
     setEditGiftModal(null);
     setEditGiftType(null);
+    setEditOtherText("");
     setEditAmount(undefined);
   };
 
   const handleEditGiftSave = async () => {
     if (!editGiftModal || !editGiftType || !editAmount || editAmount <= 0) return;
+    if (editGiftType === "other" && !editOtherText.trim()) return;
     setIsSavingEdit(true);
     try {
       const updated = await httpRequests.updateGift(
         editGiftModal.gift.gift_id,
         editGiftType,
-        editAmount
+        editAmount,
+        editGiftType === "other" ? editOtherText.trim() : null
       );
       setGifts((prev) =>
         prev.map((g) => (g.gift_id === updated.gift_id ? updated : g))
@@ -297,7 +315,7 @@ export const GiftsDashboard: React.FC = () => {
             {row.gifts.map((gift) => (
               <Box key={gift.gift_id} gap="6px" verticalAlign="middle">
                 <Badge uppercase={false} skin="neutralLight">
-                  {GIFT_TYPE_LABELS[gift.gift_type]}
+                  {giftTypeLabel(gift)}
                 </Badge>
                 {/* Per-gift amount only adds information when there is more
                     than one gift — otherwise it duplicates the total column. */}
@@ -493,6 +511,12 @@ export const GiftsDashboard: React.FC = () => {
                         לא מוזמן לחתונה
                       </Badge>
                     )}
+                    {selectedGuestHasGift && (
+                      <SectionHelper appearance="standard">
+                        לאורח זה כבר רשומה מתנה — ניתן לערוך או למחוק אותה
+                        מהטבלה למטה.
+                      </SectionHelper>
+                    )}
                   </Box>
                 )}
 
@@ -507,6 +531,17 @@ export const GiftsDashboard: React.FC = () => {
                       />
                     </FormField>
                   </Box>
+                  {giftType === "other" && (
+                    <Box width="200px">
+                      <FormField label="פירוט">
+                        <Input
+                          value={otherText}
+                          onChange={(e) => setOtherText(e.target.value)}
+                          placeholder="למשל: שובר מתנה"
+                        />
+                      </FormField>
+                    </Box>
+                  )}
                   <Box width="160px">
                     <FormField label="סכום (₪)">
                       <NumberInput
@@ -520,7 +555,13 @@ export const GiftsDashboard: React.FC = () => {
                   <Button
                     prefixIcon={<GiftIcon size={16} />}
                     disabled={
-                      !selectedGuest || !giftType || !amount || amount <= 0 || isSubmitting
+                      !selectedGuest ||
+                      selectedGuestHasGift ||
+                      !giftType ||
+                      !amount ||
+                      amount <= 0 ||
+                      (giftType === "other" && !otherText.trim()) ||
+                      isSubmitting
                     }
                     onClick={handleAddGift}
                   >
@@ -588,7 +629,11 @@ export const GiftsDashboard: React.FC = () => {
             primaryButtonOnClick={handleEditGiftSave}
             primaryButtonProps={{
               disabled:
-                isSavingEdit || !editGiftType || !editAmount || editAmount <= 0,
+                isSavingEdit ||
+                !editGiftType ||
+                !editAmount ||
+                editAmount <= 0 ||
+                (editGiftType === "other" && !editOtherText.trim()),
             }}
             secondaryButtonText="ביטול"
             secondaryButtonOnClick={closeEditGift}
@@ -603,6 +648,15 @@ export const GiftsDashboard: React.FC = () => {
                       onSelect={(option) => setEditGiftType(option.id as GiftType)}
                     />
                   </FormField>
+                  {editGiftType === "other" && (
+                    <FormField label="פירוט">
+                      <Input
+                        value={editOtherText}
+                        onChange={(e) => setEditOtherText(e.target.value)}
+                        placeholder="למשל: שובר מתנה"
+                      />
+                    </FormField>
+                  )}
                   <FormField label="סכום (₪)">
                     <NumberInput
                       value={editAmount}
