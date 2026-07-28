@@ -2,7 +2,9 @@ import { execSync } from "child_process";
 import { Pool } from "pg";
 
 const CONTAINER_NAME = "wedding-rsvp-test-db";
-export const PG_PORT = 5433;
+// Override with TEST_PG_PORT when 5433 is already taken on your machine —
+// test:db:start and start-test-server.sh honor the same variable.
+export const PG_PORT = Number(process.env.TEST_PG_PORT ?? 5433);
 export const PG_PASSWORD = "test";
 export const PG_DB = "wedding_test";
 export const PG_USER = "postgres";
@@ -150,6 +152,16 @@ async function createTables(pool: Pool): Promise<void> {
     );`);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS gifts (
+      gift_id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
+      guest_id INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+      gift_type TEXT NOT NULL CHECK (gift_type IN ('check','cash','bit','paybox','bank_transfer','buyme')),
+      amount DECIMAL(12,2) NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS whatsapp_token (
       id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
       access_token TEXT NOT NULL,
@@ -160,7 +172,7 @@ async function createTables(pool: Pool): Promise<void> {
 async function seedData(pool: Pool): Promise<void> {
   // TRUNCATE with RESTART IDENTITY resets auto-increment sequences so IDs
   // are always 1 on every test run, regardless of how many times tests ran.
-  await pool.query(`TRUNCATE event_guests, events, guests, "clientLogs", users RESTART IDENTITY CASCADE;`);
+  await pool.query(`TRUNCATE gifts, event_guests, events, guests, "clientLogs", users RESTART IDENTITY CASCADE;`);
 
   await pool.query(
     `INSERT INTO users ("userID", email, name) VALUES ($1, $2, $3)`,

@@ -1,0 +1,112 @@
+.gifts-dashboard {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #fff8f0 0%, #f8f4e8 50%, #fff0f5 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Gift Stats */
+.gift-stats-row {
+  flex-wrap: wrap;
+}
+
+.gift-stat {
+  text-align: center;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fffcf8 0%, #fff8f0 100%);
+  min-width: 140px;
+}
+
+.gift-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #7b5a2d;
+}
+
+.gift-stat-label {
+  font-size: 0.85rem;
+  color: #718096;
+  margin-top: 4px;
+}
+
+/* Gift entry form */
+.selected-guest-details {
+  background: #fffcf5;
+  border: 1px solid #f0e6d6;
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.selected-guest-info {
+  flex-wrap: wrap;
+}
+
+.gift-form-row {
+  flex-wrap: wrap;
+}
+
+/* Table */
+/* Long unbreakable values (phone numbers, names) must wrap inside their own
+   cell instead of spilling over the neighboring column. */
+.gifts-dashboard table th,
+.gifts-dashboard table td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Phone numbers are LTR content inside an RTL table — isolate their direction
+   so they render left-to-right without reordering around neighboring text. */
+.guest-phone {
+  direction: ltr;
+  unicode-bidi: isolate;
+  display: inline-block;
+}
+
+.sortable-title {
+  cursor: pointer;
+}
+
+.gift-delete-icon {
+  cursor: pointer;
+  color: #e53e3e;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.gift-delete-icon:hover {
+  opacity: 1;
+}
+
+/* Currency values must never wrap mid-amount (the table cells allow
+   overflow-wrap: anywhere to prevent column overlap). */
+.gift-amount,
+.gift-total {
+  white-space: nowrap;
+}
+
+.gift-edit-icon {
+  cursor: pointer;
+  color: #2d5a7b;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.gift-edit-icon:hover {
+  opacity: 1;
+}
+
+.number-of-guests-shown {
+  font-size: 0.85rem;
+  color: #718096;
+  text-align: center;
+  padding: 8px 0;
+}
+
+@media (max-width: 768px) {
+  .gifts-dashboard > div {
+    width: 95% !important;
+    min-width: unset !important;
+  }
+}

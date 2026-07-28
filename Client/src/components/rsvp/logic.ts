@@ -49,7 +49,7 @@ export const getRsvpCounts = (guestsList: EventGuest[]) => {
   return counts;
 };
 
-const downloadXlsx = async (workbook: Workbook, filename: string) => {
+export const downloadXlsx = async (workbook: Workbook, filename: string) => {
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

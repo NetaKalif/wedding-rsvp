@@ -201,3 +201,19 @@ export interface BudgetOverview {
   categories: BudgetCategoryWithSpending[];
   planned_expenses: number;
 }
+
+// ==================== Gift types ====================
+
+export type GiftType = "check" | "cash" | "bit" | "paybox" | "bank_transfer" | "buyme";
+
+export const GIFT_TYPES: GiftType[] = ["check", "cash", "bit", "paybox", "bank_transfer", "buyme"];
+
+/** A monetary wedding gift received from a guest. */
+export interface Gift {
+  gift_id?: number;
+  user_id: string;
+  guest_id: number;
+  gift_type: GiftType;
+  amount: number;
+  created_at?: Date;
+}

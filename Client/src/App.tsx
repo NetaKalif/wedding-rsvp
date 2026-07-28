@@ -14,6 +14,7 @@ import { RSVPDashboard } from "./components/rsvp/RSVPDashboard";
 import { WeddingDashboard } from "./components/userDashboard/WeddingDashboard";
 import { TasksDashboard } from "./components/tasks/TasksDashboard";
 import { BudgetDashboard } from "./components/budgetAndVendors/BudgetDashboard";
+import { GiftsDashboard } from "./components/gifts/GiftsDashboard";
 import WelcomePage from "./components/welcomePage/WelcomePage";
 import PendingApprovalPage from "./components/pendingApproval/PendingApprovalPage";
 import AdminUsersPage from "./components/admin/AdminUsersPage";
@@ -66,6 +67,7 @@ function AppContent() {
           <Route path="/rsvp" element={<RSVPDashboard />} />
           <Route path="/tasks" element={<TasksDashboard />} />
           <Route path="/budget" element={<BudgetDashboard />} />
+          <Route path="/gifts" element={<GiftsDashboard />} />
           <Route
             path="/admin"
             element={isAdmin ? <AdminUsersPage /> : <Navigate to="/" />}

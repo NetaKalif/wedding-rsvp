@@ -16,6 +16,8 @@ import {
   BudgetCategoryWithSpending,
   BudgetOverview,
   VendorFile,
+  Gift,
+  GiftType,
 } from "./types";
 import defaultTasks from "./defaultTasks.json";
 import { getDateStrings } from "./dateUtils";
@@ -225,6 +227,17 @@ class Database {
       ALTER TABLE events ADD COLUMN IF NOT EXISTS deletion_warning_sent_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;`, []);
     await this.runQuery(`
       ALTER TABLE events ADD COLUMN IF NOT EXISTS deletion_cancelled_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;`, []);
+
+    // gifts — monetary wedding gifts received from guests
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS gifts (
+        gift_id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
+        guest_id INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+        gift_type TEXT NOT NULL CHECK (gift_type IN ('check','cash','bit','paybox','bank_transfer','buyme')),
+        amount DECIMAL(12,2) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );`, []);
 
     await this.runQuery(`
       CREATE TABLE IF NOT EXISTS deleted_accounts (
@@ -1467,6 +1480,81 @@ class Database {
       categories: categoriesWithVendors,
       planned_expenses: plannedExpenses,
     };
+  }
+
+  // ==================== Gift Methods ====================
+
+  // Get all gifts for a user
+  async getGifts(userID: string): Promise<Gift[]> {
+    const query = `
+      SELECT gift_id, user_id, guest_id, gift_type, amount, created_at
+      FROM gifts
+      WHERE user_id = $1
+      ORDER BY created_at DESC;
+    `;
+    const results = await this.runQuery(query, [userID]);
+    return results.map((row: any) => ({
+      ...row,
+      amount: parseFloat(row.amount),
+    }));
+  }
+
+  // Add a gift from a guest
+  async addGift(
+    userID: string,
+    guestId: number,
+    giftType: GiftType,
+    amount: number,
+  ): Promise<Gift> {
+    // Verify guest belongs to user
+    const guestCheck = await this.runQuery(
+      `SELECT id FROM guests WHERE id = $1 AND user_id = $2`,
+      [guestId, userID],
+    );
+    if (guestCheck.length === 0) {
+      throw new Error("Guest not found or access denied");
+    }
+
+    const query = `
+      INSERT INTO gifts (user_id, guest_id, gift_type, amount)
+      VALUES ($1, $2, $3, $4)
+      RETURNING gift_id, user_id, guest_id, gift_type, amount, created_at;
+    `;
+    const result = await this.runQuery(query, [userID, guestId, giftType, amount]);
+    return { ...result[0], amount: parseFloat(result[0].amount) };
+  }
+
+  // Update a gift's type and amount
+  async updateGift(
+    userID: string,
+    giftId: number,
+    updates: { gift_type: GiftType; amount: number },
+  ): Promise<Gift | null> {
+    const query = `
+      UPDATE gifts
+      SET gift_type = $1, amount = $2
+      WHERE gift_id = $3 AND user_id = $4
+      RETURNING gift_id, user_id, guest_id, gift_type, amount, created_at;
+    `;
+    const result = await this.runQuery(query, [
+      updates.gift_type,
+      updates.amount,
+      giftId,
+      userID,
+    ]);
+    if (result.length === 0) return null;
+    return { ...result[0], amount: parseFloat(result[0].amount) };
+  }
+
+  // Delete a gift
+  async deleteGift(userID: string, giftId: number): Promise<boolean> {
+    const query = `
+      DELETE FROM gifts
+      WHERE gift_id = $1 AND user_id = $2
+      RETURNING gift_id;
+    `;
+    const result = await this.runQuery(query, [giftId, userID]);
+    return result.length > 0;
   }
 
   // ==================== Vendor File Methods ====================

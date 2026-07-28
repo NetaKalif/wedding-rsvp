@@ -11,7 +11,7 @@
     "dev": "ts-node-dev --respawn --transpile-only ./src/app.ts",
     "test": "bash test/run-tests.sh",
     "mock-wa": "bash test/start-mock-wa.sh",
-    "test:db:start": "docker rm -f wedding-rsvp-test-db 2>/dev/null; docker run -d --name wedding-rsvp-test-db -e POSTGRES_PASSWORD=test -e POSTGRES_DB=wedding_test -p 5433:5432 postgres:16 && echo 'Waiting for Postgres...' && until docker exec wedding-rsvp-test-db pg_isready -U postgres -q; do sleep 0.5; done && echo 'Postgres ready!'",
+    "test:db:start": "docker rm -f wedding-rsvp-test-db 2>/dev/null; docker run -d --name wedding-rsvp-test-db -e POSTGRES_PASSWORD=test -e POSTGRES_DB=wedding_test -p ${TEST_PG_PORT:-5433}:5432 postgres:16 && echo 'Waiting for Postgres...' && until docker exec wedding-rsvp-test-db pg_isready -U postgres -q; do sleep 0.5; done && echo 'Postgres ready!'",
     "test:db:stop": "docker rm -f wedding-rsvp-test-db",
     "test:server": "bash test/start-test-server.sh"
   },

@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import Database from "./dbUtils";
-import { User, Event, EventGuest, TemplateName } from "./types";
+import { User, Event, EventGuest, TemplateName, GIFT_TYPES, GiftType } from "./types";
 import { Request, Response, RequestHandler } from "express-serve-static-core";
 import multer from "multer";
 import {
@@ -1405,6 +1405,95 @@ app.delete("/budget/files/:fileId", async (req: Request, res: Response) => {
   } catch (error) {
     logError(req.auth?.userID, "Error deleting file:", error);
     return res.status(500).send("Failed to delete file");
+  }
+});
+
+// ==================== Gift Endpoints ====================
+
+// Get all gifts for the current user
+app.get("/gifts", async (req: Request, res: Response) => {
+  try {
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const gifts = await db.getGifts(dataOwner);
+    res.status(200).json(gifts);
+  } catch (error) {
+    logError(req.auth?.userID, "Error retrieving gifts:", error);
+    return res.status(500).send("Failed to retrieve gifts");
+  }
+});
+
+// Add a gift from a guest
+app.post("/gifts", async (req: Request, res: Response) => {
+  try {
+    const { guest_id, gift_type, amount } = req.body;
+    if (!guest_id || !gift_type || amount === undefined) {
+      return res.status(400).send("guest_id, gift_type and amount are required");
+    }
+    if (!GIFT_TYPES.includes(gift_type as GiftType)) {
+      return res.status(400).send(`gift_type must be one of: ${GIFT_TYPES.join(", ")}`);
+    }
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return res.status(400).send("amount must be a positive number");
+    }
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const gift = await db.addGift(dataOwner, guest_id, gift_type, numericAmount);
+    await logMessage(dataOwner, `🎁 Gift added: ₪${numericAmount} (${gift_type})`);
+    res.status(201).json(gift);
+  } catch (error: any) {
+    if (error.message === "Guest not found or access denied") {
+      return res.status(404).send("Guest not found");
+    }
+    logError(req.auth?.userID, "Error adding gift:", error);
+    return res.status(500).send("Failed to add gift");
+  }
+});
+
+// Update a gift's type and amount
+app.patch("/gifts/:giftId", async (req: Request, res: Response) => {
+  try {
+    const { giftId } = req.params;
+    const { gift_type, amount } = req.body;
+    if (!gift_type || amount === undefined) {
+      return res.status(400).send("gift_type and amount are required");
+    }
+    if (!GIFT_TYPES.includes(gift_type as GiftType)) {
+      return res.status(400).send(`gift_type must be one of: ${GIFT_TYPES.join(", ")}`);
+    }
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return res.status(400).send("amount must be a positive number");
+    }
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const gift = await db.updateGift(dataOwner, parseInt(giftId), {
+      gift_type,
+      amount: numericAmount,
+    });
+    if (!gift) {
+      return res.status(404).send("Gift not found");
+    }
+    await logMessage(dataOwner, `🎁 Gift updated: ₪${numericAmount} (${gift_type})`);
+    res.status(200).json(gift);
+  } catch (error) {
+    logError(req.auth?.userID, "Error updating gift:", error);
+    return res.status(500).send("Failed to update gift");
+  }
+});
+
+// Delete a gift
+app.delete("/gifts/:giftId", async (req: Request, res: Response) => {
+  try {
+    const { giftId } = req.params;
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const deleted = await db.deleteGift(dataOwner, parseInt(giftId));
+    if (!deleted) {
+      return res.status(404).send("Gift not found");
+    }
+    await logMessage(dataOwner, `🗑️ Gift deleted`);
+    res.status(200).send("Gift deleted successfully");
+  } catch (error) {
+    logError(req.auth?.userID, "Error deleting gift:", error);
+    return res.status(500).send("Failed to delete gift");
   }
 });
 

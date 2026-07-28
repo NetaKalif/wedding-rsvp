@@ -14,6 +14,8 @@ import {
   VendorWithPayments,
   Payment,
   VendorFile,
+  Gift,
+  GiftType,
 } from "./types";
 
 const url = process.env.REACT_APP_SERVER_URL;
@@ -317,6 +319,18 @@ const addPayment = (vendor_id: number, amount: number, payment_date: string, not
   post<Payment>("/budget/payments", { vendor_id, amount, payment_date, notes });
 const deletePayment = (paymentId: number) => del<void>(`/budget/payments/${paymentId}`);
 
+// ==================== Gift Methods ====================
+
+const getGifts = () => get<Gift[]>("/gifts");
+
+const addGift = (guest_id: number, gift_type: GiftType, amount: number) =>
+  post<Gift>("/gifts", { guest_id, gift_type, amount });
+
+const updateGift = (giftId: number, gift_type: GiftType, amount: number) =>
+  patch<Gift>(`/gifts/${giftId}`, { gift_type, amount });
+
+const deleteGift = (giftId: number) => del<void>(`/gifts/${giftId}`);
+
 // ==================== Vendor File Methods ====================
 
 const uploadVendorFile = async (vendorId: number, file: File): Promise<VendorFile> => {
@@ -363,4 +377,6 @@ export const httpRequests = {
   addPayment, deletePayment,
   // Vendor files
   uploadVendorFile, getVendorFileDownloadUrl, deleteVendorFile,
+  // Gifts
+  getGifts, addGift, updateGift, deleteGift,
 };

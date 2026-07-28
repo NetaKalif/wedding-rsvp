@@ -32,7 +32,7 @@ echo "▶ Test server starting on port $PORT (recorded in $PORT_FILE)"
 # Gmail credentials / the real admin's WhatsApp number, which has previously caused
 # test runs to send real emails to fake @test.com addresses.
 NODE_ENV=test \
-DATABASE_URL=postgres://postgres:test@localhost:5433/wedding_test \
+DATABASE_URL=postgres://postgres:test@localhost:${TEST_PG_PORT:-5433}/wedding_test \
 WHATSAPP_API_BASE_URL=http://localhost:3001 \
 WHATSAPP_ACCESS_TOKEN=mock-access-token \
 JWT_SECRET=test-jwt-secret-do-not-use-in-prod \
