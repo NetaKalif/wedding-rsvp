@@ -23,7 +23,7 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "craco start",
+    "start": "PORT=3030 craco start",
     "start-tmp": "REACT_APP_STATUS=prod craco start",
     "start:local": "newsh 'cd ../WeddingRSVP && node app.js' --split && REACT_APP_STATUS=dev craco start",
     "predeploy": "npm run build",
