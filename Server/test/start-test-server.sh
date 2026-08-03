@@ -42,5 +42,6 @@ CLIENT_URL=http://localhost:3000 \
 EMAIL_USER= \
 EMAIL_APP_PASSWORD= \
 ADMIN_NOTIFY_WHATSAPP=972500000000 \
+TWILIO_VALIDATE_SIGNATURE=false \
 PORT="$PORT" \
 ts-node-dev --respawn --transpile-only --project tsconfig.server-test.json ./src/app.ts

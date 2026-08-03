@@ -138,6 +138,7 @@ export const RSVPDashboard = () => {
                 setIsInfoModalOpen={setIsInfoModalOpen}
                 setIsMessageGroupsModalOpen={setIsMessageGroupsModalOpen}
                 userID={user.userID}
+                eventId={weddingInfo?.id}
               />
             </Box>
 

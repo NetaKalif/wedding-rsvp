@@ -9,7 +9,8 @@
 
 .summary-label {
   font-size: 14px;
-  color: #4b5563; /* Tailwind gray-600 */
+  color: #4b5563;
+  /* Tailwind gray-600 */
 }
 
 .guest-count {
@@ -24,7 +25,8 @@
   width: 20px;
   height: 20px;
   margin-right: 6px;
-  color: #1e40af; /* Tailwind blue-800 */
+  color: #1e40af;
+  /* Tailwind blue-800 */
 }
 
 .rsvp-summary {
@@ -45,15 +47,18 @@
 }
 
 .confirmed {
-  color: #059669; /* Emerald */
+  color: #059669;
+  /* Emerald */
 }
 
 .pending {
-  color: #d97706; /* Amber */
+  color: #d97706;
+  /* Amber */
 }
 
 .declined {
-  color: #e11d48; /* Rose */
+  color: #e11d48;
+  /* Rose */
 }
 
 .quick-actions {
@@ -61,6 +66,7 @@
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
+
 .guest-summary {
   display: flex;
   gap: 16px;
@@ -69,9 +75,11 @@
 
 @media (max-width: 768px) {
   .quick-actions {
-    grid-template-columns: 1fr; /* Stack buttons vertically */
+    grid-template-columns: 1fr;
+    /* Stack buttons vertically */
     gap: 10px;
   }
+
   .guest-summary {
     flex-direction: column !important;
   }
@@ -92,4 +100,30 @@
   .status-count {
     font-size: 20px;
   }
+}
+
+.section-helper-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.section-helper-close {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  transition: color 0.2s;
+}
+
+.section-helper-close:hover {
+  color: #333;
 }

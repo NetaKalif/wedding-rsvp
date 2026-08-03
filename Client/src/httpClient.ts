@@ -185,6 +185,19 @@ const removeEventGuests = (eventId: number, guestIds: number[]) =>
 const setRSVP = (eventId: number, guestId: number, rsvpStatus: number | null) =>
   post<EventGuest[]>("/updateRsvp", { eventId, guestId, rsvpStatus });
 
+// ==================== Voice RSVP Methods ====================
+
+export interface CallPendingResult {
+  queued: number;
+  failed: number;
+  skippedNoPhone: number;
+  errors: { guestId: number; error: string }[];
+}
+
+// Places automated RSVP phone calls to every guest in the event who hasn't responded yet.
+const callPendingGuests = (eventId: number) =>
+  post<CallPendingResult>(`/events/${eventId}/voice/call-pending`, {});
+
 // ==================== Message Methods ====================
 
 interface MessageResult {
@@ -358,7 +371,7 @@ export const httpRequests = {
   getPrimaryEvent, saveEventInfo, getEvents, createEvent, deleteEvent, updateEvent,
   getEventImageUrl, getPrimaryImageUrl, getMyDataExportUrl,
   // Event guests + RSVP
-  getEventGuests, setEventGuests, removeEventGuests, setRSVP,
+  getEventGuests, setEventGuests, removeEventGuests, setRSVP, callPendingGuests,
   // Messages
   sendMessage,
   // Logs

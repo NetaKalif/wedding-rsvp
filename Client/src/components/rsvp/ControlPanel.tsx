@@ -18,6 +18,7 @@ import {
   Clock,
   X,
   MessageSquare,
+  PhoneCall,
 } from "lucide-react";
 import { EventGuest, User } from "../../types";
 import React from "react";
@@ -30,6 +31,7 @@ interface ControlPanelProps {
   setEventGuests: (value: any) => void;
   eventGuests: EventGuest[];
   userID: User["userID"];
+  eventId?: number;
 }
 const ControlPanel: React.FC<ControlPanelProps> = ({
   setIsAddGuestModalOpen,
@@ -38,11 +40,40 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   setIsInfoModalOpen,
   setIsMessageGroupsModalOpen,
   userID,
+  eventId,
 }) => {
   const { weddingInfo } = useAuth();
   const { confirm, ConfirmDialog } = useConfirm();
   const [noWeddingWarning, setNoWeddingWarning] = React.useState(false);
+  const [isCalling, setIsCalling] = React.useState(false);
+  const [callResult, setCallResult] = React.useState<string | null>(null);
   const rsvpCounts = getRsvpCounts(eventGuests);
+
+  const handleCallPending = async () => {
+    if (!eventId) return;
+    const ok = await confirm({
+      message: `להתקשר לכל ${rsvpCounts.pending} האורחים שטרם אישרו הגעה? כל אורח יקבל שיחה אוטומטית לאישור הגעה.`,
+      confirmText: "התקשר",
+    });
+    if (!ok) return;
+    setIsCalling(true);
+    setCallResult(null);
+    try {
+      const res = await httpRequests.callPendingGuests(eventId);
+      const parts = [`יצאו ${res.queued} שיחות`];
+      if (res.skippedNoPhone) parts.push(`דילגנו על ${res.skippedNoPhone} ללא מספר טלפון`);
+      if (res.failed) parts.push(`${res.failed} נכשלו`);
+      setCallResult(parts.join(" · "));
+    } catch (e: any) {
+      setCallResult(
+        e?.message?.includes("503") || e?.status === 503
+          ? "שירות השיחות אינו מוגדר עדיין. יש להשלים את הגדרות ה-Twilio."
+          : "אירעה שגיאה בהוצאת השיחות. נסו שוב.",
+      );
+    } finally {
+      setIsCalling(false);
+    }
+  };
 
   return (
     <div className="control-panel">
@@ -167,9 +198,30 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               <MessageSquare />
               <span style={{ marginRight: "8px" }}>שליחת הודעות</span>
             </Button>
+            <Button
+              onClick={handleCallPending}
+              priority="secondary"
+              disabled={!eventId || rsvpCounts.pending === 0 || isCalling}
+            >
+              <PhoneCall />
+              <span style={{ marginRight: "8px" }}>
+                {isCalling ? "מתקשר..." : "שיחות לממתינים"}
+              </span>
+            </Button>
           </div>
         </Card.Content>
       </Card>
+      {callResult && (
+        <div className="section-helper-wrapper">
+          <SectionHelper skin="standard"
+            showCloseButton={true}
+            onClose={() => setCallResult(null)}
+          >
+            {callResult}
+          </SectionHelper>
+
+        </div>
+      )}
       {noWeddingWarning && (
         <SectionHelper skin="warning">
           לא נמצאו פרטי חתונה. אנא הוסיפו פרטי חתונה לפני שליחת הודעות.

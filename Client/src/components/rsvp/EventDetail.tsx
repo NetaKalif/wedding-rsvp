@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import { Box, Button, Card, Checkbox, Input, Modal, Popover, SidePanel, Text } from "@wix/design-system";
+import { Box, Button, Card, Checkbox, Input, Modal, Popover, SectionHelper, SidePanel, Text } from "@wix/design-system";
 import { Event, EventGuest, Guest } from "../../types";
 import { httpRequests } from "../../httpClient";
 import { useAppData } from "../../hooks/useAppData";
 import { useConfirm } from "../../hooks/useConfirm";
-import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Download, Edit2, Filter, MessageSquare, Trash2, UserPlus, X } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Download, Edit2, Filter, MessageSquare, PhoneCall, Trash2, UserPlus, X } from "lucide-react";
 import GuestList from "./GuestList";
 import MessageGroupsModal from "./MessageGroupsModal";
 import EventEditModal from "./EventEditModal";
@@ -55,10 +55,39 @@ const EventDetail: React.FC<EventDetailProps> = ({
     circle: false,
   });
 
+  const [isCalling, setIsCalling] = useState(false);
+  const [callResult, setCallResult] = useState<string | null>(null);
+
   const syncGuests = async () => {
     const guests = await httpRequests.getEventGuests(event.id);
     setEventGuests(guests);
     updateEventGuests(event.id, guests);
+  };
+
+  const handleCallPending = async () => {
+    const pending = getRsvpCounts(eventGuests).pending;
+    const ok = await confirm({
+      message: `להתקשר לכל ${pending} האורחים שטרם אישרו הגעה? כל אורח יקבל שיחה אוטומטית לאישור הגעה.`,
+      confirmText: "התקשר",
+    });
+    if (!ok) return;
+    setIsCalling(true);
+    setCallResult(null);
+    try {
+      const res = await httpRequests.callPendingGuests(event.id);
+      const parts = [`יצאו ${res.queued} שיחות`];
+      if (res.skippedNoPhone) parts.push(`דילגנו על ${res.skippedNoPhone} ללא מספר טלפון`);
+      if (res.failed) parts.push(`${res.failed} נכשלו`);
+      setCallResult(parts.join(" · "));
+    } catch (e: any) {
+      setCallResult(
+        e?.message?.includes("503") || e?.status === 503
+          ? "שירות השיחות אינו מוגדר עדיין. יש להשלים את הגדרות ה-Twilio."
+          : "אירעה שגיאה בהוצאת השיחות. נסו שוב.",
+      );
+    } finally {
+      setIsCalling(false);
+    }
   };
 
   // Remove from event only (not from global guests table)
@@ -237,6 +266,16 @@ const EventDetail: React.FC<EventDetailProps> = ({
                   <MessageSquare />
                   <span style={{ marginRight: "8px" }}>שליחת הודעות</span>
                 </Button>
+                <Button
+                  onClick={handleCallPending}
+                  priority="secondary"
+                  disabled={getRsvpCounts(eventGuests).pending === 0 || isCalling}
+                >
+                  <PhoneCall />
+                  <span style={{ marginRight: "8px" }}>
+                    {isCalling ? "מתקשר..." : "שיחות לממתינים"}
+                  </span>
+                </Button>
                 <Button onClick={() => setIsEditModalOpen(true)} priority="secondary">
                   <Edit2 />
                   <span style={{ marginRight: "8px" }}>עריכת פרטים</span>
@@ -256,6 +295,11 @@ const EventDetail: React.FC<EventDetailProps> = ({
               </div>
             </Card.Content>
           </Card>
+          {callResult && (
+            <SectionHelper skin="standard" onClose={() => setCallResult(null)}>
+              {callResult}
+            </SectionHelper>
+          )}
         </div>
       </Box>
 

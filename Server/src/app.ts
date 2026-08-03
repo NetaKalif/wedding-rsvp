@@ -29,6 +29,14 @@ import {
 import { sendApprovalDecisionEmail, sendDataExportWarningEmail } from "./email";
 import { buildAllExports, zipExports } from "./dataExport";
 import { log, logError } from "./logger";
+import {
+  buildGreetingTwiml,
+  handleAnswerDigit,
+  handleCountDigits,
+  placeRsvpCalls,
+  isValidTwilioRequest,
+  isVoiceConfigured,
+} from "./voiceRsvp";
 
 const upload = multer({ storage: multer.memoryStorage() });
 dotenv.config({ path: ".server.env" });
@@ -298,6 +306,61 @@ if (process.env.NODE_ENV === "test") {
     }
   });
 }
+
+// ==================== Voice RSVP webhooks (Twilio, no session — validated by signature) ====================
+// Twilio drives an outbound IVR call: greet -> press 1 (confirm) / 0 (decline) ->
+// if confirmed, ask for guest count. Guests are identified by eventId+guestId in
+// the query string (set when the call is placed), so no session/phone lookup is
+// needed. Requests are authenticated via the X-Twilio-Signature header instead.
+
+const guardTwilio = (req: Request, res: Response): boolean => {
+  const signature = req.headers["x-twilio-signature"] as string | undefined;
+  if (!isValidTwilioRequest(req.originalUrl, signature, req.body || {})) {
+    res.status(403).send("Invalid Twilio signature");
+    return false;
+  }
+  return true;
+};
+
+const sendTwiml = (res: Response, twiml: string) => {
+  res.type("text/xml").status(200).send(twiml);
+};
+
+app.post("/voice/greeting", async (req: Request, res: Response) => {
+  try {
+    if (!guardTwilio(req, res)) return;
+    const eventId = parseInt(String(req.query.eventId));
+    const guestId = parseInt(String(req.query.guestId));
+    sendTwiml(res, await buildGreetingTwiml(eventId, guestId));
+  } catch (error) {
+    logError(undefined, "Voice greeting webhook failed:", error);
+    res.type("text/xml").status(200).send("<Response><Hangup/></Response>");
+  }
+});
+
+app.post("/voice/answer", async (req: Request, res: Response) => {
+  try {
+    if (!guardTwilio(req, res)) return;
+    const eventId = parseInt(String(req.query.eventId));
+    const guestId = parseInt(String(req.query.guestId));
+    sendTwiml(res, await handleAnswerDigit(eventId, guestId, req.body?.Digits));
+  } catch (error) {
+    logError(undefined, "Voice answer webhook failed:", error);
+    res.type("text/xml").status(200).send("<Response><Hangup/></Response>");
+  }
+});
+
+app.post("/voice/count", async (req: Request, res: Response) => {
+  try {
+    if (!guardTwilio(req, res)) return;
+    const eventId = parseInt(String(req.query.eventId));
+    const guestId = parseInt(String(req.query.guestId));
+    sendTwiml(res, await handleCountDigits(eventId, guestId, req.body?.Digits));
+  } catch (error) {
+    logError(undefined, "Voice count webhook failed:", error);
+    res.type("text/xml").status(200).send("<Response><Hangup/></Response>");
+  }
+});
 
 // ==================== Auth Middleware (everything below requires a valid session) ====================
 
@@ -1656,6 +1719,31 @@ app.get("/events/:eventId/guests", async (req: Request, res: Response) => {
   } catch (error) {
     logError(req.auth?.userID, "Error fetching event guests:", error);
     return res.status(500).send("Failed to fetch event guests");
+  }
+});
+
+// Place automated RSVP phone calls to every guest who hasn't responded yet.
+app.post("/events/:eventId/voice/call-pending", async (req: Request, res: Response) => {
+  try {
+    const { eventId } = req.params;
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const event = await db.getEventById(parseInt(eventId));
+    if (!event || event.user_id !== dataOwner) {
+      return res.status(404).send("Event not found");
+    }
+    if (!isVoiceConfigured()) {
+      return res.status(503).send(
+        "Voice calling is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_CALLER_ID and PUBLIC_BASE_URL.",
+      );
+    }
+    const result = await placeRsvpCalls(parseInt(eventId));
+    await logMessage(
+      req.auth.userID,
+      `📞 Voice RSVP calls placed for event ${eventId}: queued ${result.queued}, failed ${result.failed}, skipped ${result.skippedNoPhone}`,
+    );
+    return res.status(200).json(result);
+  } catch (error) {
+    return handleError(res, error, "Failed to place voice RSVP calls", req.auth.userID);
   }
 });
 
