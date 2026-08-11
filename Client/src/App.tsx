@@ -10,6 +10,8 @@ import {
 import PrivacyPolicy from "./components/global/PrivacyPolicy";
 import TermsOfService from "./components/global/TermsOfService";
 import "./App.css";
+import "./styles/tour.css";
+import "shepherd.js/dist/css/shepherd.css";
 import { RSVPDashboard } from "./components/rsvp/RSVPDashboard";
 import { WeddingDashboard } from "./components/userDashboard/WeddingDashboard";
 import { TasksDashboard } from "./components/tasks/TasksDashboard";
@@ -20,6 +22,8 @@ import PendingApprovalPage from "./components/pendingApproval/PendingApprovalPag
 import AdminUsersPage from "./components/admin/AdminUsersPage";
 import { useAuth, AuthProvider } from "./hooks/useAuth";
 import { AppDataProvider, useAppData } from "./hooks/useAppData";
+import { TourProvider } from "./hooks/useTour";
+import { getTourSteps } from "./components/global/tourSteps";
 import { Loader } from "@wix/design-system";
 
 function ScrollToTop() {
@@ -93,11 +97,15 @@ function AppContent() {
 }
 
 function App() {
+  const tourSteps = getTourSteps();
+
   return (
     <Router>
       <AuthProvider>
         <AppDataProvider>
-          <AppContent />
+          <TourProvider tourSteps={tourSteps}>
+            <AppContent />
+          </TourProvider>
         </AppDataProvider>
       </AuthProvider>
     </Router>

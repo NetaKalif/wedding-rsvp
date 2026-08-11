@@ -65,7 +65,10 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   }
 
   return (
-    <div className={`task-item ${task.is_completed ? "completed" : ""}`}>
+    <div
+      className={`task-item ${task.is_completed ? "completed" : ""}`}
+      data-tour="task-item"
+    >
       <Box
         direction="horizontal"
         verticalAlign="middle"

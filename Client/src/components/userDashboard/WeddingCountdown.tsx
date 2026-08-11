@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Box, Button, Loader } from "@wix/design-system";
+import { Box, Loader, Modal } from "@wix/design-system";
 import { Calendar } from "lucide-react";
+import WeddingSetupModal from "./WeddingSetupModal";
 import { Event } from "../../types";
 import "./css/WeddingCountdown.css";
 
@@ -49,6 +50,7 @@ export const WeddingCountdown = ({
 }: WeddingCountdownProps) => {
   const navigate = useNavigate();
   const [countdown, setCountdown] = useState<CountdownTime | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   useEffect(() => {
     if (weddingInfo?.date) {
@@ -66,18 +68,19 @@ export const WeddingCountdown = ({
 
   if (weddingInfo?.date && countdown) {
     return (
-      <Box
-        direction="vertical"
-        gap="4px"
-        background={"#ffffff"}
-        width={"max-content"}
-        alignSelf="center"
-        padding="0px 24px"
-        borderRadius="8px"
-      >
-        <div className="countdown-container" dir="rtl">
-          <div className="countdown-header">
-            <Calendar className="countdown-calendar-icon" />
+      <>
+        <Box
+          direction="vertical"
+          gap="4px"
+          background={"#ffffff"}
+          width={"max-content"}
+          alignSelf="center"
+          padding="0px 24px"
+          borderRadius="8px"
+        >
+          <div className="countdown-container" dir="rtl">
+            <div className="countdown-header">
+              <Calendar className="countdown-calendar-icon" />
             <span className="countdown-label">ספירה לאחור ליום הגדול</span>
           </div>
 
@@ -113,28 +116,42 @@ export const WeddingCountdown = ({
           </div>
         </div>
       </Box>
+        <Modal isOpen={showEditModal} onRequestClose={() => setShowEditModal(false)}>
+          <WeddingSetupModal
+            onComplete={() => {
+              setShowEditModal(false);
+            }}
+          />
+        </Modal>
+      </>
     );
   }
 
   return (
-    <Box
-      direction="vertical"
-      gap="4px"
-      background={"#ffffff"}
-      width={"max-content"}
-      alignSelf="center"
-      padding="0px 24px"
-      borderRadius="8px"
-    >
-      <div className="countdown-container countdown-empty" dir="rtl">
-        <Calendar className="countdown-calendar-icon" />
-        <p className="countdown-empty-text">
-          הגדירו את תאריך החתונה בניהול אישורי ההגעה כדי לראות את הספירה לאחור!
-        </p>
-        <Button size="small" onClick={() => navigate("/rsvp")}>
-          הגדרת תאריך החתונה
-        </Button>
-      </div>
-    </Box>
+    <>
+      <Box
+        direction="vertical"
+        gap="4px"
+        background={"#ffffff"}
+        width={"max-content"}
+        alignSelf="center"
+        padding="0px 24px"
+        borderRadius="8px"
+      >
+        <div className="countdown-container countdown-empty" dir="rtl">
+          <Calendar className="countdown-calendar-icon" />
+          <p className="countdown-empty-text">
+            הגדירו את תאריך החתונה בניהול אישורי ההגעה כדי לראות את הספירה לאחור!
+          </p>
+        </div>
+      </Box>
+      <Modal isOpen={showEditModal} onRequestClose={() => setShowEditModal(false)}>
+        <WeddingSetupModal
+          onComplete={() => {
+            setShowEditModal(false);
+          }}
+        />
+      </Modal>
+    </>
   );
 };

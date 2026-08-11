@@ -211,6 +211,7 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
                 direction="horizontal"
                 gap="16px"
                 data-hook="guests-stats-row"
+                data-tour="guest-count"
               >
                 <Box
                   className="budget-stat"

@@ -8,6 +8,8 @@ import "./css/Header.css";
 import { useNavigate } from "react-router-dom";
 import PartnerModal from "../userDashboard/PartnerModal";
 import ViewLogsModal from "../rsvp/ViewLogsModal";
+import { TourButton } from "./TourButton";
+import { useTour } from "../../hooks/useTour";
 
 type HeaderProps = {
   showBackToDashboardButton?: boolean;
@@ -17,6 +19,7 @@ const Header = ({
 }: HeaderProps): JSX.Element => {
   const { user, isAdmin, handleLogout, partnerInfo, refreshPartnerInfo } =
     useAuth();
+  const { startTour } = useTour();
   const navigate = useNavigate();
   const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
   const [isViewLogsModalOpen, setIsViewLogsModalOpen] = useState(false);
@@ -51,10 +54,11 @@ const Header = ({
         )}
       </div>
       {user && (
-        <div>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          <TourButton />
           <PopoverMenu
             triggerElement={
-              <Button priority="secondary">
+              <Button priority="secondary" data-tour="user-menu">
                 <ChevronDown /> {user.name || "חשבון"}
               </Button>
             }
@@ -68,6 +72,8 @@ const Header = ({
               ? <PopoverMenu.MenuItem text="משתמשים" onClick={() => navigate("/admin")} />
               : null}
             {isAdmin ? <PopoverMenu.Divider /> : null}
+            <PopoverMenu.MenuItem text="🎯 תור ההדרכה" onClick={startTour} />
+            <PopoverMenu.Divider />
             <PopoverMenu.MenuItem text="יומן" onClick={() => setIsViewLogsModalOpen(true)} />
             <PopoverMenu.MenuItem
               text="הורדת הנתונים שלי"

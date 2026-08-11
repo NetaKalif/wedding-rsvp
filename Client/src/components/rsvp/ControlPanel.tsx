@@ -79,7 +79,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     <div className="control-panel">
       <Card>
         <Card.Header title="ספירת אורחים" />
-        <Card.Content>
+        <Card.Content data-tour="rsvp-stats">
           <Box gap="16px" className="guest-summary">
             <Box direction="vertical" gap="4px">
               <span>סה״כ מוזמנים</span>
@@ -148,6 +148,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             <Button
               onClick={() => setIsAddGuestModalOpen(true)}
               priority="secondary"
+              data-tour="add-guests-btn"
             >
               <UserPlus />
               <span style={{ marginRight: "8px" }}>הוספה</span>
@@ -163,6 +164,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             <Button
               onClick={() => handleExport(eventGuests)}
               priority="secondary"
+              data-tour="export-btn"
             >
               <FileSpreadsheet />
               <span style={{ marginRight: "8px" }}>ייצוא</span>
@@ -194,6 +196,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               }}
               priority="secondary"
               disabled={eventGuests.length === 0}
+              data-tour="send-messages-btn"
             >
               <MessageSquare />
               <span style={{ marginRight: "8px" }}>שליחת הודעות</span>

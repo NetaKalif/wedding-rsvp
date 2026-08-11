@@ -77,7 +77,13 @@ export const RSVPDashboard = () => {
   };
 
   return (
-    <Box direction="vertical" gap="0" align="center" style={{ width: "100%" }}>
+    <Box
+      direction="vertical"
+      gap="0"
+      align="center"
+      style={{ width: "100%" }}
+      data-tour="rsvp-container"
+    >
       <Header showBackToDashboardButton={true} />
 
       {/* Heading row with refresh + logs at the end */}
@@ -139,18 +145,21 @@ export const RSVPDashboard = () => {
                 setIsMessageGroupsModalOpen={setIsMessageGroupsModalOpen}
                 userID={user.userID}
                 eventId={weddingInfo?.id}
+                data-tour="add-guests-btn"
               />
             </Box>
 
             {eventGuests.length > 0 ? (
               weddingInfo ? (
-                <GuestList
-                  userID={user.userID}
-                  eventGuests={eventGuests}
-                  eventId={weddingInfo.id}
-                  onEventGuestsChange={handleEventGuestsChange}
-                  primaryGuestsList={guests}
-                />
+                <div data-tour="guests-table">
+                  <GuestList
+                    userID={user.userID}
+                    eventGuests={eventGuests}
+                    eventId={weddingInfo.id}
+                    onEventGuestsChange={handleEventGuestsChange}
+                    primaryGuestsList={guests}
+                  />
+                </div>
               ) : null
             ) : (
               <Box

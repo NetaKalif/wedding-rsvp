@@ -153,7 +153,7 @@ export const WeddingDashboard = () => {
   ];
 
   return (
-    <div className="wedding-dashboard">
+    <div className="wedding-dashboard" data-tour="wedding-dashboard">
       <Header />
 
       <Box direction="vertical" gap="24px" padding="24px 0">
@@ -165,7 +165,11 @@ export const WeddingDashboard = () => {
           </h1>
         </Box>
 
-        <WeddingCountdown weddingInfo={weddingInfo} isLoading={isLoading} />
+        <WeddingCountdown
+          weddingInfo={weddingInfo}
+          isLoading={isLoading}
+          data-tour="edit-wedding-info"
+        />
 
         <Box
           direction="horizontal"
@@ -180,6 +184,7 @@ export const WeddingDashboard = () => {
                 !feature.available ? "coming-soon-card" : ""
               }`}
               onClick={() => feature.available && navigate(feature.path)}
+              data-tour={`nav-${feature.id}`}
             >
               <Card stretchVertically={true}>
                 <Card.Header

@@ -187,7 +187,7 @@ export const BudgetDashboard: React.FC = () => {
   return (
     <>
       <Header showBackToDashboardButton={true} />
-      <div className="budget-dashboard" dir="rtl">
+      <div className="budget-dashboard" data-tour="budget-dashboard" dir="rtl">
         <Box
           direction="vertical"
           gap="24px"
@@ -205,12 +205,14 @@ export const BudgetDashboard: React.FC = () => {
           </Box>
 
           {/* Budget Overview Card */}
-          <BudgetOverviewCard
-            budgetData={budgetData}
-            onUpdateBudget={handleUpdateTotalBudget}
-            onUpdateGuests={handleUpdateEstimatedGuests}
-            formatCurrency={formatCurrency}
-          />
+          <div data-tour="budget-stats">
+            <BudgetOverviewCard
+              budgetData={budgetData}
+              onUpdateBudget={handleUpdateTotalBudget}
+              onUpdateGuests={handleUpdateEstimatedGuests}
+              formatCurrency={formatCurrency}
+            />
+          </div>
 
           {/* Alerts */}
           {alerts.length > 0 && (
@@ -319,6 +321,7 @@ export const BudgetDashboard: React.FC = () => {
                 size="small"
                 prefixIcon={<Plus size={16} />}
                 onClick={() => setShowAddCategory(true)}
+                data-tour="add-category-btn"
               >
                 הוסף קטגוריה
               </Button>
@@ -344,21 +347,22 @@ export const BudgetDashboard: React.FC = () => {
             ) : (
               <Box direction="vertical" gap="12px">
                 {filteredCategories.map((category) => (
-                  <BudgetCategoryCard
-                    key={category.category_id}
-                    category={category}
-                    icon={CATEGORY_ICONS[category.name] || "📦"}
-                    isExpanded={expandedCategory === category.category_id}
-                    onToggleExpand={() =>
-                      setExpandedCategory(
-                        expandedCategory === category.category_id
-                          ? null
-                          : category.category_id
-                      )
-                    }
-                    formatCurrency={formatCurrency}
-                    highlightedVendorId={highlightedVendorId}
-                  />
+                  <div key={category.category_id} data-tour="budget-category">
+                    <BudgetCategoryCard
+                      category={category}
+                      icon={CATEGORY_ICONS[category.name] || "📦"}
+                      isExpanded={expandedCategory === category.category_id}
+                      onToggleExpand={() =>
+                        setExpandedCategory(
+                          expandedCategory === category.category_id
+                            ? null
+                            : category.category_id
+                        )
+                      }
+                      formatCurrency={formatCurrency}
+                      highlightedVendorId={highlightedVendorId}
+                    />
+                  </div>
                 ))}
               </Box>
             )}

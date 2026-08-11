@@ -45,7 +45,12 @@ export const TaskProgressCard: React.FC<TaskProgressCardProps> = ({
             verticalAlign="middle"
             className="progress-card-actions"
           >
-            <Button size="small" priority="secondary" onClick={onToggleAddTask}>
+            <Button
+              size="small"
+              priority="secondary"
+              onClick={onToggleAddTask}
+              data-tour="add-task-btn"
+            >
               <Plus size={16} />
               <span style={{ marginRight: "8px" }}>משימה</span>
             </Button>

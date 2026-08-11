@@ -1,0 +1,242 @@
+/* Shepherd Tour Styles - Matching Wedding RSVP Design System (Option 2: Premium Icon Header) */
+
+.shepherd-theme-custom {
+  background: white;
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(215, 157, 249, 0.2), 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-width: 420px;
+  padding: 12px;
+  font-family: "Inter", sans-serif;
+  direction: rtl;
+  position: relative;
+}
+
+.shepherd-theme-custom.shepherd-target {
+  outline: 3px solid #d79df9 !important;
+  outline-offset: 6px !important;
+  border-radius: 8px !important;
+  box-shadow: 0 0 0 8px rgba(215, 157, 249, 0.1);
+}
+
+.shepherd-element {
+  z-index: 10001;
+}
+
+.shepherd-popover {
+  background: white;
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(215, 157, 249, 0.2), 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.shepherd-title {
+  color: #c084fc;
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  border: none;
+  padding: 32px 24px 0 24px;
+  text-align: center;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.shepherd-title::first-line {
+  font-size: 40px;
+  display: block;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.shepherd-subtitle {
+  color: #a0aec0;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: center;
+  margin: 0;
+  padding: 0 24px 12px 24px;
+  display: block;
+}
+
+.shepherd-text {
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.8;
+  margin: 0;
+  padding: 24px;
+  text-align: right;
+}
+
+.shepherd-content {
+  padding: 0;
+  background: white !important;
+}
+
+.shepherd-header {
+  background: white !important;
+}
+
+.shepherd-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-start;
+  flex-direction: row-reverse;
+  margin: 0;
+  padding: 12px 24px 24px 24px;
+  border: none;
+}
+
+.shepherd-button {
+  padding: 10px 18px;
+  border-radius: 6px;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+}
+
+.btn.btn-primary {
+  background: linear-gradient(135deg, #f9a7db 0%, #d79df9 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(215, 157, 249, 0.3);
+}
+
+.btn.btn-primary:hover {
+  background: linear-gradient(135deg, #f78fd0 0%, #c95aef 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(215, 157, 249, 0.4);
+}
+
+.btn.btn-secondary {
+  background-color: #f5e6ff;
+  color: #c084fc;
+  border: 1px solid #e5d5ff;
+}
+
+.btn.btn-secondary:hover {
+  background-color: #eed6ff;
+  border-color: #d79df9;
+}
+
+.shepherd-cancel-icon {
+  position: absolute !important;
+  top: 16px !important;
+  right: 16px !important;
+  background: none !important;
+  border: none !important;
+  font-size: 20px !important;
+  cursor: pointer !important;
+  color: #cbd5e0 !important;
+  width: 40px !important;
+  height: 40px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease !important;
+  border-radius: 6px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.shepherd-cancel-icon:hover {
+  background-color: rgba(215, 157, 249, 0.1) !important;
+  color: #c084fc !important;
+}
+
+.shepherd-arrow {
+  border-color: white;
+}
+
+.shepherd-arrow::before {
+  border-color: white;
+}
+
+.shepherd-modal-overlay-container {
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+}
+
+.shepherd-target {
+  outline: 3px solid #d79df9;
+  outline-offset: 6px;
+  border-radius: 8px;
+}
+
+/* Tour Button */
+.tour-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #f9a7db 0%, #d79df9 100%);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(215, 157, 249, 0.3);
+}
+
+.tour-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(215, 157, 249, 0.4);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .shepherd-theme-custom {
+    max-width: 300px;
+    padding: 12px;
+  }
+
+  .shepherd-title {
+    font-size: 18px;
+    padding: 24px 16px 0 16px;
+  }
+
+  .shepherd-title::before {
+    font-size: 32px;
+    margin-bottom: 8px;
+  }
+
+  .shepherd-subtitle {
+    font-size: 11px;
+    padding: 0 16px 8px 16px;
+  }
+
+  .shepherd-text {
+    font-size: 13px;
+    padding: 16px;
+  }
+
+  .shepherd-button {
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  .shepherd-footer {
+    padding: 8px 16px 16px 16px;
+  }
+
+  .shepherd-cancel-icon {
+    top: 12px !important;
+    right: 12px !important;
+    font-size: 18px !important;
+    width: 36px !important;
+    height: 36px !important;
+  }
+}
+
+/* Modal overlay enhancement */
+.shepherd-modal-overlay-container .shepherd-modal-is-visible {
+  position: relative;
+  z-index: 10000;
+}

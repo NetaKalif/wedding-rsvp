@@ -123,7 +123,7 @@ export const TasksDashboard: React.FC = () => {
   const totalCount = tasks.length;
 
   return (
-    <div className="tasks-dashboard">
+    <div className="tasks-dashboard" data-tour="tasks-container">
       <Header showBackToDashboardButton={true} />
 
       <Box
@@ -147,6 +147,7 @@ export const TasksDashboard: React.FC = () => {
           onToggleHideCompleted={() => setHideCompleted(!hideCompleted)}
           onToggleAddTask={() => setShowAddTask(!showAddTask)}
           onToggleAllGroups={toggleAllGroups}
+          data-tour="add-task-btn"
         />
 
         {showAddTask && (

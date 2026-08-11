@@ -14,6 +14,7 @@ import {
 import { ChevronDown, ChevronUp, Filter } from "lucide-react";
 import { Event, EventGuest } from "../../types";
 import { httpRequests } from "../../httpClient";
+import { useAuth } from "../../hooks/useAuth";
 import { getUniqueEventGuestValues } from "./logic";
 import WhatsAppPreview from "./WhatsAppPreview";
 import "./css/WhatsAppMessage.css";
@@ -38,6 +39,8 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   eventGuests,
   event,
 }) => {
+  const { isAdmin } = useAuth();
+
   const getImageUrl = useCallback(
     () =>
       event.file_id
@@ -247,7 +250,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                 </Box>
               </RadioGroup.Radio>
 
-              {isPrimaryEvent && (
+              {isAdmin && isPrimaryEvent && (
                 <RadioGroup.Radio value="weddingReminder">
                   <Box direction="vertical" gap={1}>
                     <Text weight="bold">תזכורת לחתונה</Text>
@@ -262,16 +265,18 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                 </RadioGroup.Radio>
               )}
 
-              <RadioGroup.Radio value="freeText">
-                <Box direction="vertical" gap={1}>
-                  <Text weight="bold">הודעה מותאמת אישית</Text>
-                  <Text size="small" secondary>
-                    שליחת טקסט חופשי לאורחים
-                  </Text>
-                </Box>
-              </RadioGroup.Radio>
+              {isAdmin && (
+                <RadioGroup.Radio value="freeText">
+                  <Box direction="vertical" gap={1}>
+                    <Text weight="bold">הודעה מותאמת אישית</Text>
+                    <Text size="small" secondary>
+                      שליחת טקסט חופשי לאורחים
+                    </Text>
+                  </Box>
+                </RadioGroup.Radio>
+              )}
 
-              {isPrimaryEvent && (
+              {isAdmin && isPrimaryEvent && (
                 <RadioGroup.Radio value="thankYou">
                   <Box direction="vertical" gap={1}>
                     <Text weight="bold">הודעת תודה</Text>
@@ -284,7 +289,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
             </RadioGroup>
           </Box>
 
-            {messageType === "freeText" && (
+            {isAdmin && messageType === "freeText" && (
               <Box direction="vertical" gap={2} flexShrink={0}>
                 <Text weight="bold">הודעה מותאמת אישית:</Text>
                 <InputArea

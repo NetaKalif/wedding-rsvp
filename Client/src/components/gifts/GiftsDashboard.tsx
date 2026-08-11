@@ -367,7 +367,7 @@ export const GiftsDashboard: React.FC = () => {
   return (
     <>
       <Header showBackToDashboardButton={true} />
-      <div className="gifts-dashboard" dir="rtl">
+      <div className="gifts-dashboard" data-tour="gifts-container" dir="rtl">
         <Box
           direction="vertical"
           gap="24px"
@@ -385,7 +385,7 @@ export const GiftsDashboard: React.FC = () => {
           </Box>
 
           {/* Stats */}
-          <Card>
+          <Card data-tour="gift-stats">
             <Card.Content>
               <Box
                 direction="horizontal"
@@ -456,6 +456,7 @@ export const GiftsDashboard: React.FC = () => {
                       const guest = guests.find((g) => g.id === option.id);
                       if (guest) selectGuest(guest);
                     }}
+                    data-tour="guest-search"
                   />
                 </FormField>
 

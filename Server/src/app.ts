@@ -376,6 +376,25 @@ app.get("/auth/me", async (req: Request, res: Response) => {
   }
 });
 
+// ==== Tour Management ====
+app.get("/tour/seen", async (req: Request, res: Response) => {
+  try {
+    const hasBeenSeen = await db.hasTourBeenSeen(req.auth.userID);
+    res.status(200).json({ tourSeen: hasBeenSeen });
+  } catch (error) {
+    return handleError(res, error, "Failed to check tour status");
+  }
+});
+
+app.post("/tour/mark-seen", async (req: Request, res: Response) => {
+  try {
+    await db.markTourAsSeen(req.auth.userID);
+    res.status(200).json({ success: true });
+  } catch (error) {
+    return handleError(res, error, "Failed to mark tour as seen");
+  }
+});
+
 app.post("/auth/impersonate", requireAdmin, async (req: Request, res: Response) => {
   try {
     const { targetUserID } = req.body;

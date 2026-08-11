@@ -362,9 +362,21 @@ const deleteVendorFile = (fileId: number) => del<void>(`/budget/files/${fileId}`
 
 // ==================== Exports ====================
 
+// ==================== Tour ====================
+const hasTourBeenSeen = async (): Promise<boolean> => {
+  const data = await get<{ tourSeen: boolean }>("/tour/seen");
+  return data.tourSeen;
+};
+
+const markTourAsSeen = async (): Promise<void> => {
+  await post<void>("/tour/mark-seen");
+};
+
 export const httpRequests = {
   // Auth
   loginWithGoogle, getMe, impersonate, deleteUser,
+  // Tour
+  hasTourBeenSeen, markTourAsSeen,
   // Guests
   getGuests, addGuests, updateGuest, deleteGuest, deleteAllGuests,
   // Events

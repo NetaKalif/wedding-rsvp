@@ -2,6 +2,7 @@ import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import MessageGroupsModal from "./MessageGroupsModal";
 import { Event, EventGuest } from "../../types";
+import * as useAuthModule from "../../hooks/useAuth";
 
 jest.mock("../../httpClient", () => ({
   httpRequests: {
@@ -12,6 +13,10 @@ jest.mock("../../httpClient", () => ({
     getPrimaryImageUrl: jest.fn(() => Promise.resolve("")),
   },
 }));
+
+jest.mock("../../hooks/useAuth");
+
+const mockUseAuth = useAuthModule.useAuth as jest.MockedFunction<typeof useAuthModule.useAuth>;
 
 const event: Event = {
   id: 1,
@@ -25,6 +30,24 @@ const eventGuests: EventGuest[] = [
   { guest_id: 2, event_id: 1, name: "Confirmed Guest", phone: "222", rsvp_status: 2, whose: "חתן", circle: "חברים" },
   { guest_id: 3, event_id: 1, name: "Declined Guest", phone: "333", rsvp_status: 0, whose: "כלה", circle: "עבודה" },
 ];
+
+const mockAuthValue = {
+  user: undefined,
+  partnerInfo: undefined,
+  weddingInfo: null,
+  isAdmin: false,
+  isLoading: false,
+  pendingApproval: false,
+  handleLoginSuccess: jest.fn(),
+  handleLogout: jest.fn(),
+  switchUser: jest.fn(),
+  refreshPartnerInfo: jest.fn(),
+  refreshWeddingInfo: jest.fn(),
+};
+
+beforeEach(() => {
+  mockUseAuth.mockReturnValue(mockAuthValue);
+});
 
 describe("MessageGroupsModal - specific guest picker", () => {
   it("only lists guests who have not RSVP'd when resend-to-pending and select-specific-guests are both chosen", () => {
@@ -143,5 +166,46 @@ describe("MessageGroupsModal - specific guest picker", () => {
     fireEvent.click(screen.getByText(/בחר הכל/));
 
     expect(screen.getByText("נבחרו 3 אורחים")).toBeInTheDocument();
+  });
+});
+
+describe("MessageGroupsModal - admin-only features", () => {
+  it("only shows rsvp and rsvpReminder to non-admin users", () => {
+    render(
+      <MessageGroupsModal
+        setIsMessageGroupsModalOpen={jest.fn()}
+        eventId={1}
+        eventGuests={eventGuests}
+        event={event}
+      />
+    );
+
+    expect(screen.getByText("הזמנה לאישור הגעה")).toBeInTheDocument();
+    expect(screen.getByText("שליחה חוזרת לממתינים")).toBeInTheDocument();
+    expect(screen.queryByText("תזכורת לחתונה")).not.toBeInTheDocument();
+    expect(screen.queryByText("הודעה מותאמת אישית")).not.toBeInTheDocument();
+    expect(screen.queryByText("הודעת תודה")).not.toBeInTheDocument();
+  });
+
+  it("shows all message options to admin users", () => {
+    mockUseAuth.mockReturnValue({
+      ...mockAuthValue,
+      isAdmin: true,
+    });
+
+    render(
+      <MessageGroupsModal
+        setIsMessageGroupsModalOpen={jest.fn()}
+        eventId={1}
+        eventGuests={eventGuests}
+        event={event}
+      />
+    );
+
+    expect(screen.getByText("הזמנה לאישור הגעה")).toBeInTheDocument();
+    expect(screen.getByText("שליחה חוזרת לממתינים")).toBeInTheDocument();
+    expect(screen.getByText("תזכורת לחתונה")).toBeInTheDocument();
+    expect(screen.getByText("הודעה מותאמת אישית")).toBeInTheDocument();
+    expect(screen.getByText("הודעת תודה")).toBeInTheDocument();
   });
 });

@@ -96,6 +96,10 @@ class Database {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved'
         CHECK (status IN ('pending', 'approved', 'declined'));`, []);
 
+    // Track if user has seen the onboarding tour
+    await this.runQuery(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS tour_seen BOOLEAN NOT NULL DEFAULT FALSE;`, []);
+
     await this.runQuery(`
       CREATE TABLE IF NOT EXISTS "clientLogs" (
         id SERIAL PRIMARY KEY,
@@ -1009,6 +1013,21 @@ class Database {
     const query = `SELECT "userID", email, name FROM users WHERE "userID" = $1`;
     const result = await this.runQuery(query, [userID]);
     return result.length > 0 ? (result[0] as User) : null;
+  }
+
+  async markTourAsSeen(userID: string): Promise<void> {
+    await this.runQuery(
+      `UPDATE users SET tour_seen = TRUE WHERE "userID" = $1`,
+      [userID]
+    );
+  }
+
+  async hasTourBeenSeen(userID: string): Promise<boolean> {
+    const result = await this.runQuery(
+      `SELECT tour_seen FROM users WHERE "userID" = $1`,
+      [userID]
+    );
+    return result.length > 0 ? result[0].tour_seen : true;
   }
 
   // ==================== Account Retention (60-day post-wedding deletion) ====================
