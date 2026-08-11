@@ -183,13 +183,15 @@ const VendorCard: React.FC<VendorCardProps> = ({
         </Badge>
       </Box>
 
-      <Box direction="horizontal" gap="12px" verticalAlign="middle">
-        <Text size="small" secondary>מחיר: {formatCurrency(vendor.agreed_cost)}</Text>
-        <Text size="small" weight="bold" skin="success">שולם: {formatCurrency(vendor.total_paid)}</Text>
-        {vendor.remaining_balance > 0 && (
-          <Text size="small" skin="error">נותר: {formatCurrency(vendor.remaining_balance)}</Text>
-        )}
-      </Box>
+      <div data-tour="vendor-balance">
+        <Box direction="horizontal" gap="12px" verticalAlign="middle">
+          <Text size="small" secondary>מחיר: {formatCurrency(vendor.agreed_cost)}</Text>
+          <Text size="small" weight="bold" skin="success">שולם: {formatCurrency(vendor.total_paid)}</Text>
+          {vendor.remaining_balance > 0 && (
+            <Text size="small" skin="error">נותר: {formatCurrency(vendor.remaining_balance)}</Text>
+          )}
+        </Box>
+      </div>
 
       {(vendor.phone || vendor.email) && (
         <Box direction="horizontal" gap="12px" verticalAlign="middle">
@@ -213,7 +215,12 @@ const VendorCard: React.FC<VendorCardProps> = ({
       )}
 
       <Box direction="horizontal" gap="8px">
-        <Button size="tiny" prefixIcon={<Plus size={14} />} onClick={() => setShowPaymentModal(true)}>
+        <Button
+          size="tiny"
+          prefixIcon={<Plus size={14} />}
+          onClick={() => setShowPaymentModal(true)}
+          data-tour="add-payment-btn"
+        >
           תשלום
         </Button>
         <Button size="tiny" skin="light" prefixIcon={<Edit2 size={14} />} onClick={onEdit}>

@@ -82,7 +82,6 @@ export const RSVPDashboard = () => {
       gap="0"
       align="center"
       style={{ width: "100%" }}
-      data-tour="rsvp-container"
     >
       <Header showBackToDashboardButton={true} />
 
@@ -110,6 +109,7 @@ export const RSVPDashboard = () => {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
+              data-tour={tab === "guests" ? "guests-tab" : "events-tab"}
               style={{
                 padding: "10px 24px",
                 background: "none",
@@ -145,7 +145,6 @@ export const RSVPDashboard = () => {
                 setIsMessageGroupsModalOpen={setIsMessageGroupsModalOpen}
                 userID={user.userID}
                 eventId={weddingInfo?.id}
-                data-tour="add-guests-btn"
               />
             </Box>
 

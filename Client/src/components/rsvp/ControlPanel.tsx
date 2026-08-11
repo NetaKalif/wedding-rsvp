@@ -77,9 +77,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
   return (
     <div className="control-panel">
+      <div data-tour="guest-counts">
       <Card>
         <Card.Header title="ספירת אורחים" />
-        <Card.Content data-tour="rsvp-stats">
+        <Card.Content>
           <Box gap="16px" className="guest-summary">
             <Box direction="vertical" gap="4px">
               <span>סה״כ מוזמנים</span>
@@ -102,6 +103,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </Box>
         </Card.Content>
       </Card>
+      </div>
+      <div data-tour="response-rates">
       <Card>
         <Card.Header title="שיעורי תגובה נוכחיים"></Card.Header>
         <Card.Content>
@@ -141,6 +144,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </Card.Content>
       </Card>
+      </div>
       <Card>
         <Card.Header title="פעולות מהירות"></Card.Header>
         <Card.Content>
@@ -156,6 +160,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             <Button
               onClick={() => setIsInfoModalOpen(true)}
               priority="secondary"
+              data-tour="edit-details-btn"
             >
               <Edit />
               <span style={{ marginRight: "8px" }}>עריכת פרטים</span>
@@ -205,6 +210,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               onClick={handleCallPending}
               priority="secondary"
               disabled={!eventId || rsvpCounts.pending === 0 || isCalling}
+              data-tour="call-pending-btn"
             >
               <PhoneCall />
               <span style={{ marginRight: "8px" }}>

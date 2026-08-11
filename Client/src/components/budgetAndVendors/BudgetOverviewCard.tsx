@@ -109,109 +109,117 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
               className="budget-stats-container"
               align="center"
             >
-              <Box
-                className="budget-stat"
-                direction="vertical"
-              >
-                <Text weight="bold" size="medium" className="budget-stat-value">
-                  <PiggyBank
-                    size={20}
-                    style={{ marginLeft: 6, verticalAlign: "middle" }}
-                  />
-                  {formatCurrency(totalBudget)}
-                  <Edit2
-                    onClick={() => openEditModal("budget")}
-                    size={12}
-                    style={{
-                      marginRight: 4,
-                      verticalAlign: "middle",
-                      opacity: 0.6,
-                      cursor: 'pointer'
-                    }}
-                  />
-                </Text>
-                <Text size="small" secondary className="budget-stat-label">
-                  תקציב כולל
-                </Text>
-              </Box>
+              <div data-tour="total-budget">
+                <Box
+                  className="budget-stat"
+                  direction="vertical"
+                >
+                  <Text weight="bold" size="medium" className="budget-stat-value">
+                    <PiggyBank
+                      size={20}
+                      style={{ marginLeft: 6, verticalAlign: "middle" }}
+                    />
+                    {formatCurrency(totalBudget)}
+                    <Edit2
+                      onClick={() => openEditModal("budget")}
+                      size={12}
+                      style={{
+                        marginRight: 4,
+                        verticalAlign: "middle",
+                        opacity: 0.6,
+                        cursor: 'pointer'
+                      }}
+                    />
+                  </Text>
+                  <Text size="small" secondary className="budget-stat-label">
+                    תקציב כולל
+                  </Text>
+                </Box>
+              </div>
               <Box
                 direction="horizontal"
                 gap="16px"
                 data-testid="budget-stats-row"
               >
-                <Box
-                  className="budget-stat"
-                  direction="vertical"
-                  align="center"
-                >
-                  <Text
-                    weight="bold"
-                    size="medium"
-                    className="budget-stat-value"
-                    skin="primary"
+                <div data-tour="planned-expenses">
+                  <Box
+                    className="budget-stat"
+                    direction="vertical"
+                    align="center"
                   >
-                    <ClipboardList
-                      size={20}
-                      style={{ marginLeft: 6, verticalAlign: "middle" }}
-                    />
-                    {formatCurrency(plannedExpenses)}
-                  </Text>
-                  <Text size="small" secondary className="budget-stat-label">
-                    התחיבויות
-                  </Text>
-                </Box>
-                <Box
-                  className="budget-stat"
-                  direction="vertical"
-                  align="center"
-                >
-                  <Text
-                    skin="premium"
-                    weight="bold"
-                    size="medium"
-                    className="budget-stat-value"
-                    style={{
-                      color: remainingBudget >= 0 ? "#38a169" : "#e53e3e",
-                    }}
+                    <Text
+                      weight="bold"
+                      size="medium"
+                      className="budget-stat-value"
+                      skin="primary"
+                    >
+                      <ClipboardList
+                        size={20}
+                        style={{ marginLeft: 6, verticalAlign: "middle" }}
+                      />
+                      {formatCurrency(plannedExpenses)}
+                    </Text>
+                    <Text size="small" secondary className="budget-stat-label">
+                      התחיבויות
+                    </Text>
+                  </Box>
+                </div>
+                <div data-tour="remaining-budget">
+                  <Box
+                    className="budget-stat"
+                    direction="vertical"
+                    align="center"
                   >
-                    <HandCoins
-                      size={20}
-                      style={{ marginLeft: 6, verticalAlign: "middle" }}
-                    />
-                    {formatCurrency(remainingBudget)}
-                  </Text>
-                  <Text size="small" secondary className="budget-stat-label">
-                    תקציב פנוי
-                  </Text>
-                </Box>
-                <Box
-                  className="budget-stat"
-                  direction="vertical"
-                  align="center"
-                >
-                  <Text
-                    weight="bold"
-                    size="medium"
-                    className="budget-stat-value"
-                    skin="success"
+                    <Text
+                      skin="premium"
+                      weight="bold"
+                      size="medium"
+                      className="budget-stat-value"
+                      style={{
+                        color: remainingBudget >= 0 ? "#38a169" : "#e53e3e",
+                      }}
+                    >
+                      <HandCoins
+                        size={20}
+                        style={{ marginLeft: 6, verticalAlign: "middle" }}
+                      />
+                      {formatCurrency(remainingBudget)}
+                    </Text>
+                    <Text size="small" secondary className="budget-stat-label">
+                      תקציב פנוי
+                    </Text>
+                  </Box>
+                </div>
+                <div data-tour="paid-total">
+                  <Box
+                    className="budget-stat"
+                    direction="vertical"
+                    align="center"
                   >
-                    <CircleDollarSign
-                      size={20}
-                      style={{ marginLeft: 6, verticalAlign: "middle" }}
-                    />
-                    {formatCurrency(totalExpenses)}
-                  </Text>
-                  <Text size="small" secondary className="budget-stat-label">
-                    שולמו
-                  </Text>
-                </Box>
+                    <Text
+                      weight="bold"
+                      size="medium"
+                      className="budget-stat-value"
+                      skin="success"
+                    >
+                      <CircleDollarSign
+                        size={20}
+                        style={{ marginLeft: 6, verticalAlign: "middle" }}
+                      />
+                      {formatCurrency(totalExpenses)}
+                    </Text>
+                    <Text size="small" secondary className="budget-stat-label">
+                      שולמו
+                    </Text>
+                  </Box>
+                </div>
               </Box>
 
+              <div data-tour="guest-count">
               <Box
                 direction="horizontal"
                 gap="16px"
                 data-hook="guests-stats-row"
-                data-tour="guest-count"
               >
                 <Box
                   className="budget-stat"
@@ -260,6 +268,7 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
                   </Text>
                 </Box>
               </Box>
+              </div>
             </Box>
           </Box>
         </Card.Content>

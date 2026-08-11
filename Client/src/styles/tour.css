@@ -23,6 +23,12 @@
   z-index: 10001;
 }
 
+/* Task action buttons are hover-only; keep them visible while the tour
+   highlights the edit button */
+.task-actions:has(.shepherd-target) {
+  opacity: 1;
+}
+
 .shepherd-popover {
   background: white;
   border: none;

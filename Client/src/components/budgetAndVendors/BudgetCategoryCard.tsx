@@ -243,7 +243,11 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
       {ConfirmDialog}
       <Card>
         <Card.Content>
-          <div onClick={onToggleExpand} style={{ cursor: "pointer" }}>
+          <div
+            onClick={onToggleExpand}
+            style={{ cursor: "pointer" }}
+            data-tour="category-header"
+          >
             <Box direction="vertical" align="space-between" verticalAlign="middle">
               <Box direction="horizontal" verticalAlign="middle" gap="8px">
                 {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
@@ -284,7 +288,12 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
                 marginBottom="12px"
               >
                 <Text weight="bold" size="small">ספקים</Text>
-                <Button size="tiny" prefixIcon={<Plus size={14} />} onClick={handleAddVendor}>
+                <Button
+                  size="tiny"
+                  prefixIcon={<Plus size={14} />}
+                  onClick={handleAddVendor}
+                  data-tour="add-vendor-btn"
+                >
                   הוסף ספק
                 </Button>
               </Box>

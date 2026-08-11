@@ -223,6 +223,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
         ) : (
           <Box direction="vertical" gap={3} height="100%" minHeight={0} overflow="hidden">
             <Box direction="vertical" gap={2} flexShrink={0}>
+              <div data-tour="message-types">
               <RadioGroup
               value={messageType}
               onChange={(value) => {
@@ -287,6 +288,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                 </RadioGroup.Radio>
               )}
             </RadioGroup>
+              </div>
           </Box>
 
             {isAdmin && messageType === "freeText" && (
@@ -307,15 +309,17 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
             )}
 
             <Box direction="vertical" gap={2} flexShrink={0}>
-              <Checkbox
-                checked={selectSpecificGuests}
-                onChange={() => {
-                  setSelectSpecificGuests((v) => !v);
-                  setSelectedGuestIds(new Set());
-                }}
-              >
-                <Text>בחירת אורחים ספציפיים לשליחה</Text>
-              </Checkbox>
+              <div data-tour="select-specific-guests">
+                <Checkbox
+                  checked={selectSpecificGuests}
+                  onChange={() => {
+                    setSelectSpecificGuests((v) => !v);
+                    setSelectedGuestIds(new Set());
+                  }}
+                >
+                  <Text>בחירת אורחים ספציפיים לשליחה</Text>
+                </Checkbox>
+              </div>
             </Box>
 
               {selectSpecificGuests && (
@@ -495,14 +499,16 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                 {isSending ? <Loader size="tiny" /> : "שליחת הודעות"}
               </Button>
 
-              <WhatsAppPreview
-                event={event}
-                getImageUrl={getImageUrl}
-                isCollapsible={true}
-                showAllMessages={false}
-                messageType={messageType}
-                customText={customText}
-              />
+              <div data-tour="whatsapp-preview">
+                <WhatsAppPreview
+                  event={event}
+                  getImageUrl={getImageUrl}
+                  isCollapsible={true}
+                  showAllMessages={false}
+                  messageType={messageType}
+                  customText={customText}
+                />
+              </div>
             </Box>
           </Box>
         )}

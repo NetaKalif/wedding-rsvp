@@ -1,14 +1,14 @@
-import { Button, IconButton, Modal, PopoverMenu } from "@wix/design-system";
+import { Button, IconButton, Modal, PopoverMenu, Tooltip } from "@wix/design-system";
 import React, { useState } from "react";
 import { ChevronDown } from "@wix/wix-ui-icons-common";
-import { ArrowLeft, Heart, Users } from "lucide-react";
+import { ArrowLeft, Heart, HelpCircle, Users } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { httpRequests } from "../../httpClient";
 import "./css/Header.css";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { TOUR_PAGE_START_STEPS } from "./tourSteps";
 import PartnerModal from "../userDashboard/PartnerModal";
 import ViewLogsModal from "../rsvp/ViewLogsModal";
-import { TourButton } from "./TourButton";
 import { useTour } from "../../hooks/useTour";
 
 type HeaderProps = {
@@ -21,6 +21,8 @@ const Header = ({
     useAuth();
   const { startTour } = useTour();
   const navigate = useNavigate();
+  const location = useLocation();
+  const pageStartStep = TOUR_PAGE_START_STEPS[location.pathname];
   const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
   const [isViewLogsModalOpen, setIsViewLogsModalOpen] = useState(false);
 
@@ -55,7 +57,19 @@ const Header = ({
       </div>
       {user && (
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-          <TourButton />
+          <Tooltip
+            content={pageStartStep ? "הסבר על העמוד הזה" : "סיור מודרך"}
+            placement="bottom"
+          >
+            <IconButton
+              priority="secondary"
+              size="small"
+              dataHook="help-button"
+              onClick={() => startTour(pageStartStep)}
+            >
+              <HelpCircle size={18} />
+            </IconButton>
+          </Tooltip>
           <PopoverMenu
             triggerElement={
               <Button priority="secondary" data-tour="user-menu">
@@ -72,7 +86,14 @@ const Header = ({
               ? <PopoverMenu.MenuItem text="משתמשים" onClick={() => navigate("/admin")} />
               : null}
             {isAdmin ? <PopoverMenu.Divider /> : null}
-            <PopoverMenu.MenuItem text="🎯 תור ההדרכה" onClick={startTour} />
+            <PopoverMenu.MenuItem
+              text="🎯 סיור מודרך מלא"
+              onClick={() => {
+                // The full tour begins on the dashboard — go there first
+                if (location.pathname !== "/") navigate("/");
+                setTimeout(() => startTour(), 300);
+              }}
+            />
             <PopoverMenu.Divider />
             <PopoverMenu.MenuItem text="יומן" onClick={() => setIsViewLogsModalOpen(true)} />
             <PopoverMenu.MenuItem

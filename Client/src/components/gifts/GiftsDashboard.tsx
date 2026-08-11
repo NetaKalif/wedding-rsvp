@@ -52,11 +52,13 @@ import "./css/GiftsDashboard.css";
 
 export const GiftsDashboard: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
-  const { guests, events, eventGuestsByEventId, updateEventGuests } = useAppData();
+  const { guests, events, eventGuestsByEventId, updateEventGuests, demoGifts } = useAppData();
   const { confirm, ConfirmDialog } = useConfirm();
   const navigate = useNavigate();
 
   const [gifts, setGifts] = useState<Gift[]>([]);
+  // While the tour's demo mode is on, show its example gifts instead
+  const effectiveGifts = demoGifts ?? gifts;
 
   // Gift entry form
   const [guestSearchTerm, setGuestSearchTerm] = useState("");
@@ -104,13 +106,14 @@ export const GiftsDashboard: React.FC = () => {
   }, [user]);
 
   const primaryEvent = events.find((e) => e.is_primary);
-  const primaryEventGuests = primaryEvent
-    ? eventGuestsByEventId[primaryEvent.id] ?? []
-    : [];
+  const primaryEventGuests = useMemo(
+    () => (primaryEvent ? eventGuestsByEventId[primaryEvent.id] ?? [] : []),
+    [primaryEvent, eventGuestsByEventId]
+  );
 
   const rows = useMemo(
-    () => buildGuestGiftRows(guests, primaryEventGuests, gifts),
-    [guests, primaryEventGuests, gifts]
+    () => buildGuestGiftRows(guests, primaryEventGuests, effectiveGifts),
+    [guests, primaryEventGuests, effectiveGifts]
   );
   const stats = useMemo(() => getGiftStats(rows), [rows]);
 
@@ -142,7 +145,7 @@ export const GiftsDashboard: React.FC = () => {
   const selectedGuestRsvp = selectedGuest
     ? primaryEventGuests.find((eg) => eg.guest_id === selectedGuest.id) ?? null
     : null;
-  const selectedGuestHasGift = guestHasGift(gifts, selectedGuest?.id);
+  const selectedGuestHasGift = guestHasGift(effectiveGifts, selectedGuest?.id);
 
   const selectGuest = (guest: Guest) => {
     setSelectedGuest(guest);
@@ -385,7 +388,8 @@ export const GiftsDashboard: React.FC = () => {
           </Box>
 
           {/* Stats */}
-          <Card data-tour="gift-stats">
+          <div data-tour="gift-stats">
+          <Card>
             <Card.Content>
               <Box
                 direction="horizontal"
@@ -424,6 +428,7 @@ export const GiftsDashboard: React.FC = () => {
               </Box>
             </Card.Content>
           </Card>
+          </div>
 
           {/* Gift entry form */}
           <Card>
@@ -435,6 +440,7 @@ export const GiftsDashboard: React.FC = () => {
                   priority="secondary"
                   prefixIcon={<Plus size={16} />}
                   onClick={() => setShowAddGuest(true)}
+                  data-tour="add-gift-guest-btn"
                 >
                   אורח לא מוזמן
                 </Button>
@@ -442,23 +448,24 @@ export const GiftsDashboard: React.FC = () => {
             />
             <Card.Content>
               <Box direction="vertical" gap="16px">
-                <FormField label="אורח">
-                  <Search
-                    placeholder="חיפוש אורח לפי שם..."
-                    value={guestSearchTerm}
-                    onChange={(e) => {
-                      setGuestSearchTerm(e.target.value);
-                      setSelectedGuest(null);
-                    }}
-                    onClear={clearGuestSelection}
-                    options={guestSearchOptions}
-                    onSelect={(option) => {
-                      const guest = guests.find((g) => g.id === option.id);
-                      if (guest) selectGuest(guest);
-                    }}
-                    data-tour="guest-search"
-                  />
-                </FormField>
+                <div data-tour="guest-search">
+                  <FormField label="אורח">
+                    <Search
+                      placeholder="חיפוש אורח לפי שם..."
+                      value={guestSearchTerm}
+                      onChange={(e) => {
+                        setGuestSearchTerm(e.target.value);
+                        setSelectedGuest(null);
+                      }}
+                      onClear={clearGuestSelection}
+                      options={guestSearchOptions}
+                      onSelect={(option) => {
+                        const guest = guests.find((g) => g.id === option.id);
+                        if (guest) selectGuest(guest);
+                      }}
+                    />
+                  </FormField>
+                </div>
 
                 {selectedGuest && (
                   <Box
@@ -521,6 +528,7 @@ export const GiftsDashboard: React.FC = () => {
                   </Box>
                 )}
 
+                <div data-tour="gift-form">
                 <Box gap="12px" verticalAlign="bottom" className="gift-form-row">
                   <Box width="200px">
                     <FormField label="סוג מתנה">
@@ -569,11 +577,13 @@ export const GiftsDashboard: React.FC = () => {
                     {isSubmitting ? "שומר..." : "הוספת מתנה"}
                   </Button>
                 </Box>
+                </div>
               </Box>
             </Card.Content>
           </Card>
 
           {/* Guests table */}
+          <div data-tour="gifts-table">
           <Card>
             <Card.Header
               title="אורחים ומתנות"
@@ -583,6 +593,7 @@ export const GiftsDashboard: React.FC = () => {
                   priority="secondary"
                   prefixIcon={<Download size={16} />}
                   onClick={() => handleGiftsExport(sortedRows)}
+                  data-tour="export-gifts-btn"
                 >
                   ייצוא לאקסל
                 </Button>
@@ -611,6 +622,7 @@ export const GiftsDashboard: React.FC = () => {
               </Box>
             </Card.Content>
           </Card>
+          </div>
         </Box>
 
         <AddGiftGuestModal

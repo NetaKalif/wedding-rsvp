@@ -46,6 +46,8 @@ export const WeddingDashboard = () => {
     return showAccountSelector;
   }, [isFirstTimeUser, showAccountSelector, showWeddingSetup]);
 
+  // Once the refreshed wedding info lands in context, the TourProvider
+  // auto-starts the guided tour for first-time users
   const handleSetupComplete = async () => {
     setShowWeddingSetup(false);
     setShowAccountSelector(false);
@@ -168,7 +170,6 @@ export const WeddingDashboard = () => {
         <WeddingCountdown
           weddingInfo={weddingInfo}
           isLoading={isLoading}
-          data-tour="edit-wedding-info"
         />
 
         <Box

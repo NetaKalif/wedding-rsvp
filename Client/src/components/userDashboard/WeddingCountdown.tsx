@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { Box, Loader, Modal } from "@wix/design-system";
 import { Calendar } from "lucide-react";
 import WeddingSetupModal from "./WeddingSetupModal";
@@ -48,7 +47,6 @@ export const WeddingCountdown = ({
   weddingInfo,
   isLoading,
 }: WeddingCountdownProps) => {
-  const navigate = useNavigate();
   const [countdown, setCountdown] = useState<CountdownTime | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
 
@@ -78,7 +76,7 @@ export const WeddingCountdown = ({
           padding="0px 24px"
           borderRadius="8px"
         >
-          <div className="countdown-container" dir="rtl">
+          <div className="countdown-container" dir="rtl" data-tour="wedding-countdown">
             <div className="countdown-header">
               <Calendar className="countdown-calendar-icon" />
             <span className="countdown-label">ספירה לאחור ליום הגדול</span>
@@ -138,7 +136,7 @@ export const WeddingCountdown = ({
         padding="0px 24px"
         borderRadius="8px"
       >
-        <div className="countdown-container countdown-empty" dir="rtl">
+        <div className="countdown-container countdown-empty" dir="rtl" data-tour="wedding-countdown">
           <Calendar className="countdown-calendar-icon" />
           <p className="countdown-empty-text">
             הגדירו את תאריך החתונה בניהול אישורי ההגעה כדי לראות את הספירה לאחור!

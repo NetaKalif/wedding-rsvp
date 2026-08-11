@@ -107,7 +107,7 @@ const AddGiftGuestModal: React.FC<AddGiftGuestModalProps> = ({
         secondaryButtonOnClick={resetAndClose}
         width="440px"
         content={
-          <div dir="rtl">
+          <div dir="rtl" data-tour="add-gift-guest-form">
             <Box direction="vertical" gap="16px" paddingTop="12px">
               <Text size="small" secondary>
                 לאורחים שהגיעו ללא הזמנה או שלחו מתנה בלי להגיע — האורח יתווסף

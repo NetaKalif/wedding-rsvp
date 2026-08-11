@@ -4,7 +4,7 @@
 # Picks its own port instead of defaulting to 8080: 8080 is also the default port
 # for the real dev server (`npm run dev` / `npm start`), so if you ever have both
 # running at once, the test server would either fail to bind or silently collide
-# with a real, production-connected process. Tries 8090 first, falls back to 8081.
+# with a real, production-connected process. Tries 8090 first, falls back to 8080.
 # The chosen port is written to test/.test-port so `npm run mock-wa` and `npm test`
 # can pick it up automatically — no manual REAL_SERVER_URL needed.
 set -e
@@ -13,13 +13,13 @@ cd "$(dirname "$0")/.."
 PORT_FILE="test/.test-port"
 
 pick_port() {
-  for p in 8090 8081; do
+  for p in 8090 8080; do
     if ! lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
       echo "$p"
       return 0
     fi
   done
-  echo "Both fallback ports (8090, 8081) are already in use — free one up or edit start-test-server.sh to add another." >&2
+  echo "Both fallback ports (8090, 8080) are already in use — free one up or edit start-test-server.sh to add another." >&2
   exit 1
 }
 

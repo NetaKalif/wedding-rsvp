@@ -5,10 +5,17 @@ import React, {
   createContext,
   ReactNode,
   useCallback,
+  useRef,
 } from "react";
-import { Guest, Event, EventGuest, Task, BudgetOverview } from "../types";
+import { Guest, Event, EventGuest, Task, BudgetOverview, Gift } from "../types";
 import { httpRequests } from "../httpClient";
 import { useAuth } from "./useAuth";
+import {
+  DEMO_GUESTS,
+  DEMO_GIFTS,
+  buildDemoEventGuests,
+  buildDemoBudget,
+} from "./tourDemoData";
 
 interface AppDataContextType {
   guests: Guest[];
@@ -17,6 +24,13 @@ interface AppDataContextType {
   tasks: Task[];
   budgetOverview: BudgetOverview | null;
   isDataLoading: boolean;
+  /** Demo gifts injected while the tour runs on an empty account (null otherwise). */
+  demoGifts: Gift[] | null;
+  isTourDemoMode: boolean;
+  /** Seed example rows into any empty page for the tour. Returns true if anything was seeded. */
+  enterTourDemoMode: () => boolean;
+  /** Drop the demo rows and reload the seeded slices from the server. */
+  exitTourDemoMode: () => void;
   refreshGuests: () => Promise<void>;
   refreshEvents: () => Promise<void>;
   refreshEventGuests: (eventId: number) => Promise<void>;
@@ -131,10 +145,60 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     setBudgetOverview(await httpRequests.getBudgetOverview().catch(() => null));
   }, [user]);
 
+  // ==================== Tour demo mode ====================
+  // While the guided tour runs, pages that are still empty get local example
+  // rows so every tour step has a real element to point at. Nothing is
+  // persisted; exiting reloads the seeded slices from the server.
+  const [demoGifts, setDemoGifts] = useState<Gift[] | null>(null);
+  const [isTourDemoMode, setIsTourDemoMode] = useState(false);
+  const seededSlicesRef = useRef({ guests: false, budget: false });
+
+  const enterTourDemoMode = useCallback(() => {
+    if (isTourDemoMode) return false;
+    let seeded = false;
+
+    const primaryEvent = events.find((e) => e.is_primary);
+    const primaryGuests = primaryEvent
+      ? eventGuestsByEventId[primaryEvent.id] ?? []
+      : [];
+    if (primaryEvent && primaryGuests.length === 0) {
+      setGuests((prev) => [...prev, ...DEMO_GUESTS]);
+      updateEventGuests(primaryEvent.id, buildDemoEventGuests(primaryEvent.id));
+      setDemoGifts(DEMO_GIFTS);
+      seededSlicesRef.current.guests = true;
+      seeded = true;
+    }
+
+    if (!budgetOverview || budgetOverview.categories.length === 0) {
+      setBudgetOverview(buildDemoBudget(budgetOverview));
+      seededSlicesRef.current.budget = true;
+      seeded = true;
+    }
+
+    if (seeded) setIsTourDemoMode(true);
+    return seeded;
+  }, [isTourDemoMode, events, eventGuestsByEventId, budgetOverview, updateEventGuests]);
+
+  const exitTourDemoMode = useCallback(() => {
+    if (!isTourDemoMode) return;
+    setIsTourDemoMode(false);
+    setDemoGifts(null);
+    const seeded = seededSlicesRef.current;
+    seededSlicesRef.current = { guests: false, budget: false };
+    if (seeded.guests) {
+      refreshGuests();
+      refreshEvents();
+    }
+    if (seeded.budget) {
+      refreshBudget();
+    }
+  }, [isTourDemoMode, refreshGuests, refreshEvents, refreshBudget]);
+
   return (
     <AppDataContext.Provider value={{
       guests, events, eventGuestsByEventId, tasks, budgetOverview,
       isDataLoading,
+      demoGifts, isTourDemoMode, enterTourDemoMode, exitTourDemoMode,
       refreshGuests, refreshEvents, refreshEventGuests, refreshTasks, refreshBudget,
       setGuests, setTasks, setBudgetOverview, updateEventGuests, setEvents,
     }}>

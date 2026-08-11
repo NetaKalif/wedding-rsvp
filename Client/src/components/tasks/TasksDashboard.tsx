@@ -147,15 +147,16 @@ export const TasksDashboard: React.FC = () => {
           onToggleHideCompleted={() => setHideCompleted(!hideCompleted)}
           onToggleAddTask={() => setShowAddTask(!showAddTask)}
           onToggleAllGroups={toggleAllGroups}
-          data-tour="add-task-btn"
         />
 
         {showAddTask && (
-          <TaskForm
-            onSubmit={handleAddTask}
-            onCancel={() => setShowAddTask(false)}
-            brideAndGroomNames={brideAndGroomNames}
-          />
+          <div data-tour="add-task-form">
+            <TaskForm
+              onSubmit={handleAddTask}
+              onCancel={() => setShowAddTask(false)}
+              brideAndGroomNames={brideAndGroomNames}
+            />
+          </div>
         )}
 
         <Box direction="vertical" gap="16px" className="task-groups">

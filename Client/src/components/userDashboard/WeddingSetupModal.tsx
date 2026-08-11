@@ -70,7 +70,6 @@ const WeddingSetupModal: React.FC<WeddingSetupModalProps> = ({
         reminder_day: "day_before",
         reminder_time: "10:00",
       } as Partial<Event>);
-      localStorage.setItem("wedding_setup_complete", "true");
       onComplete();
     } catch (error) {
       console.error("Error saving wedding information:", error);

@@ -48,7 +48,11 @@ export const TaskGroup: React.FC<TaskGroupProps> = ({
 
   return (
     <Card className="task-group-card">
-      <div className="task-group-header" onClick={() => onToggleExpand(group)}>
+      <div
+        className="task-group-header"
+        onClick={() => onToggleExpand(group)}
+        data-tour={group === "Just Engaged" ? "first-task-group" : undefined}
+      >
         <Box
           direction="horizontal"
           verticalAlign="middle"

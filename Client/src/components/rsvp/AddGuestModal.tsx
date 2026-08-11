@@ -219,6 +219,7 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
       height={"auto"}
     >
       <SidePanel.Header title="הוספת אורח">
+        <div data-tour="add-guest-tabs">
         <Tabs
           items={[
             { id: "1", title: "מילוי ידני" },
@@ -230,12 +231,13 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
           width="100%"
           onClick={(tab) => { setActiveTabId("" + tab.id); setFormError(null); setFileError(null); setUploadResult(null); }}
         />
+        </div>
       </SidePanel.Header>
 
       <SidePanel.Content>
         {/* ── Tab 1: manual entry ── */}
         {activeTabId === "1" && (
-          <>
+          <div data-tour="manual-guest-form">
             {formError && (
               <Box paddingBottom="8px">
                 <SectionHelper skin="danger">{formError}</SectionHelper>
@@ -278,11 +280,12 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
                 הוספת אורח
               </Button>
             </Box>
-          </>
+          </div>
         )}
 
         {/* ── Tab 2: file upload ── */}
         {activeTabId === "2" && (
+          <div data-tour="excel-upload">
           <Box direction="vertical" gap={10}>
             {/* Result view after upload with rejections */}
             {uploadResult ? (
@@ -361,6 +364,7 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
               </>
             )}
           </Box>
+          </div>
         )}
       </SidePanel.Content>
     </SidePanel>

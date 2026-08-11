@@ -59,7 +59,7 @@ const EventsList: React.FC<EventsListProps> = ({ userID, guestsList, primaryEven
   return (
     <Box direction="vertical" gap={3} style={{ width: "100%" }}>
       <Box direction="horizontal" gap={2} verticalAlign="middle">
-        <Button size="small" onClick={() => setIsCreating(true)}>
+        <Button size="small" onClick={() => setIsCreating(true)} data-tour="add-event-btn">
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Plus size={14} />
             אירוע חדש

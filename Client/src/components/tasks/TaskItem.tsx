@@ -128,6 +128,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({
               skin="light"
               className="edit-task-btn"
               onClick={handleStartEdit}
+              data-tour="edit-task-btn"
             >
               <Pencil size={14} />
             </IconButton>

@@ -241,18 +241,20 @@ const VendorModal: React.FC<VendorModalProps> = ({
               />
             </FormField>
 
-            <FormField label="סטטוס">
-              <Dropdown
-                options={VENDOR_STATUS_OPTIONS_DD}
-                selectedId={formData.status}
-                onSelect={(option) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    status: option.id as VendorStatus,
-                  }))
-                }
-              />
-            </FormField>
+            <div data-tour="vendor-status">
+              <FormField label="סטטוס">
+                <Dropdown
+                  options={VENDOR_STATUS_OPTIONS_DD}
+                  selectedId={formData.status}
+                  onSelect={(option) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      status: option.id as VendorStatus,
+                    }))
+                  }
+                />
+              </FormField>
+            </div>
 
             <FormField label="טלפון">
               <Input
@@ -298,6 +300,7 @@ const VendorModal: React.FC<VendorModalProps> = ({
               סמן כמועדף ⭐
             </Checkbox>
             <Divider />
+            <div data-tour="vendor-files">
             <Box direction="vertical" gap="12px">
               <Box
                 direction="horizontal"
@@ -341,6 +344,7 @@ const VendorModal: React.FC<VendorModalProps> = ({
                 <SectionHelper skin="danger">{fileError}</SectionHelper>
               )}
             </Box>
+            </div>
           </Box>
         </div>
       }

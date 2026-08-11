@@ -66,6 +66,7 @@ const SearchAndFilterBar: React.FC<SearchAndFilterBarProps> = ({
 
   return (
     <>
+      <div data-tour="search-filter">
       <Box
         direction="horizontal"
         gap="12px"
@@ -108,6 +109,7 @@ const SearchAndFilterBar: React.FC<SearchAndFilterBarProps> = ({
           </Button>
         </Box>
       </Box>
+      </div>
       <Modal
         isOpen={filterPanelOpen}
         onRequestClose={() => setFilterPanelOpen(false)}
