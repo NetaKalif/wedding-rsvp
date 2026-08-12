@@ -641,7 +641,7 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
     }
 
     // Get event guests with optional RSVP filter
-    const rsvpFilter = messageType === "rsvpReminder" ? "pending" : messageType === "weddingReminder" ? "approved" : undefined;
+    const rsvpFilter = messageType === "rsvpReminder" ? "pending" : (messageType === "weddingReminder" || messageType === "eventReminder") ? "approved" : undefined;
     let eventGuests = await db.getEventGuests(eventId, rsvpFilter).then((guests) => guests.filter(hasPhone));
 
     if (selectedGuestIds?.length) {
@@ -657,7 +657,7 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
       await logMessage(dataOwner, `⚠️ Guest list limited to ${MAX_GUESTS_PER_MESSAGE_BATCH} (WhatsApp limit)`);
     }
 
-    const label = messageType === "rsvp" ? "RSVP invitation" : messageType === "rsvpReminder" ? "RSVP reminder" : messageType === "weddingReminder" ? "wedding reminder" : messageType === "thankYou" ? "thank-you" : "custom text";
+    const label = messageType === "rsvp" ? "RSVP invitation" : messageType === "rsvpReminder" ? "RSVP reminder" : messageType === "weddingReminder" ? "wedding reminder" : messageType === "eventReminder" ? "event reminder" : messageType === "thankYou" ? "thank-you" : "custom text";
     await logMessage(dataOwner, `📨 Sending ${label} for "${event.ceremony_name}" to ${limited.length} guests`);
 
     const promises = buildMessagePromises(limited, messageType, customText, event, dataOwner);
@@ -733,6 +733,9 @@ const buildMessagePromises = (
     const isWeddingDay = event.reminder_day === "wedding_day";
     const templateName = getTemplateName(messageType, hasGiftLink, isWeddingDay);
     return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: templateName, event } }));
+  }
+  if (messageType === "eventReminder") {
+    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: "event_reminder_same_day", event } }));
   }
   if (messageType === "thankYou") {
     const templateName = event.thank_you_message ? "custom_thank_you_message" : "thank_you_message";

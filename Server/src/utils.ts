@@ -191,6 +191,15 @@ export const getTemplateParams = (templateName: TemplateName, event: Event): Tem
       };
     case "thank_you_message":
       return { templateName: "thank_you_message", bodyParams: createBrideGroomParams(event) };
+    case "event_reminder_same_day":
+      return {
+        templateName: "event_reminder_same_day",
+        bodyParams: [
+          createTextParam("ceremony_name", event.ceremony_name || "חתונה"),
+          ...createBrideGroomParams(event),
+          createTextParam("time", (event.time || "").slice(0, 5)),
+        ],
+      };
     default:
       throw new Error(`Template name ${templateName} not found`);
   }

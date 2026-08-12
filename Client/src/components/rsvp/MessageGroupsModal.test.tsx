@@ -183,6 +183,7 @@ describe("MessageGroupsModal - admin-only features", () => {
     expect(screen.getByText("הזמנה לאישור הגעה")).toBeInTheDocument();
     expect(screen.getByText("שליחה חוזרת לממתינים")).toBeInTheDocument();
     expect(screen.queryByText("תזכורת לחתונה")).not.toBeInTheDocument();
+    expect(screen.queryByText("תזכורת לאירוע")).not.toBeInTheDocument();
     expect(screen.queryByText("הודעה מותאמת אישית")).not.toBeInTheDocument();
     expect(screen.queryByText("הודעת תודה")).not.toBeInTheDocument();
   });
@@ -207,5 +208,27 @@ describe("MessageGroupsModal - admin-only features", () => {
     expect(screen.getByText("תזכורת לחתונה")).toBeInTheDocument();
     expect(screen.getByText("הודעה מותאמת אישית")).toBeInTheDocument();
     expect(screen.getByText("הודעת תודה")).toBeInTheDocument();
+  });
+
+  it("shows event reminder option for admin on non-primary events", () => {
+    mockUseAuth.mockReturnValue({
+      ...mockAuthValue,
+      isAdmin: true,
+    });
+
+    const nonPrimaryEvent: Event = { ...event, is_primary: false };
+
+    render(
+      <MessageGroupsModal
+        setIsMessageGroupsModalOpen={jest.fn()}
+        eventId={1}
+        eventGuests={eventGuests}
+        event={nonPrimaryEvent}
+      />
+    );
+
+    expect(screen.getByText("תזכורת לאירוע")).toBeInTheDocument();
+    expect(screen.queryByText("תזכורת לחתונה")).not.toBeInTheDocument();
+    expect(screen.queryByText("הודעת תודה")).not.toBeInTheDocument();
   });
 });

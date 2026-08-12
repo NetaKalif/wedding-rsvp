@@ -85,6 +85,13 @@ ${event.gift_link}`
     : ""
 } `;
 
+  const eventReminderTemplate = `אורחים יקרים,
+מתרגשים לראותכם היום ב${effectiveCeremonyType} של ${event.bride_name || "{{bride_name}}"} ו${
+    event.groom_name || "{{groom_name}}"
+  } בשעה ${event.time ? event.time.slice(0, 5) : "{{time}}"}
+
+נתראה! 🎊`;
+
   const thankYouTemplate = `אורחים יקרים,
 ${event.thank_you_message || "תודה שהגעתם לחגוג איתנו ולשמוח בשמחתנו!"}
 אוהבים,
@@ -118,6 +125,8 @@ ${event.bride_name || "{{bride_name}}"} ו${
         isWeddingDay ? "תזכורת ליום החתונה" : "תזכורת ליום לפני החתונה",
         isWeddingDay ? weddingDayTemplate : dayBeforeWeddingTemplate
       );
+    } else if (type === "eventReminder") {
+      return renderMessage("תזכורת לאירוע", eventReminderTemplate);
     } else if (type === "thankYou") {
       return renderMessage("הודעת תודה", thankYouTemplate);
     } else if (type === "rsvp") {

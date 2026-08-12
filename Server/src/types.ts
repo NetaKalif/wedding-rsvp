@@ -97,7 +97,8 @@ export type TemplateName =
   | "wedding_reminders_no_gift"
   | "wedding_reminders_no_gift_same_day"
   | "custom_thank_you_message"
-  | "thank_you_message";
+  | "thank_you_message"
+  | "event_reminder_same_day";
 
 export interface ClientLog {
   id?: number;

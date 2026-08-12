@@ -31,6 +31,7 @@ export type MessageType =
   | "rsvpReminder"
   | "freeText"
   | "weddingReminder"
+  | "eventReminder"
   | "thankYou";
 
 const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
@@ -142,7 +143,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     if (messageType === "rsvpReminder") {
       return sendableGuests.filter((g) => g.rsvp_status == null);
     }
-    if (messageType === "weddingReminder") {
+    if (messageType === "weddingReminder" || messageType === "eventReminder") {
       return sendableGuests.filter((g) => g.rsvp_status != null && g.rsvp_status > 0);
     }
     return sendableGuests;
@@ -261,6 +262,17 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                         ? "יום החתונה"
                         : "יום לפני החתונה"}
                       {event.reminder_time ? ` בשעה ${event.reminder_time}` : ""}
+                    </Text>
+                  </Box>
+                </RadioGroup.Radio>
+              )}
+
+              {isAdmin && !isPrimaryEvent && (
+                <RadioGroup.Radio value="eventReminder">
+                  <Box direction="vertical" gap={1}>
+                    <Text weight="bold">תזכורת לאירוע</Text>
+                    <Text size="small" secondary>
+                      שליחת תזכורת לאורחים שאישרו ביום האירוע
                     </Text>
                   </Box>
                 </RadioGroup.Radio>
