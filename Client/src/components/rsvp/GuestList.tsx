@@ -179,7 +179,7 @@ const GuestList: React.FC<GuestListProps> = ({
   })[] = [
     {
       title: (
-        <span onClick={() => handleSort("name")}>
+        <span style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("name")}>
           שם {renderSortIcon("name")}
         </span>
       ),
@@ -195,7 +195,7 @@ const GuestList: React.FC<GuestListProps> = ({
     },
     {
       title: (
-        <span onClick={() => handleSort("whose")}>
+        <span style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("whose")}>
           מוזמן ע״י {renderSortIcon("whose")}
         </span>
       ),
@@ -205,7 +205,7 @@ const GuestList: React.FC<GuestListProps> = ({
     },
     {
       title: (
-        <span onClick={() => handleSort("circle")}>
+        <span style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("circle")}>
           מעגל {renderSortIcon("circle")}
         </span>
       ),
@@ -222,7 +222,7 @@ const GuestList: React.FC<GuestListProps> = ({
     },
     {
       title: (
-        <span onClick={() => handleSort("rsvp_status")}>
+        <span style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("rsvp_status")}>
           מספר מאושרים {renderSortIcon("rsvp_status")}
         </span>
       ),

@@ -66,6 +66,7 @@
 
 .sortable-title {
   cursor: pointer;
+  user-select: none;
 }
 
 .gift-delete-icon {
