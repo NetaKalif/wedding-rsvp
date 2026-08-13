@@ -281,6 +281,28 @@ export const sendNewUserRequestNotification = async (name: string, email: string
   await axios.post(getWhatsAppApiUrl("messages"), whatsappData, { headers });
 };
 
+// Reuses the new_user_request template (no dedicated template exists for
+// messaging-permission requests) — the request type is distinguished by
+// suffixing the name param.
+export const sendMessagingPermissionRequestNotification = async (name: string, email: string): Promise<void> => {
+  const adminPhone = process.env.ADMIN_NOTIFY_WHATSAPP;
+  if (!adminPhone) {
+    logWarn(undefined, `[whatsapp] ADMIN_NOTIFY_WHATSAPP not set — skipping messaging-permission-request notification for ${name} <${email}>`);
+    return;
+  }
+
+  const accessToken = await getAccessToken();
+  const headers = createAuthHeaders(accessToken);
+  const whatsappData = createTemplateData(adminPhone, {
+    templateName: "new_user_request",
+    bodyParams: [
+      createTextParam("name", `${name} (בקשת הרשאת שליחת הודעות)`),
+      createTextParam("email", email),
+    ],
+  });
+  await axios.post(getWhatsAppApiUrl("messages"), whatsappData, { headers });
+};
+
 // ============================================================================
 // Media Upload
 // ============================================================================

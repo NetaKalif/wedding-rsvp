@@ -35,6 +35,12 @@ async function createTables(pool: Pool): Promise<void> {
       invite_code_expires_at TIMESTAMP WITH TIME ZONE
     );`);
 
+  // Normally added by the server's initializeTables on boot; repeated here so
+  // the seed below can set it even against a DB the server hasn't booted on yet.
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS messaging_permission_status TEXT NOT NULL DEFAULT 'denied'
+      CHECK (messaging_permission_status IN ('denied', 'pending', 'approved'));`);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS "clientLogs" (
       id SERIAL PRIMARY KEY,
@@ -177,8 +183,10 @@ async function seedData(pool: Pool): Promise<void> {
   // are always 1 on every test run, regardless of how many times tests ran.
   await pool.query(`TRUNCATE gifts, event_guests, events, guests, "clientLogs", users RESTART IDENTITY CASCADE;`);
 
+  // messaging_permission_status='approved' so the send-message flows aren't
+  // blocked by the messaging permission gate (covered by its own test file).
   await pool.query(
-    `INSERT INTO users ("userID", email, name) VALUES ($1, $2, $3)`,
+    `INSERT INTO users ("userID", email, name, messaging_permission_status) VALUES ($1, $2, $3, 'approved')`,
     ["test-user-id", "test@test.com", "Test User"],
   );
 

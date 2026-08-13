@@ -2,9 +2,9 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { httpRequests, AdminUserRow } from "../../httpClient";
 import { useAuth } from "../../hooks/useAuth";
-import { Box, Text, IconButton, Tooltip, Loader, Heading, FormField, Input, Table, TableColumn, Badge } from "@wix/design-system";
+import { Box, Text, IconButton, Loader, Heading, FormField, Input, Table, TableColumn, Badge, PopoverMenu } from "@wix/design-system";
 import { RowDataDefaultType } from "@wix/design-system/dist/types/Table/DataTable";
-import { Check, X, LogIn, ShieldCheck, Trash2, ChevronUp, ChevronDown } from "lucide-react";
+import { Check, X, LogIn, ShieldCheck, Trash2, ChevronUp, ChevronDown, MessageSquare, UserX, MoreVertical, Clock } from "lucide-react";
 import Header from "../global/Header";
 import "./css/AdminUsersPage.css";
 
@@ -39,12 +39,7 @@ const STATUS_SKINS: Record<AdminUserRow["status"], "warningLight" | "neutralSucc
   declined: "neutralDanger",
 };
 
-const ICON_COLOR_DISABLED = "#a0aec0";
-const ICON_COLOR_APPROVE = "#38a169";
-const ICON_COLOR_DESTRUCTIVE = "#e74c3c";
-const ICON_COLOR_NEUTRAL = "#3182ce";
-
-type SortField = "name" | "email" | "status" | "partner" | "wedding" | "deletion";
+type SortField = "name" | "email" | "status" | "messaging" | "partner" | "wedding" | "deletion";
 
 const getSortValue = (row: AdminUserRow, field: SortField): string | number => {
   switch (field) {
@@ -54,6 +49,8 @@ const getSortValue = (row: AdminUserRow, field: SortField): string | number => {
       return row.email.toLowerCase();
     case "status":
       return row.status;
+    case "messaging":
+      return row.messagingPermissionStatus === "approved" ? 2 : row.hasPendingMessageRequest ? 1 : 0;
     case "partner":
       return (row.partnerName || row.linkedToName || "").toLowerCase();
     case "wedding":
@@ -123,6 +120,13 @@ const AdminUsersPage = () => {
       "שגיאה בביטול המחיקה. אנא נסו שנית.",
     );
 
+  const handleSetMessagingPermission = (userID: string, approved: boolean) =>
+    withAction(
+      userID,
+      () => httpRequests.setMessagingPermission(userID, approved),
+      "שגיאה בעדכון הרשאת שליחת הודעות. אנא נסו שנית.",
+    );
+
   const handleImpersonate = async (row: AdminUserRow) => {
     setActioningUserID(row.userID);
     try {
@@ -139,6 +143,11 @@ const AdminUsersPage = () => {
   const handleDelete = (row: AdminUserRow) => {
     if (!window.confirm(`למחוק לצמיתות את המשתמש ${row.name} (${row.email})? הפעולה אינה הפיכה.`)) return;
     withAction(row.userID, () => httpRequests.adminDeleteUser(row.userID), "שגיאה במחיקת המשתמש. אנא נסו שנית.");
+  };
+
+  const handleRevokeApproval = (row: AdminUserRow) => {
+    if (!window.confirm(`לבטל את האישור של ${row.name}? הנתונים יישמרו, אך המשתמש יחזור לסטטוס "ממתין לאישור" ולא יוכל להיכנס עד שיאושר מחדש.`)) return;
+    withAction(row.userID, () => httpRequests.revokeUserApproval(row.userID), "שגיאה בביטול האישור. אנא נסו שנית.");
   };
 
   const filteredUsers = users.filter(
@@ -194,13 +203,44 @@ const AdminUsersPage = () => {
     },
     {
       title: sortableTitle("סטטוס", "status"),
-      render: (row: AdminUserRow) => (
-        <Badge uppercase={false} skin={STATUS_SKINS[row.status]}>
-          {STATUS_LABELS[row.status]}
-        </Badge>
-      ),
+      render: (row: AdminUserRow) =>
+        isMobile ? (
+          row.status === "approved" ? (
+            <Check size={18} style={{ color: "#38a169" }} aria-label="מאושר" />
+          ) : row.status === "declined" ? (
+            <X size={18} style={{ color: "#e74c3c" }} aria-label="נדחה" />
+          ) : (
+            <Clock size={18} style={{ color: "#d69e2e" }} aria-label="ממתין לאישור" />
+          )
+        ) : (
+          <Badge uppercase={false} skin={STATUS_SKINS[row.status]}>
+            {STATUS_LABELS[row.status]}
+          </Badge>
+        ),
       align: "start",
-      width: "110px",
+      width: isMobile ? "50px" : "110px",
+      showOnMobile: true,
+    },
+    {
+      title: sortableTitle(isMobile ? "הודעות" : "הרשאת הודעות", "messaging"),
+      render: (row: AdminUserRow) =>
+        isMobile ? (
+          row.messagingPermissionStatus === "approved" ? (
+            <Check size={18} style={{ color: "#38a169" }} aria-label="מאושרת" />
+          ) : row.hasPendingMessageRequest ? (
+            <Clock size={18} style={{ color: "#d69e2e" }} aria-label="ממתין לאישור" />
+          ) : (
+            <X size={18} style={{ color: "#e74c3c" }} aria-label="אין הרשאה" />
+          )
+        ) : row.messagingPermissionStatus === "approved" ? (
+          <Badge uppercase={false} skin="neutralSuccess">מאושרת</Badge>
+        ) : row.hasPendingMessageRequest ? (
+          <Badge uppercase={false} skin="warningLight">ממתין לאישור</Badge>
+        ) : (
+          <Badge uppercase={false} skin="neutralDanger">אין הרשאה</Badge>
+        ),
+      align: "start",
+      width: isMobile ? "50px" : "130px",
       showOnMobile: true,
     },
     {
@@ -248,84 +288,92 @@ const AdminUsersPage = () => {
         const isSelf = row.userID === user?.userID;
         const isActioning = actioningUserID === row.userID;
         const hasActiveDeletionCountdown = !!row.weddingDate && !row.cancelledAt;
-        const approveDisabled = isActioning;
-        const declineDisabled = isActioning;
-        const impersonateDisabled = isActioning || isSelf;
-        const cancelDeletionDisabled = isActioning;
-        const deleteDisabled = isActioning || isSelf;
+
+        if (isActioning) return <Loader size="tiny" />;
 
         return (
-          <Box gap="4px">
-            {row.status === "pending" && (
-              <>
-                <Tooltip content="אישור">
-                  <IconButton
-                    size="tiny"
-                    skin="transparent"
-                    className="admin-action-icon-btn"
-                    disabled={approveDisabled}
-                    onClick={() => handleApprove(row.userID)}
-                  >
-                    <Check size={14} style={{ color: approveDisabled ? ICON_COLOR_DISABLED : ICON_COLOR_APPROVE }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip content="דחייה">
-                  <IconButton
-                    size="tiny"
-                    skin="transparent"
-                    className="admin-action-icon-btn"
-                    disabled={declineDisabled}
-                    onClick={() => handleDecline(row.userID)}
-                  >
-                    <X size={14} style={{ color: declineDisabled ? ICON_COLOR_DISABLED : ICON_COLOR_DESTRUCTIVE }} />
-                  </IconButton>
-                </Tooltip>
-              </>
-            )}
-            {row.status === "approved" && (
-              <Tooltip content="התחברות כמשתמש זה">
-                <IconButton
-                  size="tiny"
-                  skin="transparent"
-                  className="admin-action-icon-btn"
-                  disabled={impersonateDisabled}
-                  onClick={() => handleImpersonate(row)}
-                >
-                  <LogIn size={14} style={{ color: impersonateDisabled ? ICON_COLOR_DISABLED : ICON_COLOR_NEUTRAL }} />
-                </IconButton>
-              </Tooltip>
-            )}
-            {hasActiveDeletionCountdown && (
-              <Tooltip content="ביטול מחיקה מתוזמנת">
-                <IconButton
-                  size="tiny"
-                  skin="transparent"
-                  className="admin-action-icon-btn"
-                  disabled={cancelDeletionDisabled}
-                  onClick={() => handleCancelDeletion(row.userID)}
-                >
-                  <ShieldCheck
-                    size={14}
-                    style={{ color: cancelDeletionDisabled ? ICON_COLOR_DISABLED : ICON_COLOR_APPROVE }}
-                  />
-                </IconButton>
-              </Tooltip>
-            )}
-            <Tooltip content="מחיקת משתמש">
-              <IconButton
-                size="tiny"
-                skin="transparent"
-                className="admin-action-icon-btn"
-                disabled={deleteDisabled}
-                onClick={() => handleDelete(row)}
-              >
-                <Trash2 size={14} style={{ color: deleteDisabled ? ICON_COLOR_DISABLED : ICON_COLOR_DESTRUCTIVE }} />
+          <PopoverMenu
+            textSize="small"
+            placement="bottom"
+            appendTo="window"
+            triggerElement={
+              <IconButton size="tiny" skin="transparent" className="admin-action-icon-btn">
+                <MoreVertical size={16} style={{ color: "#000" }} />
               </IconButton>
-            </Tooltip>
-          </Box>
+            }
+          >
+            {[
+              row.status === "pending" && (
+                <PopoverMenu.MenuItem
+                  key="approve"
+                  text="אישור משתמש"
+                  prefixIcon={<Check size={14} />}
+                  onClick={() => handleApprove(row.userID)}
+                />
+              ),
+              row.status === "pending" && (
+                <PopoverMenu.MenuItem
+                  key="decline"
+                  text="דחיית משתמש"
+                  skin="destructive"
+                  prefixIcon={<X size={14} />}
+                  onClick={() => handleDecline(row.userID)}
+                />
+              ),
+              row.status === "approved" && (
+                <PopoverMenu.MenuItem
+                  key="messaging"
+                  text={
+                    row.messagingPermissionStatus === "approved"
+                      ? "ביטול הרשאת שליחת הודעות"
+                      : "אישור הרשאת שליחת הודעות"
+                  }
+                  prefixIcon={<MessageSquare size={14} />}
+                  onClick={() =>
+                    handleSetMessagingPermission(row.userID, row.messagingPermissionStatus !== "approved")
+                  }
+                />
+              ),
+              row.status === "approved" && !isSelf && (
+                <PopoverMenu.MenuItem
+                  key="impersonate"
+                  text="התחברות כמשתמש זה"
+                  prefixIcon={<LogIn size={14} />}
+                  onClick={() => handleImpersonate(row)}
+                />
+              ),
+              row.status === "approved" && !isSelf && (
+                <PopoverMenu.MenuItem
+                  key="revoke"
+                  text="ביטול אישור — החזרה לסטטוס ממתין"
+                  skin="destructive"
+                  prefixIcon={<UserX size={14} />}
+                  onClick={() => handleRevokeApproval(row)}
+                />
+              ),
+              hasActiveDeletionCountdown && (
+                <PopoverMenu.MenuItem
+                  key="cancel-deletion"
+                  text="ביטול מחיקה מתוזמנת"
+                  prefixIcon={<ShieldCheck size={14} />}
+                  onClick={() => handleCancelDeletion(row.userID)}
+                />
+              ),
+              !isSelf && (
+                <PopoverMenu.MenuItem
+                  key="delete"
+                  text="מחיקת משתמש"
+                  skin="destructive"
+                  prefixIcon={<Trash2 size={14} />}
+                  onClick={() => handleDelete(row)}
+                />
+              ),
+            ].filter(Boolean)}
+          </PopoverMenu>
         );
       },
       align: "start",
+      width: "70px",
     },
   ];
 
@@ -338,7 +386,7 @@ const AdminUsersPage = () => {
         <Box direction="vertical" gap="4px">
           <Heading size="large">ניהול משתמשים</Heading>
           <Text size="small" secondary>
-            כל המשתמשים במערכת: אישור/דחייה, התחברות כמשתמש, מחיקה, וסטטוס מחיקת נתונים.
+            כל המשתמשים במערכת: אישור/דחייה, הרשאת שליחת הודעות, התחברות כמשתמש, מחיקה, וסטטוס מחיקת נתונים.
           </Text>
         </Box>
 

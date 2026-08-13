@@ -49,7 +49,7 @@ describe("eventReminder sends event_reminder_same_day template", () => {
     await sendEventReminder(HENNA_EVENT_ID, [ALICE_ID]);
 
     const messages = await mock.waitForMessages(`+${ALICE_PHONE}`, 1);
-    expect(messages[0].template).toBe("event_reminder_same_day");
+    expect(messages[0].template?.name).toBe("event_reminder_same_day");
   });
 
   it("sends to all specified guests", async () => {
@@ -60,7 +60,7 @@ describe("eventReminder sends event_reminder_same_day template", () => {
 
     const aliceMessages = await mock.waitForMessages(`+${ALICE_PHONE}`, 1);
     const bobMessages = await mock.waitForMessages(`+${BOB_PHONE}`, 1);
-    expect(aliceMessages[0].template).toBe("event_reminder_same_day");
-    expect(bobMessages[0].template).toBe("event_reminder_same_day");
+    expect(aliceMessages[0].template?.name).toBe("event_reminder_same_day");
+    expect(bobMessages[0].template?.name).toBe("event_reminder_same_day");
   });
 });

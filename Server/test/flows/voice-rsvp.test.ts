@@ -33,8 +33,10 @@ const postVoice = (path: string, eventId: number, guestId: number, body: Record<
 
 const getRsvp = async (eventId: number, guestId: number): Promise<number | null | undefined> => {
   const { data } = await axios.get(`${REAL_SERVER}/events/${eventId}/guests`, { headers: authHeader() });
-  return (data as Array<{ guest_id: number; rsvp_status: number | null }>)
-    .find((g) => g.guest_id === guestId)?.rsvp_status ?? undefined;
+  // undefined only when the guest is missing — a null rsvp_status (pending) must stay null
+  const guest = (data as Array<{ guest_id: number; rsvp_status: number | null }>)
+    .find((g) => g.guest_id === guestId);
+  return guest ? guest.rsvp_status : undefined;
 };
 
 const setRsvp = (eventId: number, guestId: number, rsvpStatus: number | null) =>

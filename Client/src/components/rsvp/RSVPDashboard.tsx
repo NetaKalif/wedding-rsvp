@@ -103,7 +103,7 @@ export const RSVPDashboard = () => {
       </Box>
 
       {/* Tab bar — CSS tab style */}
-      <div style={{ width: "100%", maxWidth: 900, padding: "0 20px" }}>
+      <div style={{ width: "100%", maxWidth: 900 }}>
         <div style={{ display: "flex", borderBottom: "2px solid #e0e0e0", marginTop: 16 }}>
           {(["guests", "events"] as const).map((tab) => (
             <button

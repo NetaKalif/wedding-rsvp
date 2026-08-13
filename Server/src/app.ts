@@ -15,6 +15,7 @@ import {
   logMessage,
   batchLogMessageResults,
   sendNewUserRequestNotification,
+  sendMessagingPermissionRequestNotification,
   MessageResult,
 } from "./utils";
 import { getDateFormat, getWeddingDateStrings, daysBetween, addDays } from "./dateUtils";
@@ -26,7 +27,7 @@ import {
   verifyGoogleToken,
   issueSessionToken,
 } from "./auth";
-import { sendApprovalDecisionEmail, sendDataExportWarningEmail } from "./email";
+import { sendApprovalDecisionEmail, sendDataExportWarningEmail, sendMessagingPermissionApprovedEmail } from "./email";
 import { buildAllExports, zipExports } from "./dataExport";
 import { log, logError } from "./logger";
 import {
@@ -370,7 +371,8 @@ app.get("/auth/me", async (req: Request, res: Response) => {
   try {
     const user = await db.getUserByID(req.auth.userID);
     if (!user) return res.status(404).send("User not found");
-    res.status(200).json({ user, isAdmin: req.auth.isAdmin });
+    // status lets the client kick a revoked user back to the pending page on session restore
+    res.status(200).json({ user, isAdmin: req.auth.isAdmin, status: user.status });
   } catch (error) {
     return handleError(res, error, "Failed to load current user");
   }
@@ -614,6 +616,16 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
   try {
     const { options } = req.body;
     const dataOwner = await resolveDataOwner(req.auth.userID);
+
+    // Check messaging permission (admins are exempt — they're the ones granting it)
+    const messagingStatus = await db.getMessagingPermissionStatus(dataOwner);
+    if (!req.auth.isAdmin && messagingStatus !== "approved") {
+      return res.status(403).json({
+        error: "You don't have permission to send messages. Please request permission from the admin.",
+        messagingStatus,
+      });
+    }
+
     const messageType: string = options?.messageType || "rsvp";
     const customText: string = options?.customText;
     const selectedGuestIds: number[] | undefined = options?.guestIds;
@@ -899,6 +911,40 @@ app.delete("/tasks/:taskId", async (req: Request, res: Response) => {
   }
 });
 
+// ==================== Messaging Permission Endpoints ====================
+
+app.get("/user/messagingPermissionStatus", async (req: Request, res: Response) => {
+  try {
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const status = await db.getMessagingPermissionStatus(dataOwner);
+    const pendingRequest = await db.getMessagePermissionRequest(dataOwner);
+    res.status(200).json({ status, hasPendingRequest: !!pendingRequest });
+  } catch (error) {
+    logError(req.auth?.userID, "Error getting messaging permission status:", error);
+    return res.status(500).send("Failed to get messaging permission status");
+  }
+});
+
+app.post("/user/requestMessagingPermission", async (req: Request, res: Response) => {
+  try {
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const user = await db.getUserByID(dataOwner);
+    if (!user) return res.status(404).send("User not found");
+
+    await db.requestMessagingPermission(dataOwner);
+    await logMessage(dataOwner, `🔔 Requested messaging permission`);
+
+    sendMessagingPermissionRequestNotification(user.name, user.email).catch((error) =>
+      logError(dataOwner, "Failed to send messaging permission request notification:", error),
+    );
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    logError(req.auth?.userID, "Error requesting messaging permission:", error);
+    return res.status(500).send("Failed to request messaging permission");
+  }
+});
+
 // ==================== Admin Endpoints ====================
 
 app.post("/admin/getAllUsersDetailed", requireAdmin, async (req: Request, res: Response) => {
@@ -970,6 +1016,25 @@ app.post("/admin/declineUser", requireAdmin, async (req: Request, res: Response)
   }
 });
 
+// Puts an approved user back in the approval queue (no data is deleted; they
+// just can't enter the app until re-approved). No email is sent — the user
+// simply sees the pending-approval page on their next visit.
+app.post("/admin/revokeUserApproval", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { userID } = req.body;
+    if (!userID) return res.status(400).send("userID is required");
+    if (userID === req.auth.userID) return res.status(400).send("Cannot revoke your own access");
+    const target = await db.getUserByID(userID);
+    if (!target) return res.status(404).send("User not found");
+
+    await db.updateUserStatus(userID, "pending");
+    await logMessage(req.auth.userID, `↩️ Revoked approval for ${target.name} — back to pending`);
+    res.status(200).send("User approval revoked");
+  } catch (error) {
+    return handleError(res, error, "Failed to revoke user approval");
+  }
+});
+
 app.post("/admin/getScheduledDeletions", requireAdmin, async (req: Request, res: Response) => {
   try {
     const deletions = await db.getScheduledDeletions(process.env.ADMIN_USER_ID || "");
@@ -987,6 +1052,34 @@ app.post("/admin/cancelScheduledDeletion", requireAdmin, async (req: Request, re
     res.status(200).send("Scheduled deletion cancelled");
   } catch (error) {
     return handleError(res, error, "Failed to cancel scheduled deletion");
+  }
+});
+
+app.post("/admin/setMessagingPermission", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { userID, approved } = req.body;
+    if (!userID || typeof approved !== "boolean") {
+      return res.status(400).send("userID and approved (boolean) are required");
+    }
+    const target = await db.getUserByID(userID);
+    if (!target) return res.status(404).send("User not found");
+
+    await db.setMessagingPermission(userID, approved, req.auth.userID);
+
+    if (approved) {
+      sendMessagingPermissionApprovedEmail({
+        userID,
+        name: target.name,
+        email: target.email,
+      }).catch((error) =>
+        logError(req.auth.userID, "Failed to send messaging permission approval email:", error),
+      );
+    }
+
+    await logMessage(req.auth.userID, `${approved ? "✅ Approved" : "❌ Revoked"} messaging permission for ${target.name}`);
+    res.status(200).send(approved ? "Messaging permission approved" : "Messaging permission denied");
+  } catch (error) {
+    return handleError(res, error, "Failed to update messaging permission");
   }
 });
 

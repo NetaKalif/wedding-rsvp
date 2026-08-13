@@ -93,12 +93,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       try {
-        const [{ user: me, isAdmin: adminStatus }, partnerInfoData, weddingInfoData] =
+        const [{ user: me, isAdmin: adminStatus, status }, partnerInfoData, weddingInfoData] =
           await Promise.all([
             httpRequests.getMe(),
             httpRequests.getPartnerInfo(),
             httpRequests.getPrimaryEvent().catch(() => null),
           ]);
+
+        // Approval was revoked since the last visit — drop the session and
+        // show the pending-approval page instead of the app.
+        if (status && status !== "approved") {
+          setAuthToken(null);
+          setPendingApproval(true);
+          return;
+        }
 
         setUser(me);
         setPartnerInfo(partnerInfoData);

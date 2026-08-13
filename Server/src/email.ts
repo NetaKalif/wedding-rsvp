@@ -80,3 +80,28 @@ export const sendDataExportWarningEmail = async ({
     ],
   });
 };
+
+export const sendMessagingPermissionApprovedEmail = async ({
+  userID,
+  name,
+  email,
+}: {
+  userID: string;
+  name: string;
+  email: string;
+}): Promise<void> => {
+  if (!transporter) {
+    logWarn(
+      userID,
+      `[email] EMAIL_USER/EMAIL_APP_PASSWORD not set — skipping messaging permission approved email for ${name} <${email}>`,
+    );
+    return;
+  }
+
+  await transporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "אישור הרשאת שליחת הודעות",
+    text: `שלום ${name},\n\nבקשתך לשליחת הודעות לאורחים אושרה. מעכשיו אפשר לשלוח הודעות לאורחים דרך המערכת.\n\nבברכה,\nצוות ה-RSVP`,
+  });
+};

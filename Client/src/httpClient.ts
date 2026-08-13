@@ -93,7 +93,8 @@ type LoginResponse =
 const loginWithGoogle = (credential: string) =>
   post<LoginResponse>("/auth/google", { credential });
 
-const getMe = () => get<{ user: User; isAdmin: boolean }>("/auth/me");
+const getMe = () =>
+  get<{ user: User; isAdmin: boolean; status?: "pending" | "approved" | "declined" }>("/auth/me");
 
 const impersonate = (targetUserID: string) =>
   post<{ token: string; user: User }>("/auth/impersonate", { targetUserID });
@@ -216,6 +217,22 @@ interface SendMessageOptions {
 const sendMessage = (options: SendMessageOptions) =>
   post<MessageResult>("/sendMessage", { options });
 
+// ==================== Messaging Permission Methods ====================
+
+interface MessagingPermissionStatus {
+  status: "denied" | "pending" | "approved";
+  hasPendingRequest: boolean;
+}
+
+const getMessagingPermissionStatus = () =>
+  get<MessagingPermissionStatus>("/user/messagingPermissionStatus");
+
+const requestMessagingPermission = () =>
+  post<{ success: boolean }>("/user/requestMessagingPermission");
+
+const setMessagingPermission = (userID: string, approved: boolean) =>
+  post<void>("/admin/setMessagingPermission", { userID, approved });
+
 // ==================== Logs Methods ====================
 
 const getLogs = () => get<ClientLog[]>("/logs");
@@ -233,6 +250,8 @@ export interface AdminUserRow {
   weddingDate: string | null;
   warningSentAt: string | null;
   cancelledAt: string | null;
+  messagingPermissionStatus: "denied" | "pending" | "approved";
+  hasPendingMessageRequest: boolean;
 }
 
 const getAllUsersDetailed = () => post<AdminUserRow[]>("/admin/getAllUsersDetailed");
@@ -240,6 +259,7 @@ const adminDeleteUser = (userID: string) => post<void>("/admin/deleteUser", { us
 const getPendingUsers = () => post<User[]>("/admin/getPendingUsers");
 const approveUser = (userID: string) => post<void>("/admin/approveUser", { userID });
 const declineUser = (userID: string) => post<void>("/admin/declineUser", { userID });
+const revokeUserApproval = (userID: string) => post<void>("/admin/revokeUserApproval", { userID });
 
 export interface ScheduledDeletion {
   userID: string;
@@ -386,10 +406,12 @@ export const httpRequests = {
   getEventGuests, setEventGuests, removeEventGuests, setRSVP, callPendingGuests,
   // Messages
   sendMessage,
+  // Messaging Permissions
+  getMessagingPermissionStatus, requestMessagingPermission, setMessagingPermission,
   // Logs
   getLogs,
   // Admin
-  getAllUsersDetailed, adminDeleteUser, getPendingUsers, approveUser, declineUser,
+  getAllUsersDetailed, adminDeleteUser, getPendingUsers, approveUser, declineUser, revokeUserApproval,
   getScheduledDeletions, cancelScheduledDeletion,
   // Tasks
   getTasks, addTask, updateTaskCompletion, updateTask, deleteTask,

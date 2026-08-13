@@ -18,6 +18,8 @@ export interface AdminUserRow {
   weddingDate: string | null;
   warningSentAt: Date | null;
   cancelledAt: Date | null;
+  messagingPermissionStatus: "denied" | "pending" | "approved";
+  hasPendingMessageRequest: boolean;
 }
 
 /** Pure guest data — no RSVP, no event coupling. */

@@ -39,6 +39,9 @@ const approveUser = (userID: string) =>
 const declineUser = (userID: string) =>
   axios.post(`${REAL_SERVER}/admin/declineUser`, { userID }, { headers: authHeader(TEST_USER_ID, { isAdmin: true }) });
 
+const revokeUserApproval = (userID: string) =>
+  axios.post(`${REAL_SERVER}/admin/revokeUserApproval`, { userID }, { headers: authHeader(TEST_USER_ID, { isAdmin: true }) });
+
 afterAll(async () => {
   await pool.end();
 });
@@ -105,6 +108,56 @@ describe("Pending user review", () => {
     await expect(declineUser("no-such-approval-test-user")).rejects.toMatchObject({
       response: { status: 404 },
     });
+  });
+});
+
+describe("Revoking an approved user", () => {
+  const REVOKED_USER_ID = "revoke-approval-user";
+
+  afterEach(async () => {
+    await deleteUser(REVOKED_USER_ID);
+  });
+
+  it("puts the user back to pending and into the admin's pending list", async () => {
+    await insertUser(REVOKED_USER_ID, "approved");
+
+    await revokeUserApproval(REVOKED_USER_ID);
+
+    expect(await getStatus(REVOKED_USER_ID)).toBe("pending");
+    const { data } = await getPendingUsers();
+    expect(data.some((u: any) => u.userID === REVOKED_USER_ID)).toBe(true);
+  });
+
+  it("/auth/me reports the pending status so a live session gets gated", async () => {
+    await insertUser(REVOKED_USER_ID, "approved");
+    await revokeUserApproval(REVOKED_USER_ID);
+
+    const { data } = await axios.get(`${REAL_SERVER}/auth/me`, {
+      headers: authHeader(REVOKED_USER_ID),
+    });
+    expect(data.status).toBe("pending");
+  });
+
+  it("400s when an admin tries to revoke their own access", async () => {
+    await expect(revokeUserApproval(TEST_USER_ID)).rejects.toMatchObject({
+      response: { status: 400 },
+    });
+  });
+
+  it("404s for an unknown userID", async () => {
+    await expect(revokeUserApproval("no-such-revoke-test-user")).rejects.toMatchObject({
+      response: { status: 404 },
+    });
+  });
+
+  it("non-admin is rejected", async () => {
+    await expect(
+      axios.post(
+        `${REAL_SERVER}/admin/revokeUserApproval`,
+        { userID: "someone" },
+        { headers: authHeader(TEST_USER_ID) },
+      ),
+    ).rejects.toMatchObject({ response: { status: 403 } });
   });
 });
 

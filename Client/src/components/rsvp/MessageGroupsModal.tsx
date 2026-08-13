@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   SidePanel,
   Box,
@@ -41,6 +41,35 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   event,
 }) => {
   const { isAdmin } = useAuth();
+
+  const [messagingPermission, setMessagingPermission] = useState<
+    { status: string; hasPendingRequest: boolean } | null
+  >(null);
+  const [isLoadingPermission, setIsLoadingPermission] = useState(true);
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
+  const [permissionRequestSent, setPermissionRequestSent] = useState(false);
+
+  useEffect(() => {
+    httpRequests
+      .getMessagingPermissionStatus()
+      .then(setMessagingPermission)
+      .catch((error) => console.error("Failed to load messaging permission status:", error))
+      .finally(() => setIsLoadingPermission(false));
+  }, []);
+
+  const handleRequestMessagingPermission = async () => {
+    setIsRequestingPermission(true);
+    try {
+      await httpRequests.requestMessagingPermission();
+      setMessagingPermission((prev) => (prev ? { ...prev, hasPendingRequest: true } : prev));
+      setPermissionRequestSent(true);
+    } catch (error) {
+      console.error("Failed to request messaging permission:", error);
+      alert("שליחת הבקשה נכשלה. אנא נסו שנית.");
+    } finally {
+      setIsRequestingPermission(false);
+    }
+  };
 
   const getImageUrl = useCallback(
     () =>
@@ -188,6 +217,45 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     (selectSpecificGuests && selectedGuestIds.size === 0) ||
     (!selectSpecificGuests && targetGuestCount === 0);
 
+  const canSendMessages = isAdmin || messagingPermission?.status === "approved";
+
+  const renderPermissionRequest = () => (
+    <Box direction="vertical" gap={3} padding="8px 0">
+      {permissionRequestSent ? (
+        <>
+          <Text weight="bold">✅ הבקשה הועברה בהצלחה</Text>
+          <Text secondary>
+            הבקשה נשלחה למנהל. עדכון יישלח למייל ברגע שהבקשה תאושר.
+          </Text>
+          <Button priority="secondary" fullWidth onClick={() => setIsMessageGroupsModalOpen(false)}>
+            סגירה
+          </Button>
+        </>
+      ) : messagingPermission?.hasPendingRequest ? (
+        <>
+          <Text weight="bold">בקשתך ממתינה לאישור</Text>
+          <Text secondary>
+            בקשתך לשליחת הודעות נשלחה למנהל וממתינה לאישור. תקבלו מייל ברגע שהבקשה תאושר.
+          </Text>
+        </>
+      ) : (
+        <>
+          <Text weight="bold">נדרשת הרשאה לשליחת הודעות</Text>
+          <Text secondary>
+            שליחת הודעות לאורחים כרוכה בעלות, ולכן נדרש אישור מנהל. לחצו על הכפתור כדי לשלוח בקשה — תקבלו מייל ברגע שהבקשה תאושר.
+          </Text>
+          <Button
+            onClick={handleRequestMessagingPermission}
+            disabled={isRequestingPermission}
+            fullWidth
+          >
+            {isRequestingPermission ? <Loader size="tiny" /> : "בקשת הרשאה"}
+          </Button>
+        </>
+      )}
+    </Box>
+  );
+
   const renderResponseMessage = () => {
     if (messageResults) {
       return (
@@ -219,7 +287,13 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     >
       <SidePanel.Header title="שליחת הודעות" />
       <SidePanel.Content>
-        {messageResults ? (
+        {isLoadingPermission ? (
+          <Box align="center" padding="24px 0">
+            <Loader size="small" />
+          </Box>
+        ) : !canSendMessages ? (
+          renderPermissionRequest()
+        ) : messageResults ? (
           renderResponseMessage()
         ) : (
           <Box direction="vertical" gap={3} height="100%" minHeight={0} overflow="hidden">

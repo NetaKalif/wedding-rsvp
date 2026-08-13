@@ -100,6 +100,27 @@ class Database {
     await this.runQuery(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS tour_seen BOOLEAN NOT NULL DEFAULT FALSE;`, []);
 
+    // Messaging permission status (denied by default for new approvals, users can request)
+    await this.runQuery(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS messaging_permission_status TEXT NOT NULL DEFAULT 'denied'
+        CHECK (messaging_permission_status IN ('denied', 'pending', 'approved'));`, []);
+
+    // Track messaging permission requests
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS message_permission_requests (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
+        requested_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
+        decided_at TIMESTAMP WITH TIME ZONE,
+        decided_by TEXT REFERENCES users("userID") ON DELETE SET NULL
+      );`, []);
+
+    // Partial unique index to ensure only one pending request per user
+    await this.runQuery(`
+      CREATE UNIQUE INDEX IF NOT EXISTS message_permission_requests_user_pending
+      ON message_permission_requests(user_id) WHERE status = 'pending';`, []);
+
     await this.runQuery(`
       CREATE TABLE IF NOT EXISTS "clientLogs" (
         id SERIAL PRIMARY KEY,
@@ -460,7 +481,7 @@ class Database {
   async getEventsForScheduledMessages(): Promise<Event[]> {
     const { today, tomorrow, yesterday } = getDateStrings();
     return this.runQuery(
-      `SELECT * FROM events WHERE (send_reminder=TRUE OR send_thank_you=TRUE)
+      `SELECT * FROM events WHERE is_primary=TRUE AND (send_reminder=TRUE OR send_thank_you=TRUE)
        AND (date=$1 OR date=$2 OR date=$3);`,
       [today, tomorrow, yesterday],
     );
@@ -629,7 +650,12 @@ class Database {
              partner.name as "partnerName",
              e.date as "weddingDate",
              e.deletion_warning_sent_at as "warningSentAt",
-             e.deletion_cancelled_at as "cancelledAt"
+             e.deletion_cancelled_at as "cancelledAt",
+             u.messaging_permission_status as "messagingPermissionStatus",
+             EXISTS(
+               SELECT 1 FROM message_permission_requests mpr
+               WHERE mpr.user_id = u."userID" AND mpr.status = 'pending'
+             ) as "hasPendingMessageRequest"
       FROM users u
       LEFT JOIN users owner_user ON owner_user."userID" = u.primary_user_id
       LEFT JOIN users partner ON partner.primary_user_id = u."userID"
@@ -1009,10 +1035,10 @@ class Database {
   }
 
   // Look up a user by their userID (used by admin impersonation)
-  async getUserByID(userID: string): Promise<User | null> {
-    const query = `SELECT "userID", email, name FROM users WHERE "userID" = $1`;
+  async getUserByID(userID: string): Promise<(User & { status: "pending" | "approved" | "declined" }) | null> {
+    const query = `SELECT "userID", email, name, status FROM users WHERE "userID" = $1`;
     const result = await this.runQuery(query, [userID]);
-    return result.length > 0 ? (result[0] as User) : null;
+    return result.length > 0 ? result[0] : null;
   }
 
   async markTourAsSeen(userID: string): Promise<void> {
@@ -1028,6 +1054,52 @@ class Database {
       [userID]
     );
     return result.length > 0 ? result[0].tour_seen : true;
+  }
+
+  // ==================== Messaging Permission Methods ====================
+
+  async getMessagingPermissionStatus(userID: string): Promise<string> {
+    const result = await this.runQuery(
+      `SELECT messaging_permission_status FROM users WHERE "userID" = $1`,
+      [userID]
+    );
+    return result.length > 0 ? result[0].messaging_permission_status : 'denied';
+  }
+
+  async requestMessagingPermission(userID: string): Promise<void> {
+    const query = `
+      INSERT INTO message_permission_requests (user_id, status)
+      VALUES ($1, 'pending')
+      ON CONFLICT (user_id) WHERE status = 'pending'
+      DO NOTHING;
+    `;
+    await this.runQuery(query, [userID]);
+  }
+
+  /** Sets a user's messaging permission and closes any pending request of theirs. */
+  async setMessagingPermission(userID: string, approved: boolean, adminUserID: string): Promise<void> {
+    const status = approved ? "approved" : "denied";
+    await this.runQuery(
+      `UPDATE users SET messaging_permission_status = $1 WHERE "userID" = $2;`,
+      [status, userID],
+    );
+    await this.runQuery(
+      `UPDATE message_permission_requests
+       SET status = $1, decided_at = CURRENT_TIMESTAMP, decided_by = $2
+       WHERE user_id = $3 AND status = 'pending';`,
+      [status, adminUserID, userID],
+    );
+  }
+
+  async getMessagePermissionRequest(userID: string): Promise<{ id: number; status: string } | null> {
+    const query = `
+      SELECT id, status
+      FROM message_permission_requests
+      WHERE user_id = $1 AND status = 'pending'
+      LIMIT 1;
+    `;
+    const result = await this.runQuery(query, [userID]);
+    return result.length > 0 ? result[0] : null;
   }
 
   // ==================== Account Retention (60-day post-wedding deletion) ====================
