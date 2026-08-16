@@ -146,6 +146,19 @@ describe("MessageGroupsModal - specific guest picker", () => {
     expect(screen.getByText("נבחרו 3 אורחים")).toBeInTheDocument();
   });
 
+  it("renders the guest list in a height-capped scrollable container", async () => {
+    await renderModal();
+
+    fireEvent.click(screen.getByText("בחירת אורחים ספציפיים לשליחה"));
+
+    const list = document.querySelector('[data-hook="guest-picker-list"]') as HTMLElement;
+    expect(list).toBeInTheDocument();
+    expect(list.style.overflowY).toBe("auto");
+    expect(list.style.maxHeight).toBe("40vh");
+    // The guests themselves must live inside the scrollable container
+    expect(list).toContainElement(screen.getByText(/Pending Guest/));
+  });
+
   it("selects all currently-filtered guests via the select-all checkbox", async () => {
     await renderModal();
 

@@ -477,13 +477,20 @@ class Database {
     await this.runQuery(`DELETE FROM events WHERE id=$1;`, [eventId]);
   }
 
-  /** Returns events where a scheduled message (reminder or thank-you) might need sending today. */
-  async getEventsForScheduledMessages(): Promise<Event[]> {
+  /**
+   * Returns events where a scheduled message (reminder or thank-you) might need
+   * sending today. Owners without messaging permission are filtered out (same
+   * gate as /sendMessage); the admin's own events are exempt.
+   */
+  async getEventsForScheduledMessages(adminUserID: string): Promise<Event[]> {
     const { today, tomorrow, yesterday } = getDateStrings();
     return this.runQuery(
-      `SELECT * FROM events WHERE is_primary=TRUE AND (send_reminder=TRUE OR send_thank_you=TRUE)
-       AND (date=$1 OR date=$2 OR date=$3);`,
-      [today, tomorrow, yesterday],
+      `SELECT e.* FROM events e
+       JOIN users u ON u."userID" = e.user_id
+       WHERE e.is_primary=TRUE AND (e.send_reminder=TRUE OR e.send_thank_you=TRUE)
+       AND (e.date=$1 OR e.date=$2 OR e.date=$3)
+       AND (u.messaging_permission_status = 'approved' OR u."userID" = $4);`,
+      [today, tomorrow, yesterday, adminUserID],
     );
   }
 

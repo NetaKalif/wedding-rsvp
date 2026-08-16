@@ -282,7 +282,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     <SidePanel
       skin="floating"
       onCloseButtonClick={() => setIsMessageGroupsModalOpen(false)}
-      height={selectSpecificGuests ? "80vh" : "auto"}
+      height="auto"
       maxHeight="85vh"
     >
       <SidePanel.Header title="שליחת הודעות" />
@@ -296,7 +296,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
         ) : messageResults ? (
           renderResponseMessage()
         ) : (
-          <Box direction="vertical" gap={3} height="100%" minHeight={0} overflow="hidden">
+          <Box direction="vertical" gap={3}>
             <Box direction="vertical" gap={2} flexShrink={0}>
               <div data-tour="message-types">
               <RadioGroup
@@ -409,7 +409,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
             </Box>
 
               {selectSpecificGuests && (
-                <Box direction="vertical" gap={2} flex="1 1 auto" minHeight={0} overflow="hidden">
+                <Box direction="vertical" gap={2}>
                   <Text size="small" secondary style={{ display: "block" }}>
                     בחרו אורחים
                   </Text>
@@ -541,13 +541,19 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                         {selectableGuests.length === 0 ? "אין אורחים זמינים" : "לא נמצאו תוצאות"}
                       </Text>
                     ) : (
-                      <Box direction="vertical" gap={1} flex="1 1 auto" minHeight={0} overflow="hidden">
+                      <Box direction="vertical" gap={1}>
                         <Box flexShrink={0}>
                           <Checkbox checked={allFilteredSelected} onChange={toggleSelectAllFiltered}>
                             בחר הכל ({filteredGuests.length})
                           </Checkbox>
                         </Box>
-                        <Box direction="vertical" gap={1} flex="1 1 auto" minHeight={0} overflowY="auto">
+                        <Box
+                          direction="vertical"
+                          gap={1}
+                          maxHeight="40vh"
+                          overflowY="auto"
+                          dataHook="guest-picker-list"
+                        >
                           {filteredGuests.map((guest) => (
                             <Checkbox
                               key={guest.guest_id}

@@ -9,6 +9,7 @@ import axios from "axios";
 import { Pool } from "pg";
 import { authHeader, TEST_USER_ID } from "../helpers/auth";
 import { DATABASE_URL } from "../globalSetup";
+import { MockWhatsAppClient } from "../mock-whatsapp/client";
 
 const REAL_SERVER = process.env.REAL_SERVER_URL ?? "http://localhost:8080";
 
@@ -183,5 +184,64 @@ describe("Admin access control", () => {
         { headers: authHeader("some-user") },
       ),
     ).rejects.toMatchObject({ response: { status: 403 } });
+  });
+});
+
+describe("Scheduled messages respect messaging permission", () => {
+  const mock = new MockWhatsAppClient();
+  const ALLOWED_OWNER = "sched-allowed-owner";
+  const DENIED_OWNER = "sched-denied-owner";
+  const ALLOWED_PHONE = "+972509990001";
+  const DENIED_PHONE = "+972509990002";
+
+  // Seeds an owner with a primary event dated today, wedding-day reminder on,
+  // and one confirmed guest — i.e. an event the scheduler would send for.
+  const seedReminderEvent = async (
+    ownerID: string,
+    messagingPermission: "approved" | "denied",
+    phone: string,
+  ) => {
+    await pool.query(
+      `INSERT INTO users ("userID", email, name, messaging_permission_status)
+       VALUES ($1, $2, $3, $4)`,
+      [ownerID, `${ownerID}@test.com`, ownerID, messagingPermission],
+    );
+    const { rows: [guest] } = await pool.query(
+      `INSERT INTO guests (user_id, name, phone, whose, circle, number_of_guests)
+       VALUES ($1, $2, $3, 'bride', 'family', 1) RETURNING id`,
+      [ownerID, `${ownerID}-guest`, phone],
+    );
+    // Same date format the scheduler compares against (getDateFormat → UTC yyyy-mm-dd)
+    const today = new Date().toISOString().split("T")[0];
+    const { rows: [event] } = await pool.query(
+      `INSERT INTO events (user_id, is_primary, ceremony_name, date, bride_name, groom_name,
+                           send_reminder, reminder_day, reminder_time)
+       VALUES ($1, TRUE, 'חתונה', $2, 'כלה', 'חתן', TRUE, 'wedding_day', '09:00') RETURNING id`,
+      [ownerID, today],
+    );
+    await pool.query(
+      `INSERT INTO event_guests (event_id, guest_id, rsvp_status) VALUES ($1, $2, 2)`,
+      [event.id, guest.id],
+    );
+  };
+
+  afterEach(async () => {
+    // Cascades to the seeded guests/events/event_guests
+    await deleteUser(ALLOWED_OWNER);
+    await deleteUser(DENIED_OWNER);
+  });
+
+  it("the scheduler sends for approved owners and skips owners without permission", async () => {
+    await mock.reset();
+    await seedReminderEvent(ALLOWED_OWNER, "approved", ALLOWED_PHONE);
+    await seedReminderEvent(DENIED_OWNER, "denied", DENIED_PHONE);
+
+    await axios.post(`${REAL_SERVER}/test/run-scheduled-messages`);
+
+    const allowedMessages = await mock.waitForMessages(ALLOWED_PHONE, 1);
+    expect(allowedMessages.length).toBeGreaterThanOrEqual(1);
+
+    const deniedMessages = await mock.getMessages({ to: DENIED_PHONE });
+    expect(deniedMessages).toHaveLength(0);
   });
 });

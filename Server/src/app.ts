@@ -306,6 +306,17 @@ if (process.env.NODE_ENV === "test") {
       return handleError(res, error, "Failed to send new-user-request notification");
     }
   });
+
+  // Test-only trigger for the scheduled-message sweep, bypassing the exact
+  // send-time checks so tests don't have to race the wall clock.
+  app.post("/test/run-scheduled-messages", async (req: Request, res: Response) => {
+    try {
+      await sendScheduledMessages(true);
+      res.status(200).send("ok");
+    } catch (error) {
+      return handleError(res, error, "Failed to run scheduled messages");
+    }
+  });
 }
 
 // ==================== Voice RSVP webhooks (Twilio, no session — validated by signature) ====================
@@ -1894,15 +1905,21 @@ app.get("/events/:eventId/image", async (req: Request, res: Response) => {
 
 // ==================== Scheduled Message Functions ====================
 
-const sendScheduledMessages = async () => {
+// bypassTimeGuards is test-only (see /test/run-scheduled-messages): it skips the
+// once-per-minute guard and the exact-send-time checks so tests can trigger the
+// scheduler deterministically without waiting for a wall-clock match.
+const sendScheduledMessages = async (bypassTimeGuards = false) => {
   try {
-    const israelTime = getIsraelTime();
-    const currentMinute = `${israelTime.getHours()}:${israelTime.getMinutes()}`;
-    if (lastExecutionMinute === currentMinute) return;
-    lastExecutionMinute = currentMinute;
+    if (!bypassTimeGuards) {
+      const israelTime = getIsraelTime();
+      const currentMinute = `${israelTime.getHours()}:${israelTime.getMinutes()}`;
+      if (lastExecutionMinute === currentMinute) return;
+      lastExecutionMinute = currentMinute;
+    }
 
     const today = getDateFormat(new Date());
-    const events = await db.getEventsForScheduledMessages();
+    // Owners without messaging permission are filtered out here (admin exempt)
+    const events = await db.getEventsForScheduledMessages(process.env.ADMIN_USER_ID || "");
     if (events.length === 0) return;
     log(undefined, `📝 Processing ${events.length} events for scheduled messages`);
 
@@ -1915,7 +1932,7 @@ const sendScheduledMessages = async () => {
       if (event.send_reminder) {
         const isWeddingDay = event.reminder_day === "wedding_day";
         const triggerDate = isWeddingDay ? weddingDateStr : dayBeforeWeddingStr;
-        if (today === triggerDate && isTimeToSend(reminderTime)) {
+        if (today === triggerDate && (bypassTimeGuards || isTimeToSend(reminderTime))) {
           const eventGuests = limitGuests((await db.getEventGuests(event.id, "approved")).filter(hasPhone));
           if (eventGuests.length > 0) {
             await logMessage(userID, `🔄 Sending ${isWeddingDay ? "wedding day" : "day before"} reminder for "${event.ceremony_name}" to ${eventGuests.length} guests`);
@@ -1930,7 +1947,7 @@ const sendScheduledMessages = async () => {
       }
 
       // Thank-you messages the day after
-      if (event.send_thank_you && today === dayAfterWeddingStr && isTimeToSend(THANK_YOU_MESSAGE_TIME)) {
+      if (event.send_thank_you && today === dayAfterWeddingStr && (bypassTimeGuards || isTimeToSend(THANK_YOU_MESSAGE_TIME))) {
         const eventGuests = limitGuests((await db.getEventGuests(event.id, "approved")).filter(hasPhone));
         if (eventGuests.length > 0) {
           await logMessage(userID, `🔄 Sending thank-you for "${event.ceremony_name}" to ${eventGuests.length} guests`);
