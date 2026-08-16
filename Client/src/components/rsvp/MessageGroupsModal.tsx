@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   SidePanel,
   Box,
@@ -83,6 +83,15 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   const [customText, setCustomText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [selectSpecificGuests, setSelectSpecificGuests] = useState(false);
+  const sendButtonRef = useRef<HTMLDivElement>(null);
+
+  // Opening the picker pushes the send button below the fold of the
+  // scrollable panel content, so scroll it (and the picker above it) into view.
+  useEffect(() => {
+    if (selectSpecificGuests) {
+      sendButtonRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [selectSpecificGuests]);
   const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set());
   const [guestSearchQuery, setGuestSearchQuery] = useState("");
   const [guestFilters, setGuestFilters] = useState<{ whose: string[]; circle: string[] }>({
@@ -583,13 +592,15 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                 </Text>
               )}
 
-              <Button
-                onClick={handleSend}
-                disabled={isSendDisabled}
-                fullWidth
-              >
-                {isSending ? <Loader size="tiny" /> : "שליחת הודעות"}
-              </Button>
+              <div ref={sendButtonRef}>
+                <Button
+                  onClick={handleSend}
+                  disabled={isSendDisabled}
+                  fullWidth
+                >
+                  {isSending ? <Loader size="tiny" /> : "שליחת הודעות"}
+                </Button>
+              </div>
 
               <div data-tour="whatsapp-preview">
                 <WhatsAppPreview

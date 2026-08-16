@@ -21,6 +21,11 @@ jest.mock("../../httpClient", () => ({
 
 jest.mock("../../hooks/useAuth");
 
+// jsdom doesn't implement scrollIntoView — stub it so the picker's
+// scroll-into-view effect doesn't crash, and so tests can assert on it.
+const scrollIntoViewMock = jest.fn();
+window.HTMLElement.prototype.scrollIntoView = scrollIntoViewMock;
+
 const mockUseAuth = useAuthModule.useAuth as jest.MockedFunction<typeof useAuthModule.useAuth>;
 const mockHttp = httpRequests as unknown as {
   getMessagingPermissionStatus: jest.Mock;
@@ -157,6 +162,19 @@ describe("MessageGroupsModal - specific guest picker", () => {
     expect(list.style.maxHeight).toBe("40vh");
     // The guests themselves must live inside the scrollable container
     expect(list).toContainElement(screen.getByText(/Pending Guest/));
+  });
+
+  it("scrolls the send button into view when specific-guest selection is turned on", async () => {
+    await renderModal();
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("בחירת אורחים ספציפיים לשליחה"));
+
+    expect(scrollIntoViewMock).toHaveBeenCalled();
+    const scrolledElement = scrollIntoViewMock.mock.instances[0] as unknown as HTMLElement;
+    expect(scrolledElement).toContainElement(
+      screen.getByRole("button", { name: "שליחת הודעות" })
+    );
   });
 
   it("selects all currently-filtered guests via the select-all checkbox", async () => {
