@@ -36,6 +36,10 @@ const needsSSL =
 const pool = new Pool({
   connectionString: dbUrl.replace(/[?&]sslmode=require/g, ""),
   ssl: needsSSL ? { rejectUnauthorized: false } : false,
+  connectionTimeoutMillis: 5000,
+  idleTimeoutMillis: 30000,
+  statement_timeout: 30000,
+  query_timeout: 30000,
 });
 const guestColumns = `id, user_id, name, phone, whose, circle, number_of_guests`;
 const USER_NAME_CACHE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;

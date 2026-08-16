@@ -14,6 +14,7 @@ const ViewLogsModal: React.FC<ViewLogsModalProps> = ({
   const [logs, setLogs] = useState<ClientLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     const fetchLogs = async () => {
@@ -50,6 +51,15 @@ const ViewLogsModal: React.FC<ViewLogsModalProps> = ({
     setIsViewLogsModalOpen(false);
   };
 
+  const filteredLogs = logs.filter((log) => {
+    const searchLower = searchQuery.toLowerCase();
+    return (
+      log.message.toLowerCase().includes(searchLower) ||
+      log.id.toString().includes(searchLower) ||
+      formatTimestamp(log.createdAt).includes(searchQuery)
+    );
+  });
+
   return (
     <SidePanel
       onCloseButtonClick={handleClose}
@@ -59,36 +69,51 @@ const ViewLogsModal: React.FC<ViewLogsModalProps> = ({
     >
       <SidePanel.Header title="יומן מערכת" />
       <SidePanel.Content>
-        <div style={{ minHeight: "400px", maxHeight: "500px" }}>
-          {loading && (
-            <div className="logs-loading">
-              <Loader />
+        <div className="logs-content-wrapper">
+          {!loading && !error && logs.length > 0 && (
+            <div className="logs-search-bar">
+              <input
+                type="text"
+                placeholder="חיפוש ברשומות..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="logs-search-input"
+              />
             </div>
           )}
+          <div className="logs-main-area">
+            {loading && (
+              <div className="logs-loading">
+                <Loader />
+              </div>
+            )}
 
-          {error && <div className="logs-error">{error}</div>}
+            {error && <div className="logs-error">{error}</div>}
 
-          {!loading && !error && (
-            <>
-              {logs.length === 0 ? (
-                <div className="logs-empty">לא נמצאו רשומות</div>
-              ) : (
-                <div className="logs-container">
-                  {logs.map((log) => (
-                    <div key={log.id} className="log-entry">
-                      <div className="log-header">
-                        <span className="log-timestamp">
-                          {formatTimestamp(log.createdAt)}
-                        </span>
-                        <span className="log-id">ID: {log.id}</span>
+            {!loading && !error && (
+              <>
+                {logs.length === 0 ? (
+                  <div className="logs-empty">לא נמצאו רשומות</div>
+                ) : filteredLogs.length === 0 ? (
+                  <div className="logs-empty">אין תוצאות עבור החיפוש</div>
+                ) : (
+                  <div className="logs-container">
+                    {filteredLogs.map((log) => (
+                      <div key={log.id} className="log-entry">
+                        <div className="log-header">
+                          <span className="log-timestamp">
+                            {formatTimestamp(log.createdAt)}
+                          </span>
+                          <span className="log-id">ID: {log.id}</span>
+                        </div>
+                        <div className="log-message">{log.message}</div>
                       </div>
-                      <div className="log-message">{log.message}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
         <div className="logs-footer">
           <Button onClick={handleClose}>סגירה</Button>
