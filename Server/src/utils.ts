@@ -147,15 +147,19 @@ const createBrideGroomParams = (event: Event): TemplateBodyParam[] => [
   createTextParam("groom_name", event.groom_name || ""),
 ];
 
-const createReminderParams = (event: Event, includeGift: boolean): TemplateBodyParam[] => {
-  const params = [
-    ...createBrideGroomParams(event),
-    createTextParam("time", (event.time || "").slice(0, 5)),
-    createTextParam("waze_link", event.waze_link || ""),
-  ];
-  if (includeGift) params.push(createTextParam("card_gift_link", event.gift_link || ""));
-  return params;
+// WhatsApp template parameter values must be single-line (no \n) and non-empty,
+// so the optional links are joined with " | " and the empty case falls back to " ".
+const createReminderAdditionalData = (event: Event): string => {
+  const parts: string[] = [];
+  if (event.waze_link?.trim()) parts.push(`לניווט: ${event.waze_link.trim()}`);
+  if (event.gift_link?.trim()) parts.push(`לנוחיותכם, ניתן להעניק מתנות באשראי בקישור: ${event.gift_link.trim()}`);
+  return parts.length > 0 ? parts.join(" | ") : " ";
 };
+
+// reminder_day is only ever "day_before" on primary events (weddings); event
+// reminders for non-primary events are same-day sends, so default to "היום".
+const createReminderDayWord = (event: Event): string =>
+  event.reminder_day === "day_before" ? "מחר" : "היום";
 
 export const getTemplateParams = (templateName: TemplateName, event: Event): TemplateParams => {
   switch (templateName) {
@@ -171,14 +175,17 @@ export const getTemplateParams = (templateName: TemplateName, event: Event): Tem
           createTextParam("additonal_details", event.additional_info || " "),
         ],
       };
-    case "wedding_day_reminder":
-      return { templateName: "wedding_rsvp_same_day", bodyParams: createReminderParams(event, true) };
-    case "day_before_wedding_reminder":
-      return { templateName: "day_before_wedding_reminder", bodyParams: createReminderParams(event, true) };
-    case "wedding_reminders_no_gift":
-      return { templateName: "wedding_reminders_no_gift", bodyParams: createReminderParams(event, false) };
-    case "wedding_reminders_no_gift_same_day":
-      return { templateName: "wedding_reminders_no_gift_same_day", bodyParams: createReminderParams(event, false) };
+    case "event_reminder":
+      return {
+        templateName: "event_reminder",
+        bodyParams: [
+          createTextParam("day", createReminderDayWord(event)),
+          createTextParam("ceremony_name", event.ceremony_name || "חתונה"),
+          createTextParam("couple_names", `${event.bride_name || ""} ו${event.groom_name || ""}`),
+          createTextParam("time", (event.time || "").slice(0, 5)),
+          createTextParam("additional_data", createReminderAdditionalData(event)),
+        ],
+      };
     case "wedding_rsvp_reminder":
       return { templateName: "wedding_rsvp_reminder", bodyParams: [createTextParam("ceremony_name", event.ceremony_name || "חתונה"), ...createBrideGroomParams(event)] };
     case "custom_thank_you_message":
@@ -191,15 +198,6 @@ export const getTemplateParams = (templateName: TemplateName, event: Event): Tem
       };
     case "thank_you_message":
       return { templateName: "thank_you_message", bodyParams: createBrideGroomParams(event) };
-    case "event_reminder_same_day":
-      return {
-        templateName: "event_reminder_same_day",
-        bodyParams: [
-          createTextParam("ceremony_name", event.ceremony_name || "חתונה"),
-          ...createBrideGroomParams(event),
-          createTextParam("time", (event.time || "").slice(0, 5)),
-        ],
-      };
     default:
       throw new Error(`Template name ${templateName} not found`);
   }

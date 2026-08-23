@@ -30,6 +30,7 @@ const mockUseAuth = useAuthModule.useAuth as jest.MockedFunction<typeof useAuthM
 const mockHttp = httpRequests as unknown as {
   getMessagingPermissionStatus: jest.Mock;
   requestMessagingPermission: jest.Mock;
+  sendMessage: jest.Mock;
 };
 
 const event: Event = {
@@ -67,6 +68,7 @@ beforeEach(() => {
     hasPendingRequest: false,
   });
   mockHttp.requestMessagingPermission.mockResolvedValue({ success: true });
+  mockHttp.sendMessage.mockResolvedValue({ success: 0, fail: 0, failGuestsList: [] });
 });
 
 // The modal checks messaging permission on mount, so its real content only
@@ -215,6 +217,23 @@ describe("MessageGroupsModal - admin-only features", () => {
     expect(screen.getByText("תזכורת לחתונה")).toBeInTheDocument();
     expect(screen.getByText("הודעה מותאמת אישית")).toBeInTheDocument();
     expect(screen.getByText("הודעת תודה")).toBeInTheDocument();
+  });
+
+  it("sends messageType eventReminder when the wedding reminder option is chosen on the primary event", async () => {
+    mockUseAuth.mockReturnValue({
+      ...mockAuthValue,
+      isAdmin: true,
+    });
+
+    await renderModal();
+
+    fireEvent.click(screen.getByText("תזכורת לחתונה"));
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+
+    await screen.findByText(/הודעות נשלחו בהצלחה/);
+    expect(mockHttp.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageType: "eventReminder" })
+    );
   });
 
   it("shows event reminder option for admin on non-primary events", async () => {

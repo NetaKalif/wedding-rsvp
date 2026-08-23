@@ -1,7 +1,7 @@
 /**
  * sendMessage messageType filter tests.
  * Verifies that rsvpReminder targets only pending guests,
- * weddingReminder targets only approved guests,
+ * eventReminder targets only approved guests,
  * and guestIds filtering works correctly.
  *
  * Uses the wedding event (id=1) with:
@@ -89,14 +89,14 @@ describe("rsvpReminder — targets only pending guests", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("weddingReminder — targets only approved guests", () => {
+describe("eventReminder — targets only approved guests", () => {
   it("sends only to guests with rsvp_status > 0", async () => {
     // Alice = approved, Bob = approved, Clare = pending
     await setRsvp(ALICE_ID, 3);
     await setRsvp(BOB_ID, 1);
     // Clare stays null
 
-    await send("weddingReminder");
+    await send("eventReminder");
 
     await mock.waitForMessages(ALICE_PHONE, 1);
     await mock.waitForMessages(BOB_PHONE, 1);
@@ -109,7 +109,7 @@ describe("weddingReminder — targets only approved guests", () => {
     // beforeEach already reset all to null — explicitly confirm via helper
     await setAllWeddingGuestsRsvp(null);
 
-    await expect(send("weddingReminder")).rejects.toMatchObject({
+    await expect(send("eventReminder")).rejects.toMatchObject({
       response: { status: 400 },
     });
   });

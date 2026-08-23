@@ -23,7 +23,6 @@ const isWeddingDetailsComplete = (details: Event): boolean => {
     "date",
     "time",
     "location",
-    "waze_link",
     "file_id",
   ];
 
@@ -130,9 +129,9 @@ export const MessageGroups: React.FC<MessageGroupsProps> = ({
               המותאמת שלכם.
             </Text>
           )}
-          {messageType === "weddingReminder" && (
+          {messageType === "eventReminder" && (
             <Text size="small" secondary>
-              ℹ️ מצב תזכורת לחתונה: רק אורחים שאישרו הגעה יקבלו הודעות.
+              ℹ️ מצב תזכורת לאירוע: רק אורחים שאישרו הגעה יקבלו הודעות.
             </Text>
           )}
           <Box direction="vertical" gap={2}>
@@ -159,7 +158,7 @@ export const MessageGroups: React.FC<MessageGroupsProps> = ({
                 קבוצה {selectedGroup}: {getGuestsInGroup(selectedGroup).length}{" "}
                 {messageType === "rsvpReminder"
                   ? "אורחים ממתינים"
-                  : messageType === "weddingReminder"
+                  : messageType === "eventReminder"
                   ? "אורחים שאישרו"
                   : "אורחים"}
               </Text>
@@ -168,7 +167,7 @@ export const MessageGroups: React.FC<MessageGroupsProps> = ({
           {!weddingDetailsComplete && (
             <Text size="small" skin="error">
               ⚠️ אנא מלאו את כל פרטי החתונה לפני שליחת הודעות (שמות כלה/חתן,
-              תאריך, שעה, מיקום, קישור לוויז ותמונה).
+              תאריך, שעה, מיקום ותמונה).
             </Text>
           )}
           <Button
@@ -201,8 +200,8 @@ export const MessageGroups: React.FC<MessageGroupsProps> = ({
                 ? `שליחת תזכורות לקבוצה ${selectedGroup}`
                 : messageType === "freeText"
                 ? `שליחת הודעה מותאמת לקבוצה ${selectedGroup}`
-                : messageType === "weddingReminder"
-                ? `שליחת תזכורת חתונה לקבוצה ${selectedGroup}`
+                : messageType === "eventReminder"
+                ? `שליחת תזכורת לקבוצה ${selectedGroup}`
                 : selectedGroup
                 ? `שליחה לקבוצה ${selectedGroup}`
                 : "בחר קבוצה"}

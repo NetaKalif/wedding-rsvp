@@ -110,7 +110,6 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
       !eventDetails.date ||
       !eventDetails.time ||
       !eventDetails.location ||
-      !eventDetails.waze_link ||
       (!file && !imageUrl)
     ) {
       setFormError("אנא מלאו את כל השדות הנדרשים והעלו תמונת הזמנה");
@@ -405,7 +404,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
                 </Popover>
               </Box>
             </FormField>
-            <FormField label="קישור לוויז" required>
+            <FormField label="קישור לוויז (אופציונלי)">
               <Input
                 value={eventDetails.waze_link}
                 onChange={(e) =>
@@ -417,7 +416,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
                 placeholder="הזינו קישור לוויז"
               />
             </FormField>
-            <FormField label=" קישור למתנות באשראי">
+            <FormField label="קישור למתנות באשראי (אופציונלי)">
               <Input
                 value={eventDetails.gift_link}
                 onChange={(e) =>
