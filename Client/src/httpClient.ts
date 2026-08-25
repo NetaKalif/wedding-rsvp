@@ -145,8 +145,13 @@ const createEvent = async (event: Omit<Event, "id" | "user_id" | "created_at">, 
 
 const deleteEvent = (eventId: number) => del<void>(`/events/${eventId}`);
 
-const updateEvent = (eventId: number, updates: Partial<Event>) =>
-  patch<Event>(`/events/${eventId}`, updates);
+const updateEvent = (eventId: number, updates: Partial<Event>, image?: File): Promise<Event> => {
+  if (!image) return patch<Event>(`/events/${eventId}`, updates);
+  const formData = new FormData();
+  Object.entries(updates).forEach(([k, v]) => { if (v != null) formData.append(k, String(v)); });
+  formData.append("image", image);
+  return rawRequest<Event>(`/events/${eventId}`, "PATCH", formData);
+};
 
 // ==================== Media (image/file) URL Methods ====================
 // These mint a short-lived, resource-scoped token before building the URL,
@@ -195,9 +200,13 @@ export interface CallPendingResult {
   errors: { guestId: number; error: string }[];
 }
 
-// Places automated RSVP phone calls to every guest in the event who hasn't responded yet.
-const callPendingGuests = (eventId: number) =>
-  post<CallPendingResult>(`/events/${eventId}/voice/call-pending`, {});
+// Places automated RSVP phone calls to guests in the event who haven't responded yet.
+// Pass guestIds to call only those guests (still restricted to pending ones server-side).
+const callPendingGuests = (eventId: number, guestIds?: number[]) =>
+  post<CallPendingResult>(
+    `/events/${eventId}/voice/call-pending`,
+    guestIds && guestIds.length > 0 ? { guestIds } : {},
+  );
 
 // ==================== Message Methods ====================
 

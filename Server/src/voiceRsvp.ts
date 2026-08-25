@@ -216,10 +216,14 @@ export interface PlaceCallsResult {
 }
 
 /**
- * Calls every guest who hasn't RSVP'd yet for the event. Returns a summary and
- * stamps last_rsvp_sent_at on the guests we successfully queued.
+ * Calls guests who haven't RSVP'd yet for the event — all of them, or only the
+ * ones in `guestIds` when given (non-pending ids are ignored). Returns a summary
+ * and stamps last_rsvp_sent_at on the guests we successfully queued.
  */
-export const placeRsvpCalls = async (eventId: number): Promise<PlaceCallsResult> => {
+export const placeRsvpCalls = async (
+  eventId: number,
+  guestIds?: number[],
+): Promise<PlaceCallsResult> => {
   if (!isVoiceConfigured()) {
     throw new Error(
       "Voice calling is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_CALLER_ID and PUBLIC_BASE_URL.",
@@ -227,7 +231,9 @@ export const placeRsvpCalls = async (eventId: number): Promise<PlaceCallsResult>
   }
   const db = Database.getInstance();
   const client = getClient();
-  const pending = await db.getEventGuests(eventId, "pending");
+  const allPending = await db.getEventGuests(eventId, "pending");
+  const guestIdSet = guestIds ? new Set(guestIds) : null;
+  const pending = guestIdSet ? allPending.filter((g) => guestIdSet.has(g.guest_id)) : allPending;
 
   const result: PlaceCallsResult = { queued: 0, failed: 0, skippedNoPhone: 0, errors: [] };
   const queuedGuestIds: number[] = [];
@@ -246,6 +252,11 @@ export const placeRsvpCalls = async (eventId: number): Promise<PlaceCallsResult>
         method: "POST",
         // Hang up on voicemail so we don't leave a confusing recording / burn minutes.
         machineDetection: "Enable",
+        // Report the final call outcome (answered/busy/no-answer/...) so we can
+        // show who actually picked up.
+        statusCallback: webhook("/voice/status", eventId, guestId),
+        statusCallbackEvent: ["completed"],
+        statusCallbackMethod: "POST",
       });
       result.queued++;
       queuedGuestIds.push(guestId);
@@ -257,6 +268,28 @@ export const placeRsvpCalls = async (eventId: number): Promise<PlaceCallsResult>
   }
 
   await db.updateEventGuestLastRsvpSentAt(eventId, queuedGuestIds);
+  await db.markEventGuestsCallQueued(eventId, queuedGuestIds);
   log(undefined, `📞 Voice RSVP calls for event ${eventId}: ${JSON.stringify({ ...result, errors: undefined })}`);
   return result;
+};
+
+// Twilio's terminal call statuses (statusCallbackEvent: completed). Anything
+// else that reaches the webhook (e.g. an intermediate status) is ignored so a
+// misconfigured callback can't overwrite a final outcome.
+const FINAL_CALL_STATUSES = new Set(["completed", "busy", "no-answer", "failed", "canceled"]);
+
+/** Records the final outcome of a call (from the /voice/status callback). */
+export const handleCallStatus = async (
+  eventId: number,
+  guestId: number,
+  callStatus: string | undefined,
+  answeredBy: string | undefined,
+): Promise<void> => {
+  if (!callStatus || !FINAL_CALL_STATUSES.has(callStatus)) return;
+  const db = Database.getInstance();
+  await db.updateEventGuestCallOutcome(eventId, guestId, callStatus, answeredBy || null);
+  await logMessage(
+    null,
+    `📞 Voice RSVP call finished (event ${eventId}, guest ${guestId}): ${callStatus}${answeredBy ? ` (${answeredBy})` : ""}`,
+  );
 };

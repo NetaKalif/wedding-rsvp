@@ -33,6 +33,7 @@ import { log, logError } from "./logger";
 import {
   buildGreetingTwiml,
   handleAnswerDigit,
+  handleCallStatus,
   handleCountDigits,
   placeRsvpCalls,
   isValidTwilioRequest,
@@ -353,6 +354,22 @@ app.post("/voice/count", async (req: Request, res: Response) => {
   } catch (error) {
     logError(undefined, "Voice count webhook failed:", error);
     res.type("text/xml").status(200).send("<Response><Hangup/></Response>");
+  }
+});
+
+// Status callback (fires once per call when it ends): records whether the guest
+// picked up (CallStatus completed + AnsweredBy human), got voicemail
+// (machine_*), was busy/declined, or didn't answer.
+app.post("/voice/status", async (req: Request, res: Response) => {
+  try {
+    if (!guardTwilio(req, res)) return;
+    const eventId = parseInt(String(req.query.eventId));
+    const guestId = parseInt(String(req.query.guestId));
+    await handleCallStatus(eventId, guestId, req.body?.CallStatus, req.body?.AnsweredBy);
+    res.status(204).send();
+  } catch (error) {
+    logError(undefined, "Voice status webhook failed:", error);
+    res.status(204).send();
   }
 });
 
@@ -1697,7 +1714,7 @@ app.post(
   upload.single("image") as RequestHandler,
   async (req: Request, res: Response) => {
     try {
-      const { ceremony_name, date, time, location, additional_info } = req.body;
+      const { ceremony_name, date, time, location, additional_info, waze_link, gift_link } = req.body;
       if (!ceremony_name) {
         return res.status(400).send("ceremony_name is required");
       }
@@ -1710,6 +1727,8 @@ app.post(
         time: time || null,
         location: location || null,
         additional_info: additional_info || null,
+        waze_link: waze_link || null,
+        gift_link: gift_link || null,
         file_id: null,
       });
 
@@ -1739,21 +1758,26 @@ app.get("/events", async (req: Request, res: Response) => {
   }
 });
 
-app.patch("/events/:eventId", async (req: Request, res: Response) => {
-  try {
-    const { eventId } = req.params;
-    const updates = req.body;
-    const dataOwner = await resolveDataOwner(req.auth.userID);
-    const event = await db.getEventById(parseInt(eventId));
-    if (!event || event.user_id !== dataOwner) return res.status(404).send("Event not found");
-    const updated = await db.updateEvent(parseInt(eventId), updates);
-    await logMessage(dataOwner, `✏️ Event updated: "${event.ceremony_name}"`);
-    return res.status(200).json(updated);
-  } catch (error) {
-    logError(req.auth?.userID, "Error updating event:", error);
-    return res.status(500).send("Failed to update event");
-  }
-});
+app.patch(
+  "/events/:eventId",
+  upload.single("image") as RequestHandler,
+  async (req: Request, res: Response) => {
+    try {
+      const { eventId } = req.params;
+      const updates = { ...req.body };
+      const dataOwner = await resolveDataOwner(req.auth.userID);
+      const event = await db.getEventById(parseInt(eventId));
+      if (!event || event.user_id !== dataOwner) return res.status(404).send("Event not found");
+      if (req.file) updates.file_id = await uploadImage(req.file);
+      const updated = await db.updateEvent(parseInt(eventId), updates);
+      await logMessage(dataOwner, `✏️ Event updated: "${event.ceremony_name}"`);
+      return res.status(200).json(updated);
+    } catch (error) {
+      logError(req.auth?.userID, "Error updating event:", error);
+      return res.status(500).send("Failed to update event");
+    }
+  },
+);
 
 app.delete("/events/:eventId", async (req: Request, res: Response) => {
   try {
@@ -1826,10 +1850,18 @@ app.get("/events/:eventId/guests", async (req: Request, res: Response) => {
   }
 });
 
-// Place automated RSVP phone calls to every guest who hasn't responded yet.
+// Place automated RSVP phone calls to guests who haven't responded yet — all of
+// them, or only the (still pending) guests listed in the optional guestIds body.
 app.post("/events/:eventId/voice/call-pending", async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
+    const { guestIds } = req.body ?? {};
+    if (
+      guestIds !== undefined &&
+      (!Array.isArray(guestIds) || guestIds.length === 0 || guestIds.some((id) => typeof id !== "number"))
+    ) {
+      return res.status(400).send("guestIds must be a non-empty array of numbers");
+    }
     const dataOwner = await resolveDataOwner(req.auth.userID);
     const event = await db.getEventById(parseInt(eventId));
     if (!event || event.user_id !== dataOwner) {
@@ -1840,10 +1872,10 @@ app.post("/events/:eventId/voice/call-pending", async (req: Request, res: Respon
         "Voice calling is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_CALLER_ID and PUBLIC_BASE_URL.",
       );
     }
-    const result = await placeRsvpCalls(parseInt(eventId));
+    const result = await placeRsvpCalls(parseInt(eventId), guestIds);
     await logMessage(
       req.auth.userID,
-      `📞 Voice RSVP calls placed for event ${eventId}: queued ${result.queued}, failed ${result.failed}, skipped ${result.skippedNoPhone}`,
+      `📞 Voice RSVP calls placed for event ${eventId}${guestIds ? ` (${guestIds.length} selected guests)` : ""}: queued ${result.queued}, failed ${result.failed}, skipped ${result.skippedNoPhone}`,
     );
     return res.status(200).json(result);
   } catch (error) {

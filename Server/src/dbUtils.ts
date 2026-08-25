@@ -249,6 +249,16 @@ class Database {
         UNIQUE(event_id, guest_id)
       );`, []);
 
+    // Voice-RSVP call outcome, written by the Twilio status callback:
+    // status is Twilio's final CallStatus ('queued' while the call is in flight),
+    // answered_by is Twilio's machine-detection verdict (human/machine_*).
+    await this.runQuery(`
+      ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_call_status TEXT DEFAULT NULL;`, []);
+    await this.runQuery(`
+      ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_call_answered_by TEXT DEFAULT NULL;`, []);
+    await this.runQuery(`
+      ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_call_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;`, []);
+
     // 60-day post-wedding data retention: warning email + hard-delete tracking
     // on the primary event, and a standalone audit trail that outlives the
     // deleted user row.
@@ -528,6 +538,7 @@ class Database {
     if (filter === "declined") where += ` AND eg.rsvp_status = 0`;
     return this.runQuery(
       `SELECT eg.id,eg.event_id,eg.guest_id,eg.rsvp_status,eg.last_rsvp_sent_at,
+              eg.last_call_status,eg.last_call_answered_by,eg.last_call_at,
               g.name,g.phone,g.whose,g.circle,g.number_of_guests,g.user_id
        FROM event_guests eg
        JOIN guests g ON g.id=eg.guest_id
@@ -549,6 +560,30 @@ class Database {
     await this.runQuery(
       `UPDATE event_guests SET last_rsvp_sent_at=CURRENT_TIMESTAMP WHERE event_id=$1 AND guest_id=ANY($2);`,
       [eventId, guestIds],
+    );
+  }
+
+  /** A new call round starts: mark the guests as queued so stale outcomes from a previous round don't linger. */
+  async markEventGuestsCallQueued(eventId: number, guestIds: number[]): Promise<void> {
+    if (guestIds.length === 0) return;
+    await this.runQuery(
+      `UPDATE event_guests SET last_call_status='queued', last_call_answered_by=NULL, last_call_at=CURRENT_TIMESTAMP
+       WHERE event_id=$1 AND guest_id=ANY($2);`,
+      [eventId, guestIds],
+    );
+  }
+
+  /** Written by the Twilio status callback when a call reaches a final state. */
+  async updateEventGuestCallOutcome(
+    eventId: number,
+    guestId: number,
+    status: string,
+    answeredBy: string | null,
+  ): Promise<void> {
+    await this.runQuery(
+      `UPDATE event_guests SET last_call_status=$1, last_call_answered_by=$2, last_call_at=CURRENT_TIMESTAMP
+       WHERE event_id=$3 AND guest_id=$4;`,
+      [status, answeredBy, eventId, guestId],
     );
   }
 

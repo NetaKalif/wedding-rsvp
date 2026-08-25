@@ -20,13 +20,14 @@ const getEvents = async (userID = USER_ID) => {
   return data as Array<{ id: number; ceremony_name: string; is_primary: boolean }>;
 };
 
-const createEvent = async (ceremonyName: string) => {
+const createEvent = async (ceremonyName: string, extraFields: Record<string, string> = {}) => {
   const form = new FormData();
   form.append("ceremony_name", ceremonyName);
+  Object.entries(extraFields).forEach(([k, v]) => form.append(k, v));
   const { data } = await axios.post(`${REAL_SERVER}/events`, form, {
     headers: { ...form.getHeaders(), ...authHeader() },
   });
-  return data as { id: number; ceremony_name: string };
+  return data as { id: number; ceremony_name: string; waze_link: string | null; gift_link: string | null };
 };
 
 const deleteEvent = (eventId: number) =>
@@ -67,6 +68,17 @@ describe("Create secondary event", () => {
     expect(events.some((e) => e.id === created.id && e.ceremony_name === "קבלת פנים")).toBe(true);
   });
 
+  it("persists waze and gift links provided at creation", async () => {
+    const created = await createEvent("שבת חתן", {
+      waze_link: "https://waze.com/ul/xyz",
+      gift_link: "https://pay.example.com/gift",
+    });
+    createdEventIds.push(created.id);
+
+    expect(created.waze_link).toBe("https://waze.com/ul/xyz");
+    expect(created.gift_link).toBe("https://pay.example.com/gift");
+  });
+
   it("newly created event is not primary", async () => {
     const created = await createEvent("ערב כיף");
     createdEventIds.push(created.id);
@@ -74,6 +86,41 @@ describe("Create secondary event", () => {
     const events = await getEvents();
     const found = events.find((e) => e.id === created.id);
     expect(found?.is_primary).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Update event with invitation image", () => {
+  it("PATCH with a multipart image uploads it and sets file_id", async () => {
+    const created = await createEvent("אירוע עם תמונה");
+    createdEventIds.push(created.id);
+
+    const form = new FormData();
+    form.append("ceremony_name", "אירוע עם תמונה");
+    form.append("image", Buffer.from("fake-image-bytes"), {
+      filename: "invite.png",
+      contentType: "image/png",
+    });
+    const { data: updated } = await axios.patch(`${REAL_SERVER}/events/${created.id}`, form, {
+      headers: { ...form.getHeaders(), ...authHeader() },
+    });
+
+    expect(updated.file_id).toEqual(expect.stringContaining("mock-media-"));
+  });
+
+  it("PATCH with a JSON body still updates fields without touching file_id", async () => {
+    const created = await createEvent("אירוע ללא תמונה");
+    createdEventIds.push(created.id);
+
+    const { data: updated } = await axios.patch(
+      `${REAL_SERVER}/events/${created.id}`,
+      { location: "אולם הדקל" },
+      { headers: authHeader() },
+    );
+
+    expect(updated.location).toBe("אולם הדקל");
+    expect(updated.file_id).toBeNull();
   });
 });
 

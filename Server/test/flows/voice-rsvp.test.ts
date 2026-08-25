@@ -31,11 +31,21 @@ const postVoice = (path: string, eventId: number, guestId: number, body: Record<
     { headers: { "Content-Type": "application/x-www-form-urlencoded" } },
   );
 
-const getRsvp = async (eventId: number, guestId: number): Promise<number | null | undefined> => {
+interface GuestRow {
+  guest_id: number;
+  rsvp_status: number | null;
+  last_call_status: string | null;
+  last_call_answered_by: string | null;
+}
+
+const getGuest = async (eventId: number, guestId: number): Promise<GuestRow | undefined> => {
   const { data } = await axios.get(`${REAL_SERVER}/events/${eventId}/guests`, { headers: authHeader() });
+  return (data as GuestRow[]).find((g) => g.guest_id === guestId);
+};
+
+const getRsvp = async (eventId: number, guestId: number): Promise<number | null | undefined> => {
   // undefined only when the guest is missing — a null rsvp_status (pending) must stay null
-  const guest = (data as Array<{ guest_id: number; rsvp_status: number | null }>)
-    .find((g) => g.guest_id === guestId);
+  const guest = await getGuest(eventId, guestId);
   return guest ? guest.rsvp_status : undefined;
 };
 
@@ -100,6 +110,51 @@ describe("Count webhook", () => {
   });
 });
 
+describe("Status callback webhook", () => {
+  it("records a human pickup (completed + AnsweredBy human)", async () => {
+    const { status } = await postVoice("/voice/status", WEDDING_EVENT_ID, GUEST_ID, {
+      CallStatus: "completed",
+      AnsweredBy: "human",
+    });
+    expect(status).toBe(204);
+    const guest = await getGuest(WEDDING_EVENT_ID, GUEST_ID);
+    expect(guest?.last_call_status).toBe("completed");
+    expect(guest?.last_call_answered_by).toBe("human");
+  });
+
+  it("records voicemail (completed + AnsweredBy machine)", async () => {
+    await postVoice("/voice/status", WEDDING_EVENT_ID, GUEST_ID, {
+      CallStatus: "completed",
+      AnsweredBy: "machine_start",
+    });
+    const guest = await getGuest(WEDDING_EVENT_ID, GUEST_ID);
+    expect(guest?.last_call_status).toBe("completed");
+    expect(guest?.last_call_answered_by).toBe("machine_start");
+  });
+
+  it("records a declined/busy call", async () => {
+    await postVoice("/voice/status", WEDDING_EVENT_ID, GUEST_ID, { CallStatus: "busy" });
+    const guest = await getGuest(WEDDING_EVENT_ID, GUEST_ID);
+    expect(guest?.last_call_status).toBe("busy");
+    expect(guest?.last_call_answered_by).toBeNull();
+  });
+
+  it("ignores non-final call statuses so they can't overwrite an outcome", async () => {
+    await postVoice("/voice/status", WEDDING_EVENT_ID, GUEST_ID, { CallStatus: "no-answer" });
+    await postVoice("/voice/status", WEDDING_EVENT_ID, GUEST_ID, { CallStatus: "ringing" });
+    const guest = await getGuest(WEDDING_EVENT_ID, GUEST_ID);
+    expect(guest?.last_call_status).toBe("no-answer");
+  });
+
+  it("does not touch the guest's rsvp_status", async () => {
+    await postVoice("/voice/status", WEDDING_EVENT_ID, GUEST_ID, {
+      CallStatus: "completed",
+      AnsweredBy: "human",
+    });
+    expect(await getRsvp(WEDDING_EVENT_ID, GUEST_ID)).toBeNull();
+  });
+});
+
 describe("Outbound trigger", () => {
   it("rejects a non-owner with 404", async () => {
     await expect(
@@ -112,6 +167,28 @@ describe("Outbound trigger", () => {
   it("returns 503 when Twilio is not configured", async () => {
     await expect(
       axios.post(`${REAL_SERVER}/events/${WEDDING_EVENT_ID}/voice/call-pending`, {}, {
+        headers: authHeader(),
+      }),
+    ).rejects.toMatchObject({ response: { status: 503 } });
+  });
+
+  // guestIds shape is validated before the Twilio-configured check, so the 400s
+  // are observable even though the test env has no Twilio credentials.
+  it.each([
+    ["a non-array", "1"],
+    ["an empty array", []],
+    ["an array with non-numeric entries", [1, "x"]],
+  ])("rejects %s guestIds with 400", async (_label, guestIds) => {
+    await expect(
+      axios.post(`${REAL_SERVER}/events/${WEDDING_EVENT_ID}/voice/call-pending`, { guestIds }, {
+        headers: authHeader(),
+      }),
+    ).rejects.toMatchObject({ response: { status: 400 } });
+  });
+
+  it("accepts a valid guestIds array (still 503 while Twilio is unconfigured)", async () => {
+    await expect(
+      axios.post(`${REAL_SERVER}/events/${WEDDING_EVENT_ID}/voice/call-pending`, { guestIds: [GUEST_ID] }, {
         headers: authHeader(),
       }),
     ).rejects.toMatchObject({ response: { status: 503 } });

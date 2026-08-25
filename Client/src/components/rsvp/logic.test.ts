@@ -2,6 +2,7 @@ import {
   validateGuestsInfo,
   guestExportColumns,
   guestExportRow,
+  getCallOutcomeCounts,
 } from "./logic";
 import { EventGuest, Guest } from "../../types";
 
@@ -130,6 +131,68 @@ describe("guest export", () => {
     expect(guestExportRow(eventGuest({ rsvp_status: 0 }))).toMatchObject({
       status: "סירוב",
       attending_count: 0,
+    });
+  });
+});
+
+describe("getCallOutcomeCounts", () => {
+  const guest = (
+    last_call_status: string | null,
+    last_call_answered_by: string | null = null
+  ): EventGuest => ({
+    event_id: 1,
+    guest_id: Math.floor(Math.random() * 100000),
+    last_call_status,
+    last_call_answered_by,
+  });
+
+  it("counts a completed call answered by a human (or with no verdict) as answered", () => {
+    const counts = getCallOutcomeCounts([
+      guest("completed", "human"),
+      guest("completed", "unknown"),
+      guest("completed"),
+    ]);
+    expect(counts.answered).toBe(3);
+    expect(counts.voicemail).toBe(0);
+  });
+
+  it("counts machine-answered completed calls as voicemail", () => {
+    const counts = getCallOutcomeCounts([
+      guest("completed", "machine_start"),
+      guest("completed", "machine_end_beep"),
+      guest("completed", "fax"),
+    ]);
+    expect(counts.voicemail).toBe(3);
+    expect(counts.answered).toBe(0);
+  });
+
+  it("buckets busy, no-answer, failed/canceled and queued separately", () => {
+    const counts = getCallOutcomeCounts([
+      guest("busy"),
+      guest("no-answer"),
+      guest("failed"),
+      guest("canceled"),
+      guest("queued"),
+    ]);
+    expect(counts).toEqual({
+      answered: 0,
+      voicemail: 0,
+      busy: 1,
+      noAnswer: 1,
+      failed: 2,
+      inProgress: 1,
+    });
+  });
+
+  it("ignores guests who were never called", () => {
+    const counts = getCallOutcomeCounts([guest(null), { event_id: 1, guest_id: 1 }]);
+    expect(counts).toEqual({
+      answered: 0,
+      voicemail: 0,
+      busy: 0,
+      noAnswer: 0,
+      failed: 0,
+      inProgress: 0,
     });
   });
 });

@@ -2,9 +2,7 @@ import React, { useState } from "react";
 import {
   Box,
   Button,
-  FieldSet,
   Input,
-  InputArea,
   Modal,
   Text,
   Loader,
@@ -13,6 +11,7 @@ import { Guest, Event } from "../../types";
 import { httpRequests } from "../../httpClient";
 import { getUniqueValues } from "./logic";
 import { FilterOptions } from "../../types";
+import EventFormFields, { emptyEventForm, isEventFormValid } from "./EventFormFields";
 
 interface CreateEventWizardProps {
   userID: string;
@@ -37,13 +36,7 @@ const CreateEventWizard: React.FC<CreateEventWizardProps> = ({
     searchTerm: "",
   });
   const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set());
-  const [form, setForm] = useState({
-    ceremony_name: "",
-    date: "",
-    time: "",
-    location: "",
-    additional_info: "",
-  });
+  const [form, setForm] = useState(emptyEventForm);
 
   const invitedByOptions = getUniqueValues(guestsList, "whose");
   const allCircleOptions = getUniqueValues(guestsList, "circle");
@@ -78,8 +71,10 @@ const CreateEventWizard: React.FC<CreateEventWizardProps> = ({
   const allFilteredSelected =
     filteredGuests.length > 0 && filteredGuests.every((g) => g.id != null && selectedGuestIds.has(g.id));
 
+  const isFormValid = isEventFormValid(form, Boolean(imageFile));
+
   const handleCreate = async () => {
-    if (!form.ceremony_name.trim()) return;
+    if (!isFormValid) return;
     setIsSaving(true);
     try {
       const event = await httpRequests.createEvent({ ...form, is_primary: false }, imageFile);
@@ -99,61 +94,17 @@ const CreateEventWizard: React.FC<CreateEventWizardProps> = ({
     <Box direction="vertical" gap={3}>
       <Text size="medium" weight="bold">פרטי האירוע</Text>
 
-      <FieldSet legend="שם הטקס *">
-        <Input
-          placeholder="לדוגמה: חינה, מסיבת רווקות..."
-          value={form.ceremony_name}
-          onChange={(e) => setForm((f) => ({ ...f, ceremony_name: e.target.value }))}
-        />
-      </FieldSet>
-
-      <Box direction="horizontal" gap={2}>
-        <FieldSet legend="תאריך">
-          <Input
-            type="date"
-            value={form.date}
-            onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-          />
-        </FieldSet>
-        <FieldSet legend="שעה">
-          <Input
-            type="time"
-            value={form.time}
-            onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
-          />
-        </FieldSet>
-      </Box>
-
-      <FieldSet legend="מיקום">
-        <Input
-          placeholder="שם המקום"
-          value={form.location}
-          onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
-        />
-      </FieldSet>
-
-      <FieldSet legend="פרטים נוספים">
-        <InputArea
-          placeholder="מידע נוסף שיופיע בהזמנה..."
-          value={form.additional_info}
-          onChange={(e) => setForm((f) => ({ ...f, additional_info: e.target.value }))}
-          rows={3}
-        />
-      </FieldSet>
-
-      <FieldSet legend="תמונת הזמנה">
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => setImageFile(e.target.files?.[0])}
-        />
-        {imageFile && <Text size="small" secondary>{imageFile.name}</Text>}
-      </FieldSet>
+      <EventFormFields
+        form={form}
+        onChange={(updates) => setForm((f) => ({ ...f, ...updates }))}
+        imageFile={imageFile}
+        onImageChange={setImageFile}
+      />
 
       <Box direction="horizontal" gap={2} align="right">
         <Button priority="secondary" onClick={onClose}>ביטול</Button>
         <Button
-          disabled={!form.ceremony_name.trim()}
+          disabled={!isFormValid}
           onClick={() => setStep(2)}
         >
           הבא: בחירת אורחים

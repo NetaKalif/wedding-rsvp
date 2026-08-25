@@ -49,6 +49,35 @@ export const getRsvpCounts = (guestsList: EventGuest[]) => {
   return counts;
 };
 
+// Buckets the Twilio call outcome stored per guest (last_call_status +
+// last_call_answered_by) into user-facing counts. A guest with no
+// last_call_status was never called and isn't counted.
+export const getCallOutcomeCounts = (guestsList: EventGuest[]) => {
+  const counts = {
+    answered: 0, // a human picked up
+    voicemail: 0, // machine detection hit voicemail/fax
+    busy: 0, // busy or actively declined the call
+    noAnswer: 0,
+    failed: 0,
+    inProgress: 0, // queued, no final status reported yet
+  };
+
+  guestsList.forEach((guest) => {
+    const status = guest.last_call_status;
+    if (!status) return;
+    if (status === "queued") counts.inProgress++;
+    else if (status === "completed") {
+      const answeredBy = guest.last_call_answered_by;
+      if (answeredBy && answeredBy !== "human" && answeredBy !== "unknown") counts.voicemail++;
+      else counts.answered++;
+    } else if (status === "busy") counts.busy++;
+    else if (status === "no-answer") counts.noAnswer++;
+    else counts.failed++; // failed / canceled
+  });
+
+  return counts;
+};
+
 export const downloadXlsx = async (workbook: Workbook, filename: string) => {
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], {

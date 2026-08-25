@@ -6,24 +6,48 @@ import { httpRequests } from "../../httpClient";
 
 jest.mock("../../httpClient", () => ({
   httpRequests: {
-    updateEvent: jest.fn((id: number, updates: object) =>
-      Promise.resolve({ id, ...updates })
-    ),
+    updateEvent: jest.fn(),
+    getEventImageUrl: jest.fn(),
   },
 }));
 
 const mockUpdateEvent = httpRequests.updateEvent as jest.Mock;
+const mockGetEventImageUrl = httpRequests.getEventImageUrl as jest.Mock;
 
 const event: Event = {
   id: 2,
   user_id: "user-1",
   is_primary: false,
   ceremony_name: "חינה",
+  date: "2026-09-01",
+  time: "19:00",
+  location: "אולם הדקל",
   waze_link: "",
   gift_link: "",
+  file_id: "existing-file-id",
 };
 
-beforeEach(() => jest.clearAllMocks());
+// CRA's jest config resets mock implementations before each test, so they are
+// (re)defined here rather than in the jest.mock factory.
+beforeEach(() => {
+  mockUpdateEvent.mockImplementation((id: number, updates: object) =>
+    Promise.resolve({ id, ...updates })
+  );
+  mockGetEventImageUrl.mockResolvedValue(
+    "https://server.test/events/2/image?mediaToken=abc"
+  );
+});
+
+// The file input is rendered (hidden) by the design-system FileUpload, and
+// modal content may live in a portal — query document rather than container.
+const selectImage = (name = "invite.png") => {
+  const file = new File(["img"], name, { type: "image/png" });
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [file] } });
+  return file;
+};
+
+const saveButton = () => screen.getByText("שמירה").closest("button")!;
 
 describe("EventEditModal - optional waze and payment links", () => {
   it("renders both link fields as optional and saves their values", async () => {
@@ -36,7 +60,7 @@ describe("EventEditModal - optional waze and payment links", () => {
     fireEvent.change(screen.getByPlaceholderText("הזינו קישור למתנות באשראי"), {
       target: { value: "https://pay.example.com/gift" },
     });
-    fireEvent.click(screen.getByText("שמירה"));
+    fireEvent.click(saveButton());
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(mockUpdateEvent).toHaveBeenCalledWith(
@@ -44,7 +68,8 @@ describe("EventEditModal - optional waze and payment links", () => {
       expect.objectContaining({
         waze_link: "https://waze.com/ul/abc",
         gift_link: "https://pay.example.com/gift",
-      })
+      }),
+      undefined
     );
   });
 
@@ -52,12 +77,13 @@ describe("EventEditModal - optional waze and payment links", () => {
     const onSaved = jest.fn();
     render(<EventEditModal event={event} onClose={jest.fn()} onSaved={onSaved} />);
 
-    fireEvent.click(screen.getByText("שמירה"));
+    fireEvent.click(saveButton());
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(mockUpdateEvent).toHaveBeenCalledWith(
       2,
-      expect.objectContaining({ waze_link: "", gift_link: "" })
+      expect.objectContaining({ waze_link: "", gift_link: "" }),
+      undefined
     );
   });
 
@@ -72,5 +98,87 @@ describe("EventEditModal - optional waze and payment links", () => {
 
     expect(screen.getByDisplayValue("https://waze.com/ul/xyz")).toBeInTheDocument();
     expect(screen.getByDisplayValue("https://pay.me/1")).toBeInTheDocument();
+  });
+});
+
+describe("EventEditModal - required date, time and location", () => {
+  it.each([
+    ["date", { date: "" }],
+    ["time", { time: "" }],
+    ["location", { location: "" }],
+  ])("blocks saving when %s is missing", (_field, override) => {
+    render(
+      <EventEditModal event={{ ...event, ...override }} onClose={jest.fn()} onSaved={jest.fn()} />
+    );
+
+    expect(saveButton()).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(saveButton());
+    expect(mockUpdateEvent).not.toHaveBeenCalled();
+  });
+
+  it("saves once the missing field is filled in", async () => {
+    const onSaved = jest.fn();
+    render(
+      <EventEditModal event={{ ...event, location: "" }} onClose={jest.fn()} onSaved={onSaved} />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("שם המקום"), {
+      target: { value: "גן האירועים" },
+    });
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mockUpdateEvent).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({ location: "גן האירועים" }),
+      undefined
+    );
+  });
+});
+
+describe("EventEditModal - required invitation image", () => {
+  const eventWithoutImage: Event = { ...event, file_id: undefined };
+
+  it("blocks saving when the event has no image and none is selected", () => {
+    render(<EventEditModal event={eventWithoutImage} onClose={jest.fn()} onSaved={jest.fn()} />);
+
+    expect(screen.getByText("חובה להעלות תמונת הזמנה")).toBeInTheDocument();
+    expect(saveButton()).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(saveButton());
+    expect(mockUpdateEvent).not.toHaveBeenCalled();
+  });
+
+  it("allows saving once an image is selected, and uploads it", async () => {
+    const onSaved = jest.fn();
+    render(<EventEditModal event={eventWithoutImage} onClose={jest.fn()} onSaved={onSaved} />);
+
+    const file = selectImage();
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mockUpdateEvent).toHaveBeenCalledWith(2, expect.any(Object), file);
+  });
+
+  it("shows a preview of the event's existing invitation image", async () => {
+    render(<EventEditModal event={event} onClose={jest.fn()} onSaved={jest.fn()} />);
+
+    await waitFor(() => {
+      const img = document.querySelector(
+        'img[src="https://server.test/events/2/image?mediaToken=abc"]'
+      );
+      expect(img).toBeInTheDocument();
+    });
+    expect(mockGetEventImageUrl).toHaveBeenCalledWith(2);
+  });
+
+  it("uploads a replacement image for an event that already has one", async () => {
+    const onSaved = jest.fn();
+    render(<EventEditModal event={event} onClose={jest.fn()} onSaved={onSaved} />);
+
+    const file = selectImage("new-invite.png");
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mockUpdateEvent).toHaveBeenCalledWith(2, expect.any(Object), file);
   });
 });

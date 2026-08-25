@@ -51,6 +51,11 @@ export interface EventGuest {
   guest_id: number;
   rsvp_status?: number | null;
   last_rsvp_sent_at?: string;
+  // Voice-RSVP call outcome: Twilio final CallStatus ('queued' while in flight)
+  // and machine-detection verdict (human/machine_*), stamped per call round.
+  last_call_status?: string | null;
+  last_call_answered_by?: string | null;
+  last_call_at?: string | null;
   // Joined from guests table:
   name?: string;
   phone?: string | null;

@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Box, Button, FieldSet, Input, InputArea, Loader, SidePanel, Text } from "@wix/design-system";
+import { Box, Button, Loader, SidePanel } from "@wix/design-system";
 import { Event } from "../../types";
 import { httpRequests } from "../../httpClient";
+import EventFormFields, { EventFormValues, isEventFormValid } from "./EventFormFields";
 
 interface EventEditModalProps {
   event: Event;
@@ -12,7 +13,7 @@ interface EventEditModalProps {
 const EventEditModal: React.FC<EventEditModalProps> = ({ event, onClose, onSaved }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [imageFile, setImageFile] = useState<File | undefined>(undefined);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<EventFormValues>({
     ceremony_name: event.ceremony_name || "",
     date: event.date || "",
     time: event.time || "",
@@ -22,11 +23,14 @@ const EventEditModal: React.FC<EventEditModalProps> = ({ event, onClose, onSaved
     gift_link: event.gift_link || "",
   });
 
+  const hasImage = Boolean(event.file_id) || Boolean(imageFile);
+  const isFormValid = isEventFormValid(form, hasImage);
+
   const handleSave = async () => {
-    if (!form.ceremony_name.trim()) return;
+    if (!isFormValid) return;
     setIsSaving(true);
     try {
-      const updated = await httpRequests.updateEvent(event.id, form);
+      const updated = await httpRequests.updateEvent(event.id, form, imageFile);
       onSaved(updated);
     } catch (err) {
       console.error(err);
@@ -41,73 +45,18 @@ const EventEditModal: React.FC<EventEditModalProps> = ({ event, onClose, onSaved
       <SidePanel.Header title={`עריכת אירוע — ${event.ceremony_name}`} />
       <SidePanel.Content>
         <Box direction="vertical" gap={3}>
-          <FieldSet legend="שם הטקס *">
-            <Input
-              value={form.ceremony_name}
-              onChange={(e) => setForm((f) => ({ ...f, ceremony_name: e.target.value }))}
-            />
-          </FieldSet>
-
-          <Box direction="horizontal" gap={2}>
-            <FieldSet legend="תאריך">
-              <Input
-                type="date"
-                value={form.date}
-                onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-              />
-            </FieldSet>
-            <FieldSet legend="שעה">
-              <Input
-                type="time"
-                value={form.time}
-                onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
-              />
-            </FieldSet>
-          </Box>
-
-          <FieldSet legend="מיקום">
-            <Input
-              value={form.location}
-              onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
-            />
-          </FieldSet>
-
-          <FieldSet legend="פרטים נוספים">
-            <InputArea
-              rows={3}
-              value={form.additional_info}
-              onChange={(e) => setForm((f) => ({ ...f, additional_info: e.target.value }))}
-            />
-          </FieldSet>
-
-          <FieldSet legend="קישור לוויז (אופציונלי)">
-            <Input
-              placeholder="הזינו קישור לוויז"
-              value={form.waze_link}
-              onChange={(e) => setForm((f) => ({ ...f, waze_link: e.target.value }))}
-            />
-          </FieldSet>
-
-          <FieldSet legend="קישור למתנות באשראי (אופציונלי)">
-            <Input
-              placeholder="הזינו קישור למתנות באשראי"
-              value={form.gift_link}
-              onChange={(e) => setForm((f) => ({ ...f, gift_link: e.target.value }))}
-            />
-          </FieldSet>
-
-          <FieldSet legend="תמונת הזמנה חדשה (אופציונלי)">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setImageFile(e.target.files?.[0])}
-            />
-            {imageFile && <Text size="small" secondary>{imageFile.name}</Text>}
-          </FieldSet>
+          <EventFormFields
+            form={form}
+            onChange={(updates) => setForm((f) => ({ ...f, ...updates }))}
+            imageFile={imageFile}
+            onImageChange={setImageFile}
+            hasExistingImage={Boolean(event.file_id)}
+            eventId={event.id}
+          />
 
           <Box direction="horizontal" gap={2} style={{ justifyContent: "flex-end" }}>
             <Button priority="secondary" onClick={onClose}>ביטול</Button>
-            <Button onClick={handleSave} disabled={isSaving || !form.ceremony_name.trim()}>
+            <Button onClick={handleSave} disabled={isSaving || !isFormValid}>
               {isSaving ? <Loader size="tiny" /> : "שמירה"}
             </Button>
           </Box>
