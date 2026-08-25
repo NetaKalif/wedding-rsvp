@@ -10,6 +10,7 @@ import { TOUR_PAGE_START_STEPS } from "./tourSteps";
 import PartnerModal from "../userDashboard/PartnerModal";
 import ViewLogsModal from "../rsvp/ViewLogsModal";
 import { useTour } from "../../hooks/useTour";
+import { useConfirm } from "../../hooks/useConfirm";
 
 type HeaderProps = {
   showBackToDashboardButton?: boolean;
@@ -20,6 +21,7 @@ const Header = ({
   const { user, isAdmin, handleLogout, partnerInfo, refreshPartnerInfo } =
     useAuth();
   const { startTour } = useTour();
+  const { confirm, ConfirmDialog } = useConfirm();
   const navigate = useNavigate();
   const location = useLocation();
   const pageStartStep = TOUR_PAGE_START_STEPS[location.pathname];
@@ -112,6 +114,13 @@ const Header = ({
             <PopoverMenu.MenuItem
               text="מחיקת חשבון"
               onClick={async () => {
+                const ok = await confirm({
+                  title: "מחיקת חשבון",
+                  message:
+                    "האם למחוק את החשבון לצמיתות? כל הנתונים שלך — אורחים, אירועים, משימות ותקציב — יימחקו ולא ניתן יהיה לשחזר אותם.",
+                  confirmText: "מחק חשבון",
+                });
+                if (!ok) return;
                 try {
                   await httpRequests.deleteUser();
                   handleLogout();
@@ -135,6 +144,7 @@ const Header = ({
               setIsViewLogsModalOpen={setIsViewLogsModalOpen}
             />
           </Modal>
+          {ConfirmDialog}
         </div>
       )}
     </div>
