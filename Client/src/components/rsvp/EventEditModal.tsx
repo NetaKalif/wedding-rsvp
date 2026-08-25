@@ -18,6 +18,8 @@ const EventEditModal: React.FC<EventEditModalProps> = ({ event, onClose, onSaved
     time: event.time || "",
     location: event.location || "",
     additional_info: event.additional_info || "",
+    waze_link: event.waze_link || "",
+    gift_link: event.gift_link || "",
   });
 
   const handleSave = async () => {
@@ -75,6 +77,22 @@ const EventEditModal: React.FC<EventEditModalProps> = ({ event, onClose, onSaved
               rows={3}
               value={form.additional_info}
               onChange={(e) => setForm((f) => ({ ...f, additional_info: e.target.value }))}
+            />
+          </FieldSet>
+
+          <FieldSet legend="קישור לוויז (אופציונלי)">
+            <Input
+              placeholder="הזינו קישור לוויז"
+              value={form.waze_link}
+              onChange={(e) => setForm((f) => ({ ...f, waze_link: e.target.value }))}
+            />
+          </FieldSet>
+
+          <FieldSet legend="קישור למתנות באשראי (אופציונלי)">
+            <Input
+              placeholder="הזינו קישור למתנות באשראי"
+              value={form.gift_link}
+              onChange={(e) => setForm((f) => ({ ...f, gift_link: e.target.value }))}
             />
           </FieldSet>
 

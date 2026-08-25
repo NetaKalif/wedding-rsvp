@@ -56,41 +56,26 @@ ${event.additional_info || ""}`;
   } ו${event.groom_name || "{{groom_name}}"}. ❤️
 נודה לתשובתכם על מנת לסדר את האירוע בצורה הטובה ביותר!`;
 
-  const dayBeforeWeddingTemplate = `היי, מחכים לראותכם מחר בחתונה של ${
+  // Mirrors the server's unified event_reminder template (see getTemplateParams):
+  // the optional waze/payment links are joined into a single additional_data line.
+  const buildReminderAdditionalData = () => {
+    const parts: string[] = [];
+    if (event.waze_link?.trim()) parts.push(`לניווט: ${event.waze_link.trim()}`);
+    if (event.gift_link?.trim())
+      parts.push(`לנוחיותכם, ניתן להעניק מתנות באשראי בקישור: ${event.gift_link.trim()}`);
+    return parts.join(" | ");
+  };
+
+  const buildEventReminderTemplate = (dayWord: string) => `משפחה וחברים יקרים,
+מתרגשים לראותכם ${dayWord} ב${effectiveCeremonyType} של ${
     event.bride_name || "{{bride_name}}"
   } ו${event.groom_name || "{{groom_name}}"} בשעה ${
     event.time ? event.time.slice(0, 5) : "{{time}}"
-  }!
+  }
 
-לניווט: ${event.waze_link || "{{waze_link}}"}
+${buildReminderAdditionalData()}
 
-${
-  event.gift_link && event.gift_link.trim() !== ""
-    ? `לנוחיותכם, ניתן להעניק מתנות באשראי בקישור:
-${event.gift_link}`
-    : ""
-} `;
-
-  const weddingDayTemplate = `היי, מחכים לראותכם היום בחתונה של ${
-    event.bride_name || "{{bride_name}}"
-  } ו${event.groom_name || "{{groom_name}}"} בשעה ${
-    event.time ? event.time.slice(0, 5) : "{{time}}"
-  }!
-לניווט: ${event.waze_link || "{{waze_link}}"}
-
-${
-  event.gift_link && event.gift_link.trim() !== ""
-    ? `לנוחיותכם, ניתן להעניק מתנות באשראי בקישור:
-${event.gift_link}`
-    : ""
-} `;
-
-  const eventReminderTemplate = `אורחים יקרים,
-מתרגשים לראותכם היום ב${effectiveCeremonyType} של ${event.bride_name || "{{bride_name}}"} ו${
-    event.groom_name || "{{groom_name}}"
-  } בשעה ${event.time ? event.time.slice(0, 5) : "{{time}}"}
-
-נתראה! 🎊`;
+נתראה ! 🎊 🪩`;
 
   const thankYouTemplate = `אורחים יקרים,
 ${event.thank_you_message || "תודה שהגעתם לחגוג איתנו ולשמוח בשמחתנו!"}
@@ -119,14 +104,15 @@ ${event.bride_name || "{{bride_name}}"} ו${
       );
     } else if (type === "rsvpReminder") {
       return renderMessage("הודעת תזכורת", reminderTemplate);
-    } else if (type === "weddingReminder") {
-      const isWeddingDay = event.reminder_day === "wedding_day";
-      return renderMessage(
-        isWeddingDay ? "תזכורת ליום החתונה" : "תזכורת ליום לפני החתונה",
-        isWeddingDay ? weddingDayTemplate : dayBeforeWeddingTemplate
-      );
     } else if (type === "eventReminder") {
-      return renderMessage("תזכורת לאירוע", eventReminderTemplate);
+      // Same day-word rule as the server: only day_before reminders say "מחר"
+      const isDayBefore = event.reminder_day === "day_before";
+      const title = !event.is_primary
+        ? "תזכורת לאירוע"
+        : isDayBefore
+        ? "תזכורת ליום לפני החתונה"
+        : "תזכורת ליום החתונה";
+      return renderMessage(title, buildEventReminderTemplate(isDayBefore ? "מחר" : "היום"));
     } else if (type === "thankYou") {
       return renderMessage("הודעת תודה", thankYouTemplate);
     } else if (type === "rsvp") {
@@ -142,7 +128,7 @@ ${event.bride_name || "{{bride_name}}"} ו${
         ) : (
           <>
             {getMessageContent("rsvp")}
-            {getMessageContent("weddingReminder")}
+            {getMessageContent("eventReminder")}
             {getMessageContent("thankYou")}
           </>
         )}

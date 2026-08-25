@@ -30,7 +30,6 @@ export type MessageType =
   | "rsvp"
   | "rsvpReminder"
   | "freeText"
-  | "weddingReminder"
   | "eventReminder"
   | "thankYou";
 
@@ -181,7 +180,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     if (messageType === "rsvpReminder") {
       return sendableGuests.filter((g) => g.rsvp_status == null);
     }
-    if (messageType === "weddingReminder" || messageType === "eventReminder") {
+    if (messageType === "eventReminder") {
       return sendableGuests.filter((g) => g.rsvp_status != null && g.rsvp_status > 0);
     }
     return sendableGuests;
@@ -216,7 +215,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   const emptyGroupMessage = (() => {
     if (selectSpecificGuests || targetGuestCount > 0) return null;
     if (messageType === "rsvpReminder") return "אין אורחים שממתינים לתגובה";
-    if (messageType === "weddingReminder") return "אין אורחים שאישרו הגעה";
+    if (messageType === "eventReminder") return "אין אורחים שאישרו הגעה";
     return "אין אורחים לשליחה";
   })();
 
@@ -335,27 +334,24 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                 </Box>
               </RadioGroup.Radio>
 
-              {isAdmin && isPrimaryEvent && (
-                <RadioGroup.Radio value="weddingReminder">
-                  <Box direction="vertical" gap={1}>
-                    <Text weight="bold">תזכורת לחתונה</Text>
-                    <Text size="small" secondary>
-                      שליחת תזכורת לאורחים שאישרו ב
-                      {event.reminder_day === "wedding_day"
-                        ? "יום החתונה"
-                        : "יום לפני החתונה"}
-                      {event.reminder_time ? ` בשעה ${event.reminder_time}` : ""}
-                    </Text>
-                  </Box>
-                </RadioGroup.Radio>
-              )}
-
-              {isAdmin && !isPrimaryEvent && (
+              {isAdmin && (
                 <RadioGroup.Radio value="eventReminder">
                   <Box direction="vertical" gap={1}>
-                    <Text weight="bold">תזכורת לאירוע</Text>
+                    <Text weight="bold">
+                      {isPrimaryEvent ? "תזכורת לחתונה" : "תזכורת לאירוע"}
+                    </Text>
                     <Text size="small" secondary>
-                      שליחת תזכורת לאורחים שאישרו ביום האירוע
+                      {isPrimaryEvent ? (
+                        <>
+                          שליחת תזכורת לאורחים שאישרו ב
+                          {event.reminder_day === "wedding_day"
+                            ? "יום החתונה"
+                            : "יום לפני החתונה"}
+                          {event.reminder_time ? ` בשעה ${event.reminder_time}` : ""}
+                        </>
+                      ) : (
+                        "שליחת תזכורת לאורחים שאישרו ביום האירוע"
+                      )}
                     </Text>
                   </Box>
                 </RadioGroup.Radio>

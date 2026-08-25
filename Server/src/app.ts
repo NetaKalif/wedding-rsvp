@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import Database from "./dbUtils";
-import { User, Event, EventGuest, TemplateName, GIFT_TYPES, GiftType } from "./types";
+import { User, Event, EventGuest, GIFT_TYPES, GiftType } from "./types";
 import { Request, Response, RequestHandler } from "express-serve-static-core";
 import multer from "multer";
 import {
@@ -70,24 +70,6 @@ const isTimeToSend = (timeToUse: string): boolean => {
   const currentMinute = israelTime.getMinutes();
   const [targetHour, targetMinute] = timeToUse.split(":").map(Number);
   return currentHour === targetHour && currentMinute === targetMinute;
-};
-
-const getTemplateName = (
-  messageType: string,
-  hasGiftLink: boolean,
-  isWeddingDay: boolean,
-): TemplateName => {
-  if (messageType === "weddingReminder") {
-    if (isWeddingDay) {
-      return hasGiftLink
-        ? "wedding_day_reminder"
-        : "wedding_reminders_no_gift_same_day";
-    }
-    return hasGiftLink
-      ? "day_before_wedding_reminder"
-      : "wedding_reminders_no_gift";
-  }
-  return messageType as TemplateName;
 };
 
 const limitGuests = <T>(guests: T[]): T[] =>
@@ -664,7 +646,7 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
     }
 
     // Get event guests with optional RSVP filter
-    const rsvpFilter = messageType === "rsvpReminder" ? "pending" : (messageType === "weddingReminder" || messageType === "eventReminder") ? "approved" : undefined;
+    const rsvpFilter = messageType === "rsvpReminder" ? "pending" : messageType === "eventReminder" ? "approved" : undefined;
     let eventGuests = await db.getEventGuests(eventId, rsvpFilter).then((guests) => guests.filter(hasPhone));
 
     if (selectedGuestIds?.length) {
@@ -680,7 +662,7 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
       await logMessage(dataOwner, `⚠️ Guest list limited to ${MAX_GUESTS_PER_MESSAGE_BATCH} (WhatsApp limit)`);
     }
 
-    const label = messageType === "rsvp" ? "RSVP invitation" : messageType === "rsvpReminder" ? "RSVP reminder" : messageType === "weddingReminder" ? "wedding reminder" : messageType === "eventReminder" ? "event reminder" : messageType === "thankYou" ? "thank-you" : "custom text";
+    const label = messageType === "rsvp" ? "RSVP invitation" : messageType === "rsvpReminder" ? "RSVP reminder" : messageType === "eventReminder" ? "event reminder" : messageType === "thankYou" ? "thank-you" : "custom text";
     await logMessage(dataOwner, `📨 Sending ${label} for "${event.ceremony_name}" to ${limited.length} guests`);
 
     const promises = buildMessagePromises(limited, messageType, customText, event, dataOwner);
@@ -751,14 +733,10 @@ const buildMessagePromises = (
   if (messageType === "rsvpReminder") {
     return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: "wedding_rsvp_reminder", event } }));
   }
-  if (messageType === "weddingReminder") {
-    const hasGiftLink = !!(event.gift_link?.trim());
-    const isWeddingDay = event.reminder_day === "wedding_day";
-    const templateName = getTemplateName(messageType, hasGiftLink, isWeddingDay);
-    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: templateName, event } }));
-  }
+  // Day wording and the optional waze/payment links are resolved from the
+  // event itself in getTemplateParams.
   if (messageType === "eventReminder") {
-    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: "event_reminder_same_day", event } }));
+    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: "event_reminder", event } }));
   }
   if (messageType === "thankYou") {
     const templateName = event.thank_you_message ? "custom_thank_you_message" : "thank_you_message";
@@ -1936,10 +1914,8 @@ const sendScheduledMessages = async (bypassTimeGuards = false) => {
           const eventGuests = limitGuests((await db.getEventGuests(event.id, "approved")).filter(hasPhone));
           if (eventGuests.length > 0) {
             await logMessage(userID, `🔄 Sending ${isWeddingDay ? "wedding day" : "day before"} reminder for "${event.ceremony_name}" to ${eventGuests.length} guests`);
-            const hasGiftLink = !!(event.gift_link?.trim());
-            const templateName = getTemplateName("weddingReminder", hasGiftLink, isWeddingDay);
             const promises = eventGuests.map((eg) =>
-              sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone }, { template: { name: templateName, event } })
+              sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone }, { template: { name: "event_reminder", event } })
             );
             await sendMessagesAndLog(promises, userID, "💍", `${isWeddingDay ? "wedding day" : "day before"} reminder`);
           }

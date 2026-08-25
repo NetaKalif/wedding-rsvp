@@ -93,14 +93,10 @@ export type RsvpFilter = "all" | "pending" | "approved" | "declined";
 
 export type TemplateName =
   | "wedding_rsvp_action"
-  | "wedding_day_reminder"
   | "wedding_rsvp_reminder"
-  | "day_before_wedding_reminder"
-  | "wedding_reminders_no_gift"
-  | "wedding_reminders_no_gift_same_day"
   | "custom_thank_you_message"
   | "thank_you_message"
-  | "event_reminder_same_day";
+  | "event_reminder";
 
 export interface ClientLog {
   id?: number;
