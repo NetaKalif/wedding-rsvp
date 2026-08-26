@@ -3,11 +3,13 @@ import {
   AddItem,
   Box,
   Button,
+  Checkbox,
   FieldSet,
   FileUpload,
   Image,
   Input,
   InputArea,
+  RadioGroup,
   Text,
 } from "@wix/design-system";
 import { UploadExport } from "@wix/wix-ui-icons-common";
@@ -25,6 +27,10 @@ export interface EventFormValues {
   additional_info: string;
   waze_link: string;
   gift_link: string;
+  send_reminder: boolean;
+  // "wedding_day" is the DB value for "on the day of the event" (shared with the wedding)
+  reminder_day: "day_before" | "wedding_day";
+  reminder_time: string;
 }
 
 export const emptyEventForm: EventFormValues = {
@@ -35,6 +41,9 @@ export const emptyEventForm: EventFormValues = {
   additional_info: "",
   waze_link: "",
   gift_link: "",
+  send_reminder: false,
+  reminder_day: "wedding_day",
+  reminder_time: "10:00",
 };
 
 export const isEventFormValid = (form: EventFormValues, hasImage: boolean): boolean =>
@@ -163,6 +172,40 @@ const EventFormFields: React.FC<EventFormFieldsProps> = ({
         )}
         {imageFile && <Text size="small" secondary>{imageFile.name}</Text>}
         {!hasImage && <Text size="small" skin="error">חובה להעלות תמונת הזמנה</Text>}
+      </FieldSet>
+
+      <FieldSet legend="תזכורת אוטומטית">
+        <Box direction="vertical" gap={2}>
+          <Checkbox
+            checked={form.send_reminder}
+            onChange={(e) => onChange({ send_reminder: e.target.checked })}
+          >
+            שליחת תזכורת אוטומטית לאורחים שאישרו הגעה
+          </Checkbox>
+          {form.send_reminder && (
+            <Box direction="vertical" gap={2}>
+              <Text size="small" secondary>
+                בחרו מתי לשלוח את התזכורת
+              </Text>
+              <RadioGroup
+                value={form.reminder_day}
+                onChange={(value) =>
+                  onChange({ reminder_day: value as "day_before" | "wedding_day" })
+                }
+              >
+                <RadioGroup.Radio value="day_before">יום לפני האירוע</RadioGroup.Radio>
+                <RadioGroup.Radio value="wedding_day">ביום האירוע</RadioGroup.Radio>
+              </RadioGroup>
+              <FieldSet legend="שעת התזכורת">
+                <Input
+                  type="time"
+                  value={form.reminder_time}
+                  onChange={(e) => onChange({ reminder_time: e.target.value })}
+                />
+              </FieldSet>
+            </Box>
+          )}
+        </Box>
       </FieldSet>
 
       <FieldSet legend="פרטים נוספים">

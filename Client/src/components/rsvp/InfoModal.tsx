@@ -9,6 +9,7 @@ import {
   Box,
   Text,
   Button,
+  Checkbox,
   Input,
   InputArea,
   FileUpload,
@@ -19,6 +20,7 @@ import {
   Image,
   RadioGroup,
   SectionHelper,
+  Stepper,
 } from "@wix/design-system";
 import { Event } from "../../types";
 import { UploadExport } from "@wix/wix-ui-icons-common";
@@ -31,6 +33,15 @@ interface InfoModalProps {
   setIsInfoModalOpen: (value: boolean) => void;
 }
 
+// The wedding-info form is split into three freely-clickable wizard steps, so
+// a user editing a single detail can jump straight to it and save, without
+// walking through the whole flow. Saving always submits the entire form.
+const STEPS = [
+  { text: "פרטי החתונה" },
+  { text: "תזכורת לאורחים" },
+  { text: "הודעת תודה" },
+];
+
 const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => {
   const {
     user,
@@ -38,6 +49,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
     refreshWeddingInfo,
   } = useAuth();
   const [eventDetails, setEventDetails] = useState<Partial<Event>>({
+    is_primary: true,
     bride_name: "",
     groom_name: "",
     date: "2025-01-01",
@@ -50,7 +62,9 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
     file_id: "",
     reminder_day: "day_before",
     reminder_time: "10:00",
+    send_thank_you: false,
   });
+  const [activeStep, setActiveStep] = useState(0);
   const [file, setFile] = useState<File | undefined>(undefined);
   const [showEmojiPicker, setShowEmojiPicker] = useState({
     additionalInfo: false,
@@ -103,7 +117,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
   const handleSend = async () => {
     if (!user) return;
 
-    // Validate all required fields
+    // Validate all required fields (they all live on the first step)
     if (
       !eventDetails.bride_name ||
       !eventDetails.groom_name ||
@@ -113,6 +127,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
       (!file && !imageUrl)
     ) {
       setFormError("אנא מלאו את כל השדות הנדרשים והעלו תמונת הזמנה");
+      setActiveStep(0);
       return;
     }
 
@@ -130,311 +145,360 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
     }
   };
 
+  const renderWeddingDetailsStep = () => (
+    <Box direction="vertical" gap={4} width="100%">
+      <FormField label="שם הכלה" required>
+        <div dir="rtl">
+          <Input
+            value={eventDetails.bride_name}
+            onChange={(e) =>
+              setEventDetails((prev) => ({
+                ...prev,
+                bride_name: e.target.value,
+              }))
+            }
+            placeholder="הכניסו את שם הכלה"
+          />
+        </div>
+      </FormField>
+      <FormField label="שם החתן" required>
+        <div dir="rtl">
+          <Input
+            value={eventDetails.groom_name}
+            onChange={(e) =>
+              setEventDetails((prev) => ({
+                ...prev,
+                groom_name: e.target.value,
+              }))
+            }
+            placeholder="הכניסו את שם החתן"
+          />
+        </div>
+      </FormField>
+      <FormField label="תאריך החתונה" required>
+        <Input
+          type="date"
+          onChange={(e) => {
+            setEventDetails((prev) => ({
+              ...prev,
+              date: e.target.value,
+            }));
+          }}
+          value={eventDetails.date}
+          size="large"
+        />
+      </FormField>
+      <FormField label="שעת החתונה" required>
+        <Input
+          type="time"
+          value={eventDetails.time}
+          onChange={(e) =>
+            setEventDetails((prev) => ({
+              ...prev,
+              time: e.target.value,
+            }))
+          }
+        />
+      </FormField>
+      <FormField label="שם המקום" required>
+        <div dir="rtl">
+          <Input
+            value={eventDetails.location}
+            onChange={(e) =>
+              setEventDetails((prev) => ({
+                ...prev,
+                location: e.target.value,
+              }))
+            }
+            placeholder="הכניסו את מיקום החתונה"
+          />
+        </div>
+      </FormField>
+      <FormField label="הזמנה לחתונה" required>
+        {imageUrl ? (
+          <Box direction="vertical" gap={2}>
+            <Image src={imageUrl} width={"200px"} />
+            <FileUpload
+              accept=".png, .jpeg, .jpg"
+              multiple={false}
+              onChange={(files) => {
+                if (files) {
+                  setFile(files[0]);
+                }
+              }}
+            >
+              {({ openFileUploadDialog }) => (
+                <Button skin="light" onClick={openFileUploadDialog}>
+                  <UploadExport />
+                  <span style={{ marginRight: "8px" }}>החלפת הזמנה</span>
+                </Button>
+              )}
+            </FileUpload>
+          </Box>
+        ) : (
+          <FileUpload
+            multiple={false}
+            accept=".png, .jpeg, .JPG"
+            onChange={(files) => {
+              if (files) {
+                setFile(files[0]);
+              }
+            }}
+          >
+            {({ openFileUploadDialog }) => (
+              <AddItem
+                icon={<UploadExport />}
+                size="small"
+                subtitle={
+                  file
+                    ? "החלפת תמונת הזמנה"
+                    : "העלו את הזמנת החתונה שלכם (חובה)"
+                }
+                onClick={openFileUploadDialog}
+              >
+                {file ? "החלפת מדיה" : "העלאת מדיה"}
+              </AddItem>
+            )}
+          </FileUpload>
+        )}
+        {file && (
+          <Box gap={2} marginTop={2}>
+            <Text secondary>{file.name}</Text>
+          </Box>
+        )}
+      </FormField>
+      <FormField label="מידע נוסף">
+        <Box direction="vertical" gap={1}>
+          <div dir="rtl">
+            <InputArea
+              value={eventDetails.additional_info}
+              onChange={(e) =>
+                setEventDetails((prev) => ({
+                  ...prev,
+                  additional_info: e.target.value.replace(
+                    /\n/g,
+                    " "
+                  ),
+                }))
+              }
+              placeholder="הזינו מידע נוסף להודעת אישור ההגעה (שורה אחת בלבד). לדוגמה: קישור לקבוצת וואטסאפ של ההסעה"
+              rows={3}
+            />
+          </div>
+          <Popover
+            shown={showEmojiPicker.additionalInfo}
+            placement="top"
+            onClickOutside={() =>
+              setShowEmojiPicker((prev) => ({
+                ...prev,
+                additionalInfo: false,
+              }))
+            }
+          >
+            <Popover.Element>
+              <IconButton
+                size="small"
+                onClick={() =>
+                  setShowEmojiPicker((prev) => ({
+                    ...prev,
+                    additionalInfo: !prev.additionalInfo,
+                  }))
+                }
+              >
+                <Smile />
+              </IconButton>
+            </Popover.Element>
+            <Popover.Content>
+              <Box width="350px">
+                <EmojiPicker
+                  onEmojiClick={(emojiData) =>
+                    onEmojiClick("additional_info", emojiData)
+                  }
+                  width="100%"
+                />
+              </Box>
+            </Popover.Content>
+          </Popover>
+        </Box>
+      </FormField>
+    </Box>
+  );
+
+  const renderReminderStep = () => (
+    <Box direction="vertical" gap={4} width="100%">
+      <FormField label="הגדרות תזכורת">
+        <Box direction="vertical" gap={2}>
+          <Text size="small" secondary>
+            בחרו מתי לשלוח תזכורת אוטומטית לאורחים שאישרו
+          </Text>
+          <RadioGroup
+            value={eventDetails.reminder_day || "day_before"}
+            onChange={(value) =>
+              setEventDetails((prev) => ({
+                ...prev,
+                reminder_day: value as "day_before" | "wedding_day",
+              }))
+            }
+          >
+            <RadioGroup.Radio value="day_before">
+              יום לפני החתונה
+            </RadioGroup.Radio>
+            <RadioGroup.Radio value="wedding_day">
+              יום החתונה
+            </RadioGroup.Radio>
+          </RadioGroup>
+          <FormField label="שעת התזכורת">
+            <Input
+              type="time"
+              value={eventDetails.reminder_time || "10:00"}
+              onChange={(e) =>
+                setEventDetails((prev) => ({
+                  ...prev,
+                  reminder_time: e.target.value,
+                }))
+              }
+            />
+          </FormField>
+        </Box>
+      </FormField>
+      <FormField label="קישור לוויז (אופציונלי)">
+        <Input
+          value={eventDetails.waze_link}
+          onChange={(e) =>
+            setEventDetails((prev) => ({
+              ...prev,
+              waze_link: e.target.value,
+            }))
+          }
+          placeholder="הזינו קישור לוויז"
+        />
+      </FormField>
+      <FormField label="קישור למתנות באשראי (אופציונלי)">
+        <Input
+          value={eventDetails.gift_link}
+          onChange={(e) =>
+            setEventDetails((prev) => ({
+              ...prev,
+              gift_link: e.target.value,
+            }))
+          }
+          placeholder="הזינו קישור למתנות באשראי"
+        />
+      </FormField>
+    </Box>
+  );
+
+  const renderThankYouStep = () => (
+    <Box direction="vertical" gap={4} width="100%">
+      <FormField label="הודעת תודה אוטומטית">
+        <Checkbox
+          checked={eventDetails.send_thank_you || false}
+          onChange={(e) =>
+            setEventDetails((prev) => ({
+              ...prev,
+              send_thank_you: e.target.checked,
+            }))
+          }
+        >
+          שליחת הודעת תודה אוטומטית לאורחים יום לאחר החתונה
+        </Checkbox>
+      </FormField>
+      {eventDetails.send_thank_you && (
+        <FormField label="הודעת תודה מותאמת אישית">
+          <Box direction="vertical" gap={1}>
+            {/* The custom message is embedded in a fixed template — show the
+                surrounding text so users phrase their message to fit it */}
+            <div
+              dir="rtl"
+              style={{ background: "#f8f8f8", borderRadius: 8, padding: "12px 14px" }}
+            >
+              <Box direction="vertical" gap={1}>
+                <Text>אורחים יקרים,</Text>
+                <InputArea
+                  value={eventDetails.thank_you_message}
+                  onChange={(e) =>
+                    setEventDetails((prev) => ({
+                      ...prev,
+                      thank_you_message: e.target.value,
+                    }))
+                  }
+                  placeholder="הזינו הודעת תודה מותאמת אישית (אופציונלי). אם ריק, תישלח הודעה ברירת מחדל."
+                  rows={3}
+                />
+                <Text>אוהבים,</Text>
+                <Text>
+                  {eventDetails.bride_name || "שם הכלה"} ו{eventDetails.groom_name || "שם החתן"} ❤️
+                </Text>
+              </Box>
+            </div>
+            <Popover
+              shown={showEmojiPicker.thankYou}
+              placement="top"
+              onClickOutside={() =>
+                setShowEmojiPicker((prev) => ({
+                  ...prev,
+                  thankYou: false,
+                }))
+              }
+            >
+              <Popover.Element>
+                <IconButton
+                  size="small"
+                  onClick={() =>
+                    setShowEmojiPicker((prev) => ({
+                      ...prev,
+                      thankYou: !prev.thankYou,
+                    }))
+                  }
+                >
+                  <Smile />
+                </IconButton>
+              </Popover.Element>
+              <Popover.Content>
+                <Box width="350px">
+                  <EmojiPicker
+                    onEmojiClick={(emojiData) =>
+                      onEmojiClick("thank_you_message", emojiData)
+                    }
+                    width="100%"
+                  />
+                </Box>
+              </Popover.Content>
+            </Popover>
+          </Box>
+        </FormField>
+      )}
+    </Box>
+  );
+
   return (
     <SidePanel
       skin="floating"
+      width="500px"
       onCloseButtonClick={() => setIsInfoModalOpen(false)}
-      // height={"800px"}
-      // width={"800px"}
     >
       <SidePanel.Header title="פרטי החתונה והודעות" />
       <SidePanel.Content>
         <Box direction="vertical" gap={4}>
-          {/* Basic Wedding Information */}
+          <Stepper
+            activeStep={activeStep}
+            onClick={(index) => setActiveStep(index)}
+            fit="stretched"
+            steps={STEPS}
+          />
 
-          <Box direction="vertical" gap={4} width="100%">
-            <FormField label="שם הכלה" required>
-              <div dir="rtl">
-                <Input
-                  value={eventDetails.bride_name}
-                  onChange={(e) =>
-                    setEventDetails((prev) => ({
-                      ...prev,
-                      bride_name: e.target.value,
-                    }))
-                  }
-                  placeholder="הכניסו את שם הכלה"
-                />
-              </div>
-            </FormField>
-            <FormField label="שם החתן" required>
-              <div dir="rtl">
-                <Input
-                  value={eventDetails.groom_name}
-                  onChange={(e) =>
-                    setEventDetails((prev) => ({
-                      ...prev,
-                      groom_name: e.target.value,
-                    }))
-                  }
-                  placeholder="הכניסו את שם החתן"
-                />
-              </div>
-            </FormField>
-            <FormField label="תאריך החתונה" required>
-              <Input
-                type="date"
-                onChange={(e) => {
-                  setEventDetails((prev) => ({
-                    ...prev,
-                    date: e.target.value,
-                  }));
-                }}
-                value={eventDetails.date}
-                size="large"
-              />
-            </FormField>
-            <FormField label="שעת החתונה" required>
-              <Input
-                type="time"
-                value={eventDetails.time}
-                onChange={(e) =>
-                  setEventDetails((prev) => ({
-                    ...prev,
-                    time: e.target.value,
-                  }))
-                }
-              />
-            </FormField>
-            <FormField label="הגדרות תזכורת">
-              <Box direction="vertical" gap={2}>
-                <Text size="small" secondary>
-                  בחרו מתי לשלוח תזכורת אוטומטית לאורחים שאישרו
-                </Text>
-                <RadioGroup
-                  value={eventDetails.reminder_day || "day_before"}
-                  onChange={(value) =>
-                    setEventDetails((prev) => ({
-                      ...prev,
-                      reminder_day: value as "day_before" | "wedding_day",
-                    }))
-                  }
-                >
-                  <RadioGroup.Radio value="day_before">
-                    יום לפני החתונה
-                  </RadioGroup.Radio>
-                  <RadioGroup.Radio value="wedding_day">
-                    יום החתונה
-                  </RadioGroup.Radio>
-                </RadioGroup>
-                <FormField label="שעת התזכורת">
-                  <Input
-                    type="time"
-                    value={eventDetails.reminder_time || "10:00"}
-                    onChange={(e) =>
-                      setEventDetails((prev) => ({
-                        ...prev,
-                        reminder_time: e.target.value,
-                      }))
-                    }
-                  />
-                </FormField>
-              </Box>
-            </FormField>
-            <FormField label="שם המקום" required>
-              <div dir="rtl">
-                <Input
-                  value={eventDetails.location}
-                  onChange={(e) =>
-                    setEventDetails((prev) => ({
-                      ...prev,
-                      location: e.target.value,
-                    }))
-                  }
-                  placeholder="הכניסו את מיקום החתונה"
-                />
-              </div>
-            </FormField>
-            <FormField label="הזמנה לחתונה" required>
-              {imageUrl ? (
-                <Box direction="vertical" gap={2}>
-                  <Image src={imageUrl} width={"200px"} />
-                  <FileUpload
-                    accept=".png, .jpeg, .jpg"
-                    multiple={false}
-                    onChange={(files) => {
-                      if (files) {
-                        setFile(files[0]);
-                      }
-                    }}
-                  >
-                    {({ openFileUploadDialog }) => (
-                      <Button skin="light" onClick={openFileUploadDialog}>
-                        <UploadExport />
-                        <span style={{ marginRight: "8px" }}>החלפת הזמנה</span>
-                      </Button>
-                    )}
-                  </FileUpload>
-                </Box>
-              ) : (
-                <FileUpload
-                  multiple={false}
-                  accept=".png, .jpeg, .JPG"
-                  onChange={(files) => {
-                    if (files) {
-                      setFile(files[0]);
-                    }
-                  }}
-                >
-                  {({ openFileUploadDialog }) => (
-                    <AddItem
-                      icon={<UploadExport />}
-                      size="small"
-                      subtitle={
-                        file
-                          ? "החלפת תמונת הזמנה"
-                          : "העלו את הזמנת החתונה שלכם (חובה)"
-                      }
-                      onClick={openFileUploadDialog}
-                    >
-                      {file ? "החלפת מדיה" : "העלאת מדיה"}
-                    </AddItem>
-                  )}
-                </FileUpload>
-              )}
-              {file && (
-                <Box gap={2} marginTop={2}>
-                  <Text secondary>{file.name}</Text>
-                </Box>
-              )}
-            </FormField>
+          {activeStep === 0 && renderWeddingDetailsStep()}
+          {activeStep === 1 && renderReminderStep()}
+          {activeStep === 2 && renderThankYouStep()}
 
-            <FormField label="מידע נוסף">
-              <Box direction="vertical" gap={1}>
-                <div dir="rtl">
-                  <InputArea
-                    value={eventDetails.additional_info}
-                    onChange={(e) =>
-                      setEventDetails((prev) => ({
-                        ...prev,
-                        additional_info: e.target.value.replace(
-                          /\n/g,
-                          " "
-                        ),
-                      }))
-                    }
-                    placeholder="הזינו מידע נוסף להודעת אישור ההגעה (שורה אחת בלבד). לדוגמה: קישור לקבוצת וואטסאפ של ההסעה"
-                    rows={3}
-                  />
-                </div>
-                <Popover
-                  shown={showEmojiPicker.additionalInfo}
-                  placement="top"
-                  onClickOutside={() =>
-                    setShowEmojiPicker((prev) => ({
-                      ...prev,
-                      additionalInfo: false,
-                    }))
-                  }
-                >
-                  <Popover.Element>
-                    <IconButton
-                      size="small"
-                      onClick={() =>
-                        setShowEmojiPicker((prev) => ({
-                          ...prev,
-                          additionalInfo: !prev.additionalInfo,
-                        }))
-                      }
-                    >
-                      <Smile />
-                    </IconButton>
-                  </Popover.Element>
-                  <Popover.Content>
-                    <Box width="350px">
-                      <EmojiPicker
-                        onEmojiClick={(emojiData) =>
-                          onEmojiClick("additional_info", emojiData)
-                        }
-                        width="100%"
-                      />
-                    </Box>
-                  </Popover.Content>
-                </Popover>
-              </Box>
-            </FormField>
-            <FormField label="הודעת תודה מותאמת אישית">
-              <Box direction="vertical" gap={1}>
-                <div dir="rtl">
-                  <InputArea
-                    value={eventDetails.thank_you_message}
-                    onChange={(e) =>
-                      setEventDetails((prev) => ({
-                        ...prev,
-                        thank_you_message: e.target.value,
-                      }))
-                    }
-                    placeholder="הזינו הודעת תודה מותאמת אישית (אופציונלי). אם ריק, תישלח הודעה ברירת מחדל."
-                    rows={3}
-                  />
-                </div>
-                <Popover
-                  shown={showEmojiPicker.thankYou}
-                  placement="top"
-                  onClickOutside={() =>
-                    setShowEmojiPicker((prev) => ({
-                      ...prev,
-                      thankYou: false,
-                    }))
-                  }
-                >
-                  <Popover.Element>
-                    <IconButton
-                      size="small"
-                      onClick={() =>
-                        setShowEmojiPicker((prev) => ({
-                          ...prev,
-                          thankYou: !prev.thankYou,
-                        }))
-                      }
-                    >
-                      <Smile />
-                    </IconButton>
-                  </Popover.Element>
-                  <Popover.Content>
-                    <Box width="350px">
-                      <EmojiPicker
-                        onEmojiClick={(emojiData) =>
-                          onEmojiClick("thank_you_message", emojiData)
-                        }
-                        width="100%"
-                      />
-                    </Box>
-                  </Popover.Content>
-                </Popover>
-              </Box>
-            </FormField>
-            <FormField label="קישור לוויז (אופציונלי)">
-              <Input
-                value={eventDetails.waze_link}
-                onChange={(e) =>
-                  setEventDetails((prev) => ({
-                    ...prev,
-                    waze_link: e.target.value,
-                  }))
-                }
-                placeholder="הזינו קישור לוויז"
-              />
-            </FormField>
-            <FormField label="קישור למתנות באשראי (אופציונלי)">
-              <Input
-                value={eventDetails.gift_link}
-                onChange={(e) =>
-                  setEventDetails((prev) => ({
-                    ...prev,
-                    gift_link: e.target.value,
-                  }))
-                }
-                placeholder="הזינו קישור למתנות באשראי"
-              />
-            </FormField>
-          </Box>
-
-          {/* Message Previews */}
+          {/* Preview of the message this step configures */}
           <WhatsAppPreview
             event={eventDetails as Event}
             getImageUrl={getPreviewImageUrl}
-            showAllMessages={true}
+            showAllMessages={false}
+            messageType={
+              activeStep === 0 ? "rsvp" : activeStep === 1 ? "eventReminder" : "thankYou"
+            }
           />
 
           {file && isSubmitting && (
@@ -444,9 +508,20 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
           )}
           {/* Action Buttons */}
           <Box align="space-between">
-            <Button size="small" onClick={handleSend} disabled={isSubmitting}>
-              {isSubmitting ? <Loader size="tiny" /> : "שמירה"}
-            </Button>
+            <Box gap={2}>
+              <Button size="small" onClick={handleSend} disabled={isSubmitting}>
+                {isSubmitting ? <Loader size="tiny" /> : "שמירה"}
+              </Button>
+              {activeStep < STEPS.length - 1 && (
+                <Button
+                  priority="secondary"
+                  size="small"
+                  onClick={() => setActiveStep(activeStep + 1)}
+                >
+                  הבא
+                </Button>
+              )}
+            </Box>
             <Button
               priority="secondary"
               size="small"

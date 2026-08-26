@@ -95,4 +95,45 @@ describe("CreateEventWizard - required event details", () => {
       file
     );
   });
+
+  it("creates the event with the reminder off by default", async () => {
+    const onCreated = jest.fn();
+    renderWizard(onCreated);
+
+    fillRequiredFields();
+    selectImage();
+    fireEvent.click(nextButton());
+    fireEvent.click(screen.getByText("צור אירוע"));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalled());
+    expect(mockCreateEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ send_reminder: false }),
+      expect.anything()
+    );
+  });
+
+  it("includes the reminder day and time when the reminder is turned on", async () => {
+    const onCreated = jest.fn();
+    renderWizard(onCreated);
+
+    fillRequiredFields();
+    selectImage();
+    fireEvent.click(screen.getByText("שליחת תזכורת אוטומטית לאורחים שאישרו הגעה"));
+    fireEvent.click(screen.getByText("ביום האירוע"));
+    const timeInputs = document.querySelectorAll('input[type="time"]');
+    fireEvent.change(timeInputs[timeInputs.length - 1], { target: { value: "09:00" } });
+
+    fireEvent.click(nextButton());
+    fireEvent.click(screen.getByText("צור אירוע"));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalled());
+    expect(mockCreateEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        send_reminder: true,
+        reminder_day: "wedding_day",
+        reminder_time: "09:00",
+      }),
+      expect.anything()
+    );
+  });
 });

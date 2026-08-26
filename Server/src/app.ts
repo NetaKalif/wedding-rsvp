@@ -662,8 +662,12 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
       event = { ...event, bride_name: event.bride_name || primary?.bride_name, groom_name: event.groom_name || primary?.groom_name };
     }
 
-    // Get event guests with optional RSVP filter
-    const rsvpFilter = messageType === "rsvpReminder" ? "pending" : messageType === "eventReminder" ? "approved" : undefined;
+    // Get event guests with optional RSVP filter. Thank-yous only go to guests
+    // who confirmed, matching the scheduled day-after send.
+    const rsvpFilter =
+      messageType === "rsvpReminder" ? "pending"
+        : messageType === "eventReminder" || messageType === "thankYou" ? "approved"
+          : undefined;
     let eventGuests = await db.getEventGuests(eventId, rsvpFilter).then((guests) => guests.filter(hasPhone));
 
     if (selectedGuestIds?.length) {
@@ -1714,7 +1718,7 @@ app.post(
   upload.single("image") as RequestHandler,
   async (req: Request, res: Response) => {
     try {
-      const { ceremony_name, date, time, location, additional_info, waze_link, gift_link } = req.body;
+      const { ceremony_name, date, time, location, additional_info, waze_link, gift_link, send_reminder, reminder_day, reminder_time } = req.body;
       if (!ceremony_name) {
         return res.status(400).send("ceremony_name is required");
       }
@@ -1730,6 +1734,10 @@ app.post(
         waze_link: waze_link || null,
         gift_link: gift_link || null,
         file_id: null,
+        // Multipart bodies deliver booleans as "true"/"false" strings
+        send_reminder: send_reminder === true || send_reminder === "true",
+        reminder_day: reminder_day || null,
+        reminder_time: reminder_time || null,
       });
 
       if (req.file) {
@@ -1765,6 +1773,11 @@ app.patch(
     try {
       const { eventId } = req.params;
       const updates = { ...req.body };
+      // Multipart bodies deliver booleans as "true"/"false" strings, and an
+      // empty reminder_time is not a valid TIME value
+      if (typeof updates.send_reminder === "string") updates.send_reminder = updates.send_reminder === "true";
+      if (updates.reminder_time === "") updates.reminder_time = null;
+      if (updates.reminder_day === "") updates.reminder_day = null;
       const dataOwner = await resolveDataOwner(req.auth.userID);
       const event = await db.getEventById(parseInt(eventId));
       if (!event || event.user_id !== dataOwner) return res.status(404).send("Event not found");
@@ -1938,24 +1951,24 @@ const sendScheduledMessages = async (bypassTimeGuards = false) => {
       const { weddingDateStr, dayBeforeWeddingStr, dayAfterWeddingStr } = getWeddingDateStrings(event.date);
       const reminderTime = event.reminder_time || "09:00";
 
-      // Wedding day reminder (day_before or wedding_day)
+      // Event reminder (day_before or wedding_day) — applies to any event, not just the wedding
       if (event.send_reminder) {
-        const isWeddingDay = event.reminder_day === "wedding_day";
-        const triggerDate = isWeddingDay ? weddingDateStr : dayBeforeWeddingStr;
+        const isEventDay = event.reminder_day === "wedding_day";
+        const triggerDate = isEventDay ? weddingDateStr : dayBeforeWeddingStr;
         if (today === triggerDate && (bypassTimeGuards || isTimeToSend(reminderTime))) {
           const eventGuests = limitGuests((await db.getEventGuests(event.id, "approved")).filter(hasPhone));
           if (eventGuests.length > 0) {
-            await logMessage(userID, `🔄 Sending ${isWeddingDay ? "wedding day" : "day before"} reminder for "${event.ceremony_name}" to ${eventGuests.length} guests`);
+            await logMessage(userID, `🔄 Sending ${isEventDay ? "event day" : "day before"} reminder for "${event.ceremony_name}" to ${eventGuests.length} guests`);
             const promises = eventGuests.map((eg) =>
               sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone }, { template: { name: "event_reminder", event } })
             );
-            await sendMessagesAndLog(promises, userID, "💍", `${isWeddingDay ? "wedding day" : "day before"} reminder`);
+            await sendMessagesAndLog(promises, userID, "💍", `${isEventDay ? "event day" : "day before"} reminder`);
           }
         }
       }
 
-      // Thank-you messages the day after
-      if (event.send_thank_you && today === dayAfterWeddingStr && (bypassTimeGuards || isTimeToSend(THANK_YOU_MESSAGE_TIME))) {
+      // Thank-you messages the day after (wedding-only)
+      if (event.is_primary && event.send_thank_you && today === dayAfterWeddingStr && (bypassTimeGuards || isTimeToSend(THANK_YOU_MESSAGE_TIME))) {
         const eventGuests = limitGuests((await db.getEventGuests(event.id, "approved")).filter(hasPhone));
         if (eventGuests.length > 0) {
           await logMessage(userID, `🔄 Sending thank-you for "${event.ceremony_name}" to ${eventGuests.length} guests`);

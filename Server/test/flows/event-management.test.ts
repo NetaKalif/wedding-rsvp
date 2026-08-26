@@ -79,6 +79,19 @@ describe("Create secondary event", () => {
     expect(created.gift_link).toBe("https://pay.example.com/gift");
   });
 
+  it("persists reminder settings provided at creation (multipart delivers them as strings)", async () => {
+    const created = await createEvent("חינה עם תזכורת", {
+      send_reminder: "true",
+      reminder_day: "wedding_day",
+      reminder_time: "09:30",
+    });
+    createdEventIds.push(created.id);
+
+    expect((created as any).send_reminder).toBe(true);
+    expect((created as any).reminder_day).toBe("wedding_day");
+    expect(String((created as any).reminder_time)).toContain("09:30");
+  });
+
   it("newly created event is not primary", async () => {
     const created = await createEvent("ערב כיף");
     createdEventIds.push(created.id);
@@ -121,6 +134,46 @@ describe("Update event with invitation image", () => {
 
     expect(updated.location).toBe("אולם הדקל");
     expect(updated.file_id).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Update event reminder settings", () => {
+  it("PATCH with a JSON body turns the reminder on with day and time", async () => {
+    const created = await createEvent("אירוע עם תזכורת");
+    createdEventIds.push(created.id);
+
+    const { data: updated } = await axios.patch(
+      `${REAL_SERVER}/events/${created.id}`,
+      { send_reminder: true, reminder_day: "day_before", reminder_time: "08:15" },
+      { headers: authHeader() },
+    );
+
+    expect(updated.send_reminder).toBe(true);
+    expect(updated.reminder_day).toBe("day_before");
+    expect(String(updated.reminder_time)).toContain("08:15");
+  });
+
+  it("PATCH with a multipart body coerces send_reminder='false' and empty reminder fields", async () => {
+    const created = await createEvent("אירוע לכיבוי תזכורת", {
+      send_reminder: "true",
+      reminder_day: "wedding_day",
+      reminder_time: "09:00",
+    });
+    createdEventIds.push(created.id);
+
+    const form = new FormData();
+    form.append("send_reminder", "false");
+    form.append("reminder_time", "");
+    form.append("reminder_day", "");
+    const { data: updated } = await axios.patch(`${REAL_SERVER}/events/${created.id}`, form, {
+      headers: { ...form.getHeaders(), ...authHeader() },
+    });
+
+    expect(updated.send_reminder).toBe(false);
+    expect(updated.reminder_time).toBeNull();
+    expect(updated.reminder_day).toBeNull();
   });
 });
 

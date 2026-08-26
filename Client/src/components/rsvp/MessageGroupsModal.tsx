@@ -137,7 +137,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     if (messageType === "rsvpReminder") {
       return sendableGuests.filter((g) => g.rsvp_status == null);
     }
-    if (messageType === "eventReminder") {
+    if (messageType === "eventReminder" || messageType === "thankYou") {
       return sendableGuests.filter((g) => g.rsvp_status != null && g.rsvp_status > 0);
     }
     return sendableGuests;
@@ -148,7 +148,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   const emptyGroupMessage = (() => {
     if (selectSpecificGuests || targetGuestCount > 0) return null;
     if (messageType === "rsvpReminder") return "אין אורחים שממתינים לתגובה";
-    if (messageType === "eventReminder") return "אין אורחים שאישרו הגעה";
+    if (messageType === "eventReminder" || messageType === "thankYou") return "אין אורחים שאישרו הגעה";
     return "אין אורחים לשליחה";
   })();
 

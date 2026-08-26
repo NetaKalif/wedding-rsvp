@@ -14,8 +14,10 @@
  */
 
 import axios from "axios";
+import { Pool } from "pg";
 import { MockWhatsAppClient } from "../mock-whatsapp/client";
 import { authHeader } from "../helpers/auth";
+import { DATABASE_URL } from "../globalSetup";
 import type { StoredMessage } from "../mock-whatsapp/server";
 
 const REAL_SERVER = process.env.REAL_SERVER_URL ?? "http://localhost:8080";
@@ -137,5 +139,70 @@ describe("eventReminder on the primary event (wedding)", () => {
     const [msg] = await mock.waitForMessages(`+${TEST_GUEST_PHONE}`, 1);
     expect(msg.template?.name).toBe("event_reminder");
     expect(bodyParams(msg).day).toBe("היום");
+  });
+});
+
+describe("Scheduled reminders for non-primary events", () => {
+  const pool = new Pool({ connectionString: DATABASE_URL, ssl: false });
+  const OWNER = "sched-nonprimary-owner";
+  const GUEST_PHONE = "+972509990101";
+
+  // Seeds an approved-messaging owner with a NON-primary event, reminder on,
+  // and one confirmed guest — i.e. an event the scheduler should now pick up.
+  const seedOwnerWithEvent = async (date: string, reminderDay: "day_before" | "wedding_day") => {
+    await pool.query(
+      `INSERT INTO users ("userID", email, name, messaging_permission_status)
+       VALUES ($1, $2, $3, 'approved')`,
+      [OWNER, `${OWNER}@test.com`, OWNER],
+    );
+    const { rows: [guest] } = await pool.query(
+      `INSERT INTO guests (user_id, name, phone, whose, circle, number_of_guests)
+       VALUES ($1, 'sched-guest', $2, 'bride', 'family', 1) RETURNING id`,
+      [OWNER, GUEST_PHONE],
+    );
+    const { rows: [event] } = await pool.query(
+      `INSERT INTO events (user_id, is_primary, ceremony_name, date, time, bride_name, groom_name,
+                           send_reminder, reminder_day, reminder_time)
+       VALUES ($1, FALSE, 'חינה מתוזמנת', $2, '19:00', 'כלה', 'חתן', TRUE, $3, '09:00') RETURNING id`,
+      [OWNER, date, reminderDay],
+    );
+    await pool.query(
+      `INSERT INTO event_guests (event_id, guest_id, rsvp_status) VALUES ($1, $2, 2)`,
+      [event.id, guest.id],
+    );
+  };
+
+  afterEach(async () => {
+    // Cascades to the seeded guests/events/event_guests
+    await pool.query(`DELETE FROM users WHERE "userID" = $1`, [OWNER]);
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  it("the scheduler sends a same-day reminder for a non-primary event dated today", async () => {
+    // Same date format the scheduler compares against (getDateFormat → UTC yyyy-mm-dd)
+    const today = new Date().toISOString().split("T")[0];
+    await seedOwnerWithEvent(today, "wedding_day");
+
+    await axios.post(`${REAL_SERVER}/test/run-scheduled-messages`);
+
+    const [msg] = await mock.waitForMessages(GUEST_PHONE, 1);
+    expect(msg.template?.name).toBe("event_reminder");
+    const params = bodyParams(msg);
+    expect(params.day).toBe("היום");
+    expect(params.ceremony_name).toBe("חינה מתוזמנת");
+  });
+
+  it("the scheduler sends a day-before reminder for a non-primary event dated tomorrow", async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    await seedOwnerWithEvent(tomorrow, "day_before");
+
+    await axios.post(`${REAL_SERVER}/test/run-scheduled-messages`);
+
+    const [msg] = await mock.waitForMessages(GUEST_PHONE, 1);
+    expect(msg.template?.name).toBe("event_reminder");
+    expect(bodyParams(msg).day).toBe("מחר");
   });
 });

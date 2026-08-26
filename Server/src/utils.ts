@@ -157,7 +157,8 @@ const createReminderAdditionalData = (event: Event): string => {
 };
 
 // reminder_day is only ever "day_before" on primary events (weddings); event
-// reminders for non-primary events are same-day sends, so default to "היום".
+// any event's reminder can go out the day before ("מחר") or on the event day
+// itself; an unset reminder_day defaults to the same-day wording.
 const createReminderDayWord = (event: Event): string =>
   event.reminder_day === "day_before" ? "מחר" : "היום";
 

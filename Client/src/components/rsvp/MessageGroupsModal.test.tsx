@@ -100,6 +100,18 @@ describe("MessageGroupsModal - specific guest picker", () => {
     expect(screen.queryByText(/Declined Guest/)).not.toBeInTheDocument();
   });
 
+  it("only lists confirmed guests when thank-you and select-specific-guests are both chosen", async () => {
+    mockUseAuth.mockReturnValue({ ...mockAuthValue, isAdmin: true });
+    await renderModal();
+
+    fireEvent.click(screen.getByText("הודעת תודה"));
+    fireEvent.click(screen.getByText("בחירת אורחים ספציפיים לשליחה"));
+
+    expect(screen.getByText(/Confirmed Guest/)).toBeInTheDocument();
+    expect(screen.queryByText(/Pending Guest/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Declined Guest/)).not.toBeInTheDocument();
+  });
+
   it("lists all guests when the default invite option is selected with specific guests", async () => {
     await renderModal();
 

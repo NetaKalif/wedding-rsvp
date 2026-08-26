@@ -101,6 +101,61 @@ describe("EventEditModal - optional waze and payment links", () => {
   });
 });
 
+describe("EventEditModal - automatic reminder settings", () => {
+  const reminderCheckboxLabel = "שליחת תזכורת אוטומטית לאורחים שאישרו הגעה";
+
+  it("defaults to reminder off and saves send_reminder=false", async () => {
+    const onSaved = jest.fn();
+    render(<EventEditModal event={event} onClose={jest.fn()} onSaved={onSaved} />);
+
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mockUpdateEvent).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({ send_reminder: false }),
+      undefined
+    );
+  });
+
+  it("turning the reminder on reveals day/time options and saves them", async () => {
+    const onSaved = jest.fn();
+    render(<EventEditModal event={event} onClose={jest.fn()} onSaved={onSaved} />);
+
+    // Day/time options are hidden until the reminder is turned on
+    expect(screen.queryByText("יום לפני האירוע")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText(reminderCheckboxLabel));
+    fireEvent.click(screen.getByText("יום לפני האירוע"));
+    const timeInputs = document.querySelectorAll('input[type="time"]');
+    fireEvent.change(timeInputs[timeInputs.length - 1], { target: { value: "08:30" } });
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mockUpdateEvent).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({
+        send_reminder: true,
+        reminder_day: "day_before",
+        reminder_time: "08:30",
+      }),
+      undefined
+    );
+  });
+
+  it("prefills existing reminder settings, normalizing HH:MM:SS times", () => {
+    render(
+      <EventEditModal
+        event={{ ...event, send_reminder: true, reminder_day: "day_before", reminder_time: "08:15:00" }}
+        onClose={jest.fn()}
+        onSaved={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText("יום לפני האירוע")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("08:15")).toBeInTheDocument();
+  });
+});
+
 describe("EventEditModal - required date, time and location", () => {
   it.each([
     ["date", { date: "" }],
