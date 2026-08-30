@@ -57,9 +57,11 @@ ${event.additional_info || ""}`;
 נודה לתשובתכם על מנת לסדר את האירוע בצורה הטובה ביותר!`;
 
   // Mirrors the server's unified event_reminder template (see getTemplateParams):
-  // the optional waze/payment links are joined into a single additional_data line.
+  // the optional free text and waze/payment links are joined into a single
+  // additional_data line.
   const buildReminderAdditionalData = () => {
     const parts: string[] = [];
+    if (event.reminder_additional_text?.trim()) parts.push(event.reminder_additional_text.trim());
     if (event.waze_link?.trim()) parts.push(`לניווט: ${event.waze_link.trim()}`);
     if (event.gift_link?.trim())
       parts.push(`לנוחיותכם, ניתן להעניק מתנות באשראי בקישור: ${event.gift_link.trim()}`);

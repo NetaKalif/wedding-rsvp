@@ -232,6 +232,7 @@ class Database {
         send_reminder BOOLEAN DEFAULT FALSE,
         reminder_day TEXT CHECK (reminder_day IN ('day_before','wedding_day')),
         reminder_time TIME,
+        reminder_additional_text TEXT,
         send_thank_you BOOLEAN DEFAULT FALSE,
         estimated_guests INTEGER DEFAULT 0,
         total_budget DECIMAL(12,2) DEFAULT 0,
@@ -258,6 +259,10 @@ class Database {
       ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_call_answered_by TEXT DEFAULT NULL;`, []);
     await this.runQuery(`
       ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_call_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;`, []);
+
+    // Optional free-text line included in the event reminder message
+    await this.runQuery(`
+      ALTER TABLE events ADD COLUMN IF NOT EXISTS reminder_additional_text TEXT;`, []);
 
     // 60-day post-wedding data retention: warning email + hard-delete tracking
     // on the primary event, and a standalone audit trail that outlives the
@@ -455,13 +460,13 @@ class Database {
       `INSERT INTO events
          (user_id,is_primary,ceremony_name,date,time,location,additional_info,file_id,
           bride_name,groom_name,waze_link,gift_link,thank_you_message,
-          send_reminder,reminder_day,reminder_time,send_thank_you,estimated_guests,total_budget)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+          send_reminder,reminder_day,reminder_time,reminder_additional_text,send_thank_you,estimated_guests,total_budget)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING *;`,
       [userID, e.is_primary ?? false, e.ceremony_name,
         e.date ?? null, e.time ?? null, e.location ?? null, e.additional_info ?? null, e.file_id ?? null,
         e.bride_name ?? null, e.groom_name ?? null, e.waze_link ?? null, e.gift_link ?? null, e.thank_you_message ?? null,
-        e.send_reminder ?? false, e.reminder_day ?? null, e.reminder_time ?? null, e.send_thank_you ?? false,
+        e.send_reminder ?? false, e.reminder_day ?? null, e.reminder_time ?? null, e.reminder_additional_text ?? null, e.send_thank_you ?? false,
         e.estimated_guests ?? 0, e.total_budget ?? 0],
     );
     return rows[0];

@@ -31,6 +31,7 @@ export interface EventFormValues {
   // "wedding_day" is the DB value for "on the day of the event" (shared with the wedding)
   reminder_day: "day_before" | "wedding_day";
   reminder_time: string;
+  reminder_additional_text: string;
 }
 
 export const emptyEventForm: EventFormValues = {
@@ -44,6 +45,7 @@ export const emptyEventForm: EventFormValues = {
   send_reminder: false,
   reminder_day: "wedding_day",
   reminder_time: "10:00",
+  reminder_additional_text: "",
 };
 
 export const isEventFormValid = (form: EventFormValues, hasImage: boolean): boolean =>
@@ -201,6 +203,17 @@ const EventFormFields: React.FC<EventFormFieldsProps> = ({
                   type="time"
                   value={form.reminder_time}
                   onChange={(e) => onChange({ reminder_time: e.target.value })}
+                />
+              </FieldSet>
+              <FieldSet legend="מידע נוסף לתזכורת (אופציונלי)">
+                <InputArea
+                  placeholder="טקסט חופשי שיצורף להודעת התזכורת (שורה אחת בלבד). לדוגמה: פרטי הסעות או חניה"
+                  rows={2}
+                  value={form.reminder_additional_text}
+                  onChange={(e) =>
+                    // WhatsApp template params must be single-line
+                    onChange({ reminder_additional_text: e.target.value.replace(/\n/g, " ") })
+                  }
                 />
               </FieldSet>
             </Box>

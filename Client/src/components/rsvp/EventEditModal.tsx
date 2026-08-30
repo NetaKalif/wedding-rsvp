@@ -25,6 +25,7 @@ const EventEditModal: React.FC<EventEditModalProps> = ({ event, onClose, onSaved
     reminder_day: event.reminder_day || "wedding_day",
     // TIME columns come back as "HH:MM:SS" — the time input wants "HH:MM"
     reminder_time: (event.reminder_time || "10:00").slice(0, 5),
+    reminder_additional_text: event.reminder_additional_text || "",
   });
 
   const hasImage = Boolean(event.file_id) || Boolean(imageFile);

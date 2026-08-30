@@ -35,6 +35,7 @@ export interface Event {
   send_reminder?: boolean;
   reminder_day?: "day_before" | "wedding_day";
   reminder_time?: string;
+  reminder_additional_text?: string;
   send_thank_you?: boolean;
   estimated_guests?: number;
   total_budget?: number;

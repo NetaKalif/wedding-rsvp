@@ -148,9 +148,11 @@ const createBrideGroomParams = (event: Event): TemplateBodyParam[] => [
 ];
 
 // WhatsApp template parameter values must be single-line (no \n) and non-empty,
-// so the optional links are joined with " | " and the empty case falls back to " ".
+// so the optional pieces are joined with " | " and the empty case falls back to " ".
 const createReminderAdditionalData = (event: Event): string => {
   const parts: string[] = [];
+  const freeText = event.reminder_additional_text?.replace(/\s*\n+\s*/g, " ").trim();
+  if (freeText) parts.push(freeText);
   if (event.waze_link?.trim()) parts.push(`לניווט: ${event.waze_link.trim()}`);
   if (event.gift_link?.trim()) parts.push(`לנוחיותכם, ניתן להעניק מתנות באשראי בקישור: ${event.gift_link.trim()}`);
   return parts.length > 0 ? parts.join(" | ") : " ";

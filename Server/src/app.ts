@@ -574,6 +574,7 @@ app.post(
         send_reminder: info.send_reminder ?? (info.reminder_time ? true : false),
         reminder_day: info.reminder_day,
         reminder_time: info.reminder_time,
+        reminder_additional_text: info.reminder_additional_text,
         send_thank_you: info.send_thank_you ?? false,
         estimated_guests: info.estimated_guests,
         total_budget: info.total_budget,
@@ -1718,7 +1719,7 @@ app.post(
   upload.single("image") as RequestHandler,
   async (req: Request, res: Response) => {
     try {
-      const { ceremony_name, date, time, location, additional_info, waze_link, gift_link, send_reminder, reminder_day, reminder_time } = req.body;
+      const { ceremony_name, date, time, location, additional_info, waze_link, gift_link, send_reminder, reminder_day, reminder_time, reminder_additional_text } = req.body;
       if (!ceremony_name) {
         return res.status(400).send("ceremony_name is required");
       }
@@ -1738,6 +1739,7 @@ app.post(
         send_reminder: send_reminder === true || send_reminder === "true",
         reminder_day: reminder_day || null,
         reminder_time: reminder_time || null,
+        reminder_additional_text: reminder_additional_text || null,
       });
 
       if (req.file) {

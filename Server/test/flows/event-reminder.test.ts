@@ -67,13 +67,13 @@ beforeEach(async () => {
 
 afterAll(async () => {
   // Restore seed state so other suites aren't affected
-  await patchEvent(HENNA_EVENT_ID, { waze_link: null, gift_link: null });
-  await patchEvent(WEDDING_EVENT_ID, { waze_link: null, gift_link: null, reminder_day: null });
+  await patchEvent(HENNA_EVENT_ID, { waze_link: null, gift_link: null, reminder_additional_text: null });
+  await patchEvent(WEDDING_EVENT_ID, { waze_link: null, gift_link: null, reminder_day: null, reminder_additional_text: null });
 });
 
 describe("eventReminder sends the unified event_reminder template", () => {
   it("sends same-day wording with the event details and no links block when none are set", async () => {
-    await patchEvent(HENNA_EVENT_ID, { waze_link: null, gift_link: null });
+    await patchEvent(HENNA_EVENT_ID, { waze_link: null, gift_link: null, reminder_additional_text: null });
     await setRsvp(HENNA_EVENT_ID, ALICE_ID, 2);
 
     await sendReminder("eventReminder", HENNA_EVENT_ID, [ALICE_ID]);
@@ -102,8 +102,38 @@ describe("eventReminder sends the unified event_reminder template", () => {
     expect(params.additional_data).not.toContain("\n");
   });
 
+  it("includes the free-text reminder info before the links in additional_data", async () => {
+    await patchEvent(HENNA_EVENT_ID, {
+      waze_link: WAZE_LINK,
+      gift_link: null,
+      reminder_additional_text: "הסעות יוצאות מהעירייה ב-18:00",
+    });
+    await setRsvp(HENNA_EVENT_ID, ALICE_ID, 2);
+
+    await sendReminder("eventReminder", HENNA_EVENT_ID, [ALICE_ID]);
+
+    const [msg] = await mock.waitForMessages(`+${ALICE_PHONE}`, 1);
+    const params = bodyParams(msg);
+    expect(params.additional_data).toBe(`הסעות יוצאות מהעירייה ב-18:00 | לניווט: ${WAZE_LINK}`);
+  });
+
+  it("flattens newlines in the free text — WhatsApp params must be single-line", async () => {
+    await patchEvent(HENNA_EVENT_ID, {
+      waze_link: null,
+      gift_link: null,
+      reminder_additional_text: "שורה ראשונה\nשורה שנייה",
+    });
+    await setRsvp(HENNA_EVENT_ID, BOB_ID, 1);
+
+    await sendReminder("eventReminder", HENNA_EVENT_ID, [BOB_ID]);
+
+    const [msg] = await mock.waitForMessages(`+${BOB_PHONE}`, 1);
+    const params = bodyParams(msg);
+    expect(params.additional_data).toBe("שורה ראשונה שורה שנייה");
+  });
+
   it("includes only the waze link when there is no payment link", async () => {
-    await patchEvent(HENNA_EVENT_ID, { waze_link: WAZE_LINK, gift_link: null });
+    await patchEvent(HENNA_EVENT_ID, { waze_link: WAZE_LINK, gift_link: null, reminder_additional_text: null });
     await setRsvp(HENNA_EVENT_ID, ALICE_ID, 2);
 
     await sendReminder("eventReminder", HENNA_EVENT_ID, [ALICE_ID]);

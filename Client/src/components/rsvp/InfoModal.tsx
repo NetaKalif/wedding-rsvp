@@ -62,6 +62,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
     file_id: "",
     reminder_day: "day_before",
     reminder_time: "10:00",
+    reminder_additional_text: "",
     send_thank_you: false,
   });
   const [activeStep, setActiveStep] = useState(0);
@@ -360,6 +361,22 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
             />
           </FormField>
         </Box>
+      </FormField>
+      <FormField label="מידע נוסף לתזכורת (אופציונלי)">
+        <div dir="rtl">
+          <InputArea
+            value={eventDetails.reminder_additional_text}
+            onChange={(e) =>
+              setEventDetails((prev) => ({
+                ...prev,
+                // WhatsApp template params must be single-line
+                reminder_additional_text: e.target.value.replace(/\n/g, " "),
+              }))
+            }
+            placeholder="טקסט חופשי שיצורף להודעת התזכורת (שורה אחת בלבד). לדוגמה: פרטי הסעות או חניה"
+            rows={2}
+          />
+        </div>
       </FormField>
       <FormField label="קישור לוויז (אופציונלי)">
         <Input

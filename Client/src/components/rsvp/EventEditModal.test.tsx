@@ -142,6 +142,43 @@ describe("EventEditModal - automatic reminder settings", () => {
     );
   });
 
+  it("turning the reminder on reveals the free-text box and saves it single-line", async () => {
+    const onSaved = jest.fn();
+    render(<EventEditModal event={event} onClose={jest.fn()} onSaved={onSaved} />);
+
+    const freeTextPlaceholder =
+      "טקסט חופשי שיצורף להודעת התזכורת (שורה אחת בלבד). לדוגמה: פרטי הסעות או חניה";
+    // The free-text box is hidden until the reminder is turned on
+    expect(screen.queryByPlaceholderText(freeTextPlaceholder)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText(reminderCheckboxLabel));
+    fireEvent.change(screen.getByPlaceholderText(freeTextPlaceholder), {
+      target: { value: "הסעות יוצאות\nמהעירייה" },
+    });
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mockUpdateEvent).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({
+        send_reminder: true,
+        reminder_additional_text: "הסעות יוצאות מהעירייה",
+      }),
+      undefined
+    );
+  });
+
+  it("prefills an existing reminder free text from the event", () => {
+    render(
+      <EventEditModal
+        event={{ ...event, send_reminder: true, reminder_additional_text: "יש חניה בשפע" }}
+        onClose={jest.fn()}
+        onSaved={jest.fn()}
+      />
+    );
+
+    expect(screen.getByDisplayValue("יש חניה בשפע")).toBeInTheDocument();
+  });
+
   it("prefills existing reminder settings, normalizing HH:MM:SS times", () => {
     render(
       <EventEditModal
