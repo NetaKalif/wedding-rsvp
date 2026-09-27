@@ -18,6 +18,10 @@ export interface StoredMessage {
 
 const messages: StoredMessage[] = [];
 
+// Recipients set up (via /mock/throttle) to be rate-limited: phone → number of
+// remaining sends to reject with a Meta-style 429 before accepting again.
+const throttledRecipients: Record<string, number> = {};
+
 // ============================================================================
 // Meta Graph API surface — what the real server calls
 // ============================================================================
@@ -25,6 +29,19 @@ const messages: StoredMessage[] = [];
 // POST /v19.0/:phoneId/messages  (outgoing text / template messages)
 app.post("/v19.0/:phoneId/messages", (req: any, res: any) => {
   const { to, type, text, template } = req.body;
+
+  if (throttledRecipients[to] > 0) {
+    throttledRecipients[to]--;
+    return res.status(429).json({
+      error: {
+        message: "(#130429) Rate limit hit",
+        type: "OAuthException",
+        code: 130429,
+        error_data: { messaging_product: "whatsapp", details: "Cloud API message throughput has been reached." },
+      },
+    });
+  }
+
   messages.push({ to, type, text, template, timestamp: Date.now() });
   res.status(200).json({ messaging_product: "whatsapp", contacts: [{ wa_id: to }], messages: [{ id: `mock-msg-${messages.length}` }] });
 });
@@ -53,7 +70,16 @@ app.get("/mock/messages", (req: any, res: any) => {
 // DELETE /mock/messages  — reset state between tests
 app.delete("/mock/messages", (_req: any, res: any) => {
   messages.splice(0, messages.length);
+  Object.keys(throttledRecipients).forEach((k) => delete throttledRecipients[k]);
   res.sendStatus(204);
+});
+
+// POST /mock/throttle  — make the next `times` sends to `to` fail with a
+// Meta-style 429 rate-limit error. Body: { to: "+9725...", times?: number }
+app.post("/mock/throttle", (req: any, res: any) => {
+  const { to, times } = req.body as { to: string; times?: number };
+  throttledRecipients[to] = times ?? 1;
+  res.sendStatus(200);
 });
 
 // POST /mock/simulate-reply  — inject a guest reply into the real server's webhook

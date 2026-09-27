@@ -232,31 +232,114 @@ const createAuthHeaders = (accessToken: string) => ({
 
 type MessageRecipient = { phone: string; user_id: string; name: string };
 
+// Backoff delays for rate-limited sends. Meta signals throttling with HTTP 429
+// or one of these error codes; a short wait usually clears it.
+const RATE_LIMIT_RETRY_DELAYS_MS = (process.env.WA_RATE_LIMIT_RETRY_DELAYS_MS ?? "1000,3000")
+  .split(",")
+  .map(Number)
+  .filter((n) => Number.isFinite(n) && n >= 0);
+
+// 130429: Cloud API throughput, 80007: WABA rate limit, 131056: pair rate limit
+const RATE_LIMIT_ERROR_CODES = [130429, 80007, 131056];
+
+const isRateLimitError = (error: any): boolean =>
+  error?.response?.status === 429 ||
+  RATE_LIMIT_ERROR_CODES.includes(error?.response?.data?.error?.code);
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const sendWhatsAppMessage = async (
   recipient: MessageRecipient,
   options: SendMessageOptions,
 ): Promise<MessageResult> => {
-  try {
-    const accessToken = await getAccessToken();
-    const headers = createAuthHeaders(accessToken);
-    const whatsappData = options.template
-      ? createTemplateData(recipient.phone, getTemplateParams(options.template.name, options.template.event))
-      : createDataForFreeText(recipient.phone, options.freeText);
-    await axios.post(getWhatsAppApiUrl("messages"), whatsappData, { headers });
-    return {
-      success: true,
-      userID: recipient.user_id,
-      guestName: recipient.name,
-      logMessage: `✅ Message sent successfully to ${recipient.name}`,
-    };
-  } catch (error) {
-    const errorMessage = error.response?.data?.error?.message || error.message;
-    return {
-      success: false,
-      userID: recipient.user_id,
-      guestName: recipient.name,
-      logMessage: `❌ Failed to send message to ${recipient.name}: ${errorMessage}`,
-    };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const accessToken = await getAccessToken();
+      const headers = createAuthHeaders(accessToken);
+      const whatsappData = options.template
+        ? createTemplateData(recipient.phone, getTemplateParams(options.template.name, options.template.event))
+        : createDataForFreeText(recipient.phone, options.freeText);
+      await axios.post(getWhatsAppApiUrl("messages"), whatsappData, { headers });
+      return {
+        success: true,
+        userID: recipient.user_id,
+        guestName: recipient.name,
+        logMessage: `✅ Message sent successfully to ${recipient.name}`,
+      };
+    } catch (error) {
+      if (isRateLimitError(error) && attempt < RATE_LIMIT_RETRY_DELAYS_MS.length) {
+        logWarn(recipient.user_id, `[whatsapp] Rate-limited sending to ${recipient.name} — retrying in ${RATE_LIMIT_RETRY_DELAYS_MS[attempt]}ms (attempt ${attempt + 1})`);
+        await sleep(RATE_LIMIT_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+      const errorMessage = error.response?.data?.error?.message || error.message;
+      return {
+        success: false,
+        userID: recipient.user_id,
+        guestName: recipient.name,
+        logMessage: `❌ Failed to send message to ${recipient.name}: ${errorMessage}`,
+      };
+    }
+  }
+};
+
+// ============================================================================
+// Delivery Status Webhooks
+// ============================================================================
+
+// Shape of an entry in value.statuses on the Meta webhook (sent/delivered/
+// read/failed updates for messages we dispatched earlier).
+export interface WhatsAppStatusUpdate {
+  id?: string;
+  status: string;
+  recipient_id: string;
+  errors?: Array<{
+    code: number;
+    title?: string;
+    message?: string;
+    error_data?: { details?: string };
+  }>;
+}
+
+/**
+ * Handles delivery-status updates from the webhook. A 200 OK on send only
+ * means Meta accepted the message — actual delivery failures arrive here as
+ * status "failed", so those get surfaced in the owner's activity log with the
+ * Meta error code (e.g. 131026 undeliverable, 131049 frequency-capped).
+ * sent/delivered/read updates are ignored — logging one line per guest per
+ * state would drown the activity log.
+ */
+export const handleStatusUpdates = async (statuses: WhatsAppStatusUpdate[]): Promise<void> => {
+  const db = Database.getInstance();
+
+  for (const status of statuses) {
+    if (status.status !== "failed") continue;
+
+    const phone = "+" + status.recipient_id;
+    const err = status.errors?.[0];
+    const details = err?.error_data?.details || err?.message;
+    const description = err
+      ? `error ${err.code}${err.title ? ` (${err.title})` : ""}${details ? `: ${details}` : ""}`
+      : "unknown error";
+
+    const candidates = await db.getAllRsvpCandidatesByPhone(phone);
+    if (candidates.length === 0) {
+      logWarn(undefined, `[whatsapp] Delivery failed to unknown recipient ${phone} — ${description}`);
+      continue;
+    }
+
+    // Same owner resolution as inbound replies: the candidate whose RSVP was
+    // sent most recently is the one this status most likely belongs to.
+    let best = candidates[0];
+    for (const candidate of candidates) {
+      const ts = candidate.lastRsvpSentAt;
+      if (ts && (!best.lastRsvpSentAt || ts > best.lastRsvpSentAt)) best = candidate;
+    }
+
+    await logMessage(
+      best.userID,
+      `📵 WhatsApp delivery failed for ${best.guestName} (${phone}) — ${description}`,
+    );
   }
 };
 

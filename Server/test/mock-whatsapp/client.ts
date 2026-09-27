@@ -22,6 +22,11 @@ export class MockWhatsAppClient {
     await axios.post(`${this.baseUrl}/mock/simulate-reply`, opts);
   }
 
+  /** Makes the next `times` sends to `to` fail with a Meta-style 429 rate-limit error. */
+  async throttle(to: string, times = 1): Promise<void> {
+    await axios.post(`${this.baseUrl}/mock/throttle`, { to, times });
+  }
+
   // Convenience: wait until at least `count` messages have been captured for `to`,
   // polling up to `timeoutMs`. Useful because handleButtonReply / handleTextResponse
   // are async and may arrive after the webhook returns 200.

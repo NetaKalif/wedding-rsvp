@@ -16,8 +16,10 @@ import {
   batchLogMessageResults,
   sendNewUserRequestNotification,
   sendMessagingPermissionRequestNotification,
+  handleStatusUpdates,
   MessageResult,
 } from "./utils";
+import { runPaced } from "./sendQueue";
 import { getDateFormat, getWeddingDateStrings, daysBetween, addDays } from "./dateUtils";
 import axios from "axios";
 import { getAccessToken } from "./whatsappTokenManager";
@@ -164,6 +166,12 @@ app.post("/sms", async (req: Request, res: Response) => {
   try {
     const data = req.body;
     const value = data?.entry?.[0]?.changes?.[0]?.value;
+
+    // Delivery-status updates (sent/delivered/read/failed) for messages we
+    // dispatched — failures are logged to the owner's activity log.
+    if (Array.isArray(value?.statuses) && value.statuses.length > 0) {
+      await handleStatusUpdates(value.statuses);
+    }
 
     if (!value?.messages || !Array.isArray(value.messages)) {
       return res.sendStatus(200); // Acknowledge it to avoid retries
@@ -707,8 +715,8 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
     const label = messageType === "rsvp" ? "RSVP invitation" : messageType === "rsvpReminder" ? "RSVP reminder" : messageType === "eventReminder" ? "event reminder" : messageType === "thankYou" ? "thank-you" : "custom text";
     await logMessage(dataOwner, `📨 Sending ${label} for "${event.ceremony_name}" to ${limited.length} guests`);
 
-    const promises = buildMessagePromises(limited, messageType, customText, event, dataOwner);
-    const results = await sendMessagesAndLog(promises, dataOwner, "🎯", label);
+    const tasks = buildMessageTasks(limited, messageType, customText, event, dataOwner);
+    const results = await sendMessagesAndLog(tasks, dataOwner, "🎯", label);
 
     if (messageType === "rsvp" || messageType === "rsvpReminder") {
       await db.updateEventGuestLastRsvpSentAt(eventId, limited.map((eg) => eg.guest_id));
@@ -722,7 +730,7 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
 });
 
 const sendMessagesAndLog = async (
-  promises: Promise<MessageResult>[],
+  tasks: Array<() => Promise<MessageResult>>,
   userID: string,
   successEmoji: string,
   messageLabel: string,
@@ -732,7 +740,9 @@ const sendMessagesAndLog = async (
   fail: number;
   failGuestsList: Pick<MessageResult, "guestName" | "logMessage">[];
 }> => {
-  const results = await Promise.all(promises);
+  // Paced dispatch — firing the whole batch at once gets 200 OKs from Meta
+  // but silently drops delivery for part of the recipients (throttling).
+  const results = await runPaced(tasks);
 
   const successCount = results.filter((r) => r.success).length;
   const fail = results.filter((r) => !r.success);
@@ -760,32 +770,34 @@ const sendMessagesAndLog = async (
   return { success: successCount, fail: failCount, failGuestsList };
 };
 
-const buildMessagePromises = (
+// Returns thunks (not live promises) so sendMessagesAndLog can pace the
+// dispatch instead of firing everything at once.
+const buildMessageTasks = (
   eventGuests: EventGuest[],
   messageType: string,
   customText: string,
   event: Event,
   userID: string,
-): Promise<MessageResult>[] => {
+): Array<() => Promise<MessageResult>> => {
   const toRecipient = (eg: EventGuest) => ({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone });
 
   if (messageType === "freeText") {
-    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { freeText: customText }));
+    return eventGuests.map((eg) => () => sendWhatsAppMessage(toRecipient(eg), { freeText: customText }));
   }
   if (messageType === "rsvpReminder") {
-    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: "wedding_rsvp_reminder", event } }));
+    return eventGuests.map((eg) => () => sendWhatsAppMessage(toRecipient(eg), { template: { name: "wedding_rsvp_reminder", event } }));
   }
   // Day wording and the optional waze/payment links are resolved from the
   // event itself in getTemplateParams.
   if (messageType === "eventReminder") {
-    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: "event_reminder", event } }));
+    return eventGuests.map((eg) => () => sendWhatsAppMessage(toRecipient(eg), { template: { name: "event_reminder", event } }));
   }
   if (messageType === "thankYou") {
     const templateName = event.thank_you_message ? "custom_thank_you_message" : "thank_you_message";
-    return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: templateName, event } }));
+    return eventGuests.map((eg) => () => sendWhatsAppMessage(toRecipient(eg), { template: { name: templateName, event } }));
   }
   // Default: RSVP invitation
-  return eventGuests.map((eg) => sendWhatsAppMessage(toRecipient(eg), { template: { name: "wedding_rsvp_action", event } }));
+  return eventGuests.map((eg) => () => sendWhatsAppMessage(toRecipient(eg), { template: { name: "wedding_rsvp_action", event } }));
 };
 
 app.get("/getImage", async (req: Request, res: Response) => {
@@ -1981,10 +1993,10 @@ const sendScheduledMessages = async (bypassTimeGuards = false) => {
           const eventGuests = limitGuests((await db.getEventGuests(event.id, "approved")).filter(hasPhone));
           if (eventGuests.length > 0) {
             await logMessage(userID, `🔄 Sending ${isEventDay ? "event day" : "day before"} reminder for "${event.ceremony_name}" to ${eventGuests.length} guests`);
-            const promises = eventGuests.map((eg) =>
+            const tasks = eventGuests.map((eg) => () =>
               sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone }, { template: { name: "event_reminder", event } })
             );
-            await sendMessagesAndLog(promises, userID, "💍", `${isEventDay ? "event day" : "day before"} reminder`);
+            await sendMessagesAndLog(tasks, userID, "💍", `${isEventDay ? "event day" : "day before"} reminder`);
           }
         }
       }
@@ -1995,10 +2007,10 @@ const sendScheduledMessages = async (bypassTimeGuards = false) => {
         if (eventGuests.length > 0) {
           await logMessage(userID, `🔄 Sending thank-you for "${event.ceremony_name}" to ${eventGuests.length} guests`);
           const templateName = event.thank_you_message?.trim() ? "custom_thank_you_message" : "thank_you_message";
-          const promises = eventGuests.map((eg) =>
+          const tasks = eventGuests.map((eg) => () =>
             sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone }, { template: { name: templateName, event } })
           );
-          await sendMessagesAndLog(promises, userID, "🙏", "thank-you messages");
+          await sendMessagesAndLog(tasks, userID, "🙏", "thank-you messages");
         }
       }
     }
