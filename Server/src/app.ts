@@ -507,13 +507,33 @@ app.patch("/updateGuest", async (req: Request, res: Response) => {
   }
 });
 
+// Hard-deletes the caller's account (FK cascades remove all owned data).
+// Guards: an explicit confirm flag so no client code path can delete an
+// account implicitly, and no deletion while impersonating — admins must use
+// /admin/deleteUser, which attributes the action to them.
 app.delete("/deleteUser", async (req: Request, res: Response) => {
   const userID = req.auth.userID;
   try {
-    await db.deleteAllGuests(userID);
+    if (req.auth.actorUserID !== userID) {
+      return res.status(403).send("Cannot delete an account while impersonating it");
+    }
+    if (req.query.confirm !== "true") {
+      return res.status(400).send("Account deletion requires confirm=true");
+    }
+    const user = await db.getUserByID(userID);
+    if (!user) return res.status(404).send("User not found");
+
+    const dataOwner = await resolveDataOwner(userID);
+    const primaryEvent = await db.getPrimaryEvent(dataOwner);
+    await db.recordDeletedAccount({
+      userID,
+      email: user.email,
+      name: user.name,
+      weddingDate: primaryEvent?.date ?? null,
+      role: dataOwner === userID ? "owner" : "partner",
+    });
     await db.deleteUser(userID);
-    await db.deleteAllTasks(userID);
-    await logMessage(undefined, "🗑️ User account deleted");
+    await logMessage(undefined, `🗑️ User account deleted: ${user.name} (${userID})`);
     res.status(200).send("User deleted");
   } catch (error) {
     return handleError(res, error, "Failed to delete user", userID);

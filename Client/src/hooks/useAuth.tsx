@@ -15,6 +15,10 @@ interface AuthContextType {
   user: User | undefined;
   partnerInfo: PartnerInfo | undefined;
   weddingInfo: Event | null;
+  // true when the last wedding-info fetch failed — distinguishes "no wedding
+  // info yet" (first-time user) from "couldn't load it" (existing user, flaky
+  // request). Consumers must not treat an errored load as a new account.
+  weddingInfoError: boolean;
   isAdmin: boolean;
   isLoading: boolean;
   pendingApproval: boolean;
@@ -33,6 +37,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     undefined
   );
   const [weddingInfo, setWeddingInfo] = useState<Event | null>(null);
+  const [weddingInfoError, setWeddingInfoError] = useState<boolean>(false);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [pendingApproval, setPendingApproval] = useState<boolean>(false);
@@ -47,16 +52,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  const fetchWeddingInfo = useCallback(async () => {
+  // Single loader for wedding info so every path (init, login, impersonation,
+  // refresh) records whether the fetch failed rather than silently returning
+  // null — null-because-errored must be distinguishable from null-because-new.
+  const loadPrimaryEvent = useCallback(async (): Promise<Event | null> => {
     try {
       const info = await httpRequests.getPrimaryEvent();
-      setWeddingInfo(info);
+      setWeddingInfoError(false);
       return info;
     } catch (error) {
       console.error("Error fetching wedding info:", error);
+      setWeddingInfoError(true);
       return null;
     }
   }, []);
+
+  const fetchWeddingInfo = useCallback(async () => {
+    const info = await loadPrimaryEvent();
+    setWeddingInfo(info);
+    return info;
+  }, [loadPrimaryEvent]);
 
   const refreshPartnerInfo = useCallback(async () => {
     if (user) {
@@ -76,6 +91,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(undefined);
     setPartnerInfo(undefined);
     setWeddingInfo(null);
+    setWeddingInfoError(false);
     setIsAdmin(false);
     setPendingApproval(false);
     navigate("/");
@@ -97,7 +113,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           await Promise.all([
             httpRequests.getMe(),
             httpRequests.getPartnerInfo(),
-            httpRequests.getPrimaryEvent().catch(() => null),
+            loadPrimaryEvent(),
           ]);
 
         // Approval was revoked since the last visit — drop the session and
@@ -143,7 +159,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       const [partnerInfoData, weddingInfoData] = await Promise.all([
         httpRequests.getPartnerInfo(),
-        httpRequests.getPrimaryEvent().catch(() => null),
+        loadPrimaryEvent(),
       ]);
 
       setPartnerInfo(partnerInfoData);
@@ -167,7 +183,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Fetch all data for the new user
     const [partnerInfoData, weddingInfoData] = await Promise.all([
       httpRequests.getPartnerInfo(),
-      httpRequests.getPrimaryEvent().catch(() => null),
+      loadPrimaryEvent(),
     ]);
 
     setUser(impersonatedUser);
@@ -182,6 +198,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         user,
         partnerInfo,
         weddingInfo,
+        weddingInfoError,
         isAdmin,
         isLoading,
         pendingApproval,

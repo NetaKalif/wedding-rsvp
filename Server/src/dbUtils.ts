@@ -36,8 +36,15 @@ const needsSSL =
 const pool = new Pool({
   connectionString: dbUrl.replace(/[?&]sslmode=require/g, ""),
   ssl: needsSSL ? { rejectUnauthorized: false } : false,
-  connectionTimeoutMillis: 5000,
-  idleTimeoutMillis: 30000,
+  // The DB is far from the app host, so a cold TLS connect is expensive and
+  // occasionally exceeded the old 5s budget ("Connection terminated due to
+  // connection timeout"). Keep connections warm instead: the idle timeout must
+  // outlive the 60s scheduler tick (30s used to guarantee a cold connect on
+  // every tick), and TCP keepalive stops NATs/proxies from silently dropping
+  // the idle sockets we now hold on to.
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 10 * 60 * 1000,
+  keepAlive: true,
   statement_timeout: 30000,
   query_timeout: 30000,
 });
@@ -1798,11 +1805,33 @@ class Database {
   }
 
 
+  // Errors raised while the pool was still establishing/acquiring a
+  // connection — the query was never sent, so a retry cannot double-execute
+  // anything (safe even for INSERT/UPDATE). Mid-query failures ("Connection
+  // terminated unexpectedly" on its own) are NOT retried for that reason.
+  private static isPreQueryConnectionError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    return (
+      msg.includes("Connection terminated due to connection timeout") ||
+      msg.includes("timeout exceeded when trying to connect")
+    );
+  }
+
   async runQuery(query: string, values: any[]): Promise<any> {
     try {
       const result = await pool.query(query, values);
       return result.rows;
     } catch (err) {
+      if (Database.isPreQueryConnectionError(err)) {
+        log(undefined, "DB connect failed before query was sent; retrying once");
+        try {
+          const retried = await pool.query(query, values);
+          return retried.rows;
+        } catch (retryErr) {
+          logError(undefined, "Query failed:", query, values, retryErr);
+          throw retryErr;
+        }
+      }
       logError(undefined, "Query failed:", query, values, err);
       throw err;
     }

@@ -99,7 +99,9 @@ const getMe = () =>
 const impersonate = (targetUserID: string) =>
   post<{ token: string; user: User }>("/auth/impersonate", { targetUserID });
 
-const deleteUser = () => del<void>("/deleteUser");
+// confirm=true is required by the server — deletion must never be reachable
+// from a code path that didn't explicitly opt in.
+const deleteUser = () => del<void>("/deleteUser?confirm=true");
 
 // ==================== Guest Methods ====================
 

@@ -9,13 +9,13 @@ import { WeddingCountdown } from "./WeddingCountdown";
 import Header from "../global/Header";
 import WeddingSetupModal from "./WeddingSetupModal";
 import AccountTypeSelector from "./AccountTypeSelector";
-import { httpRequests } from "../../httpClient";
 
 export const WeddingDashboard = () => {
   const {
     user,
     partnerInfo,
     weddingInfo,
+    weddingInfoError,
     isLoading,
     refreshPartnerInfo,
     refreshWeddingInfo,
@@ -25,9 +25,13 @@ export const WeddingDashboard = () => {
   const [showAccountSelector, setShowAccountSelector] = useState(false);
   const [showWeddingSetup, setShowWeddingSetup] = useState(false);
 
-  // Compute if this is a first-time user based on wedding info
+  // Compute if this is a first-time user based on wedding info.
+  // A failed fetch is NOT a first-time user — showing the setup wizard to an
+  // existing user just because the request errored is how accounts got
+  // accidentally deleted.
   const isFirstTimeUser = useMemo(() => {
     if (isLoading) return null;
+    if (weddingInfoError) return false;
     const hasBasicInfo =
       weddingInfo &&
       weddingInfo.bride_name &&
@@ -36,7 +40,7 @@ export const WeddingDashboard = () => {
       weddingInfo.time &&
       weddingInfo.location;
     return !hasBasicInfo && !partnerInfo?.isLinkedAccount;
-  }, [weddingInfo, partnerInfo?.isLinkedAccount, isLoading]);
+  }, [weddingInfo, weddingInfoError, partnerInfo?.isLinkedAccount, isLoading]);
 
   // Show account selector for first-time users (only on initial load)
   const shouldShowAccountSelector = useMemo(() => {
@@ -66,10 +70,11 @@ export const WeddingDashboard = () => {
     await Promise.all([refreshPartnerInfo(), refreshWeddingInfo()]);
   };
 
+  // Cancelling setup only logs out — it must never delete the account, since
+  // this path is also reachable by existing users misclassified as first-time
+  // (e.g. when wedding info fails to load).
   const handleCancelAccountSetup = () => {
     if (!user) return;
-    // Delete the newly created user and log them out
-    httpRequests.deleteUser();
     handleLogout();
   };
 

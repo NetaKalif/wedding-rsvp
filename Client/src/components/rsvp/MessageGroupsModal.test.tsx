@@ -50,6 +50,7 @@ const mockAuthValue = {
   user: undefined,
   partnerInfo: undefined,
   weddingInfo: null,
+  weddingInfoError: false,
   isAdmin: false,
   isLoading: false,
   pendingApproval: false,

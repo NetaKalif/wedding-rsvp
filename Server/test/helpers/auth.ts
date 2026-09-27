@@ -9,7 +9,7 @@ export const TEST_USER_ID = "test-user-id";
  */
 export const signTestToken = (
   userID: string = TEST_USER_ID,
-  overrides: { isAdmin?: boolean } = {},
+  overrides: { isAdmin?: boolean; actor?: string } = {},
 ): string =>
   jwt.sign(
     { sub: userID, email: `${userID}@test.com`, name: userID, isAdmin: false, ...overrides },
@@ -17,6 +17,9 @@ export const signTestToken = (
     { expiresIn: "1h" },
   );
 
-export const authHeader = (userID: string = TEST_USER_ID, overrides: { isAdmin?: boolean } = {}) => ({
+export const authHeader = (
+  userID: string = TEST_USER_ID,
+  overrides: { isAdmin?: boolean; actor?: string } = {},
+) => ({
   Authorization: `Bearer ${signTestToken(userID, overrides)}`,
 });
