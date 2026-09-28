@@ -142,6 +142,32 @@ const getStandardButtons = (hasBack = true, backPath?: string) => {
   return buttons;
 };
 
+// Explanations for the budget-overview stat cards. Shared between the guided
+// tour steps and the hover tooltips on the cards themselves
+// (BudgetOverviewCard), so both always show the same text.
+export const BUDGET_STAT_EXPLANATIONS = {
+  "total-budget": {
+    title: "תקציב כולל",
+    text: "זה התקציב הכולל שהגדרתם לחתונה. לחיצה על אייקון העיפרון מאפשרת לעדכן אותו בכל שלב, בהתאם לצרכים שלכם.",
+  },
+  "planned-expenses": {
+    title: "התחיבויות",
+    text: "הסכום הכולל שסגרתם מול ספקים: כל ספק שהזמנתם נספר כאן במחיר המלא שסיכמתם איתו — גם אם עוד לא שילמתם לו מקדמה (ספק בסטטוס 'יצרנו קשר' עדיין לא נספר). מהסכום הזה מחושבים גם התקציב הפנוי וגם העלות לאורח.",
+  },
+  "remaining-budget": {
+    title: "תקציב פנוי",
+    text: "כמה נשאר לכם לסגירת ספקים נוספים: התקציב הכולל פחות ההתחיבויות. שימו לב — החישוב לפי מה שהתחייבתם, לא לפי מה ששולם בפועל. אם המספר אדום, ההתחיבויות כבר עברו את התקציב.",
+  },
+  "paid-total": {
+    title: "שולמו",
+    text: "סך התשלומים שרשמתם בפועל לספקים — מקדמות ותשלומים. ההפרש בין ההתחיבויות למה ששולם הוא מה שעוד תצטרכו לשלם לספקים שסגרתם.",
+  },
+  "guest-count": {
+    title: "מספר אורחים",
+    text: "הזינו את מספר האורחים הצפוי (בעזרת אייקון העיפרון). העלות לאורח מחושבת מסך ההתחיבויות שלכם חלקי מספר האורחים.",
+  },
+} as const;
+
 // First step of each page's tour section — lets the tour button start from
 // the section of the page the user is currently on instead of the beginning
 export const TOUR_PAGE_START_STEPS: Record<string, string> = {
@@ -276,8 +302,8 @@ export const getTourSteps = (): TourStep[] => [
 
   {
     id: "total-budget",
-    title: "תקציב כולל",
-    text: "זה התקציב הכולל שהגדרתם לחתונה. לחיצה על אייקון העיפרון מאפשרת לעדכן אותו בכל שלב, בהתאם לצרכים שלכם.",
+    title: BUDGET_STAT_EXPLANATIONS["total-budget"].title,
+    text: BUDGET_STAT_EXPLANATIONS["total-budget"].text,
     attachTo: {
       element: '[data-tour="total-budget"]',
       on: "bottom",
@@ -288,8 +314,8 @@ export const getTourSteps = (): TourStep[] => [
 
   {
     id: "planned-expenses",
-    title: "התחיבויות",
-    text: "הסכום הכולל שסגרתם מול ספקים: כל ספק שהזמנתם נספר כאן במחיר המלא שסיכמתם איתו — גם אם עוד לא שילמתם לו מקדמה (ספק בסטטוס 'יצרנו קשר' עדיין לא נספר). מהסכום הזה מחושבים גם התקציב הפנוי וגם העלות לאורח.",
+    title: BUDGET_STAT_EXPLANATIONS["planned-expenses"].title,
+    text: BUDGET_STAT_EXPLANATIONS["planned-expenses"].text,
     attachTo: {
       element: '[data-tour="planned-expenses"]',
       on: "bottom",
@@ -300,8 +326,8 @@ export const getTourSteps = (): TourStep[] => [
 
   {
     id: "remaining-budget",
-    title: "תקציב פנוי",
-    text: "כמה נשאר לכם לסגירת ספקים נוספים: התקציב הכולל פחות ההתחיבויות. שימו לב — החישוב לפי מה שהתחייבתם, לא לפי מה ששולם בפועל. אם המספר אדום, ההתחיבויות כבר עברו את התקציב.",
+    title: BUDGET_STAT_EXPLANATIONS["remaining-budget"].title,
+    text: BUDGET_STAT_EXPLANATIONS["remaining-budget"].text,
     attachTo: {
       element: '[data-tour="remaining-budget"]',
       on: "bottom",
@@ -312,8 +338,8 @@ export const getTourSteps = (): TourStep[] => [
 
   {
     id: "paid-total",
-    title: "שולמו",
-    text: "סך התשלומים שרשמתם בפועל לספקים — מקדמות ותשלומים. ההפרש בין ההתחיבויות למה ששולם הוא מה שעוד תצטרכו לשלם לספקים שסגרתם.",
+    title: BUDGET_STAT_EXPLANATIONS["paid-total"].title,
+    text: BUDGET_STAT_EXPLANATIONS["paid-total"].text,
     attachTo: {
       element: '[data-tour="paid-total"]',
       on: "bottom",
@@ -324,8 +350,8 @@ export const getTourSteps = (): TourStep[] => [
 
   {
     id: "guest-count",
-    title: "מספר אורחים",
-    text: "הזינו את מספר האורחים הצפוי (בעזרת אייקון העיפרון). העלות לאורח מחושבת מסך ההתחיבויות שלכם חלקי מספר האורחים.",
+    title: BUDGET_STAT_EXPLANATIONS["guest-count"].title,
+    text: BUDGET_STAT_EXPLANATIONS["guest-count"].text,
     attachTo: {
       element: '[data-tour="guest-count"]',
       on: "bottom",

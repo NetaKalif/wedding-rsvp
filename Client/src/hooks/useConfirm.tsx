@@ -5,6 +5,7 @@ interface ConfirmOptions {
   message: string;
   title?: string;
   confirmText?: string;
+  confirmSkin?: "destructive" | "standard";
 }
 
 export const useConfirm = () => {
@@ -36,7 +37,7 @@ export const useConfirm = () => {
         title={state.options.title ?? "אישור מחיקה"}
         primaryButtonText={state.options.confirmText ?? "מחק"}
         primaryButtonOnClick={handleConfirm}
-        primaryButtonProps={{ skin: "destructive" } as any}
+        primaryButtonProps={{ skin: state.options.confirmSkin ?? "destructive" } as any}
         secondaryButtonText="ביטול"
         secondaryButtonOnClick={handleCancel}
         onCloseButtonClick={handleCancel}

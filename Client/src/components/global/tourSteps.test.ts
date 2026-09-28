@@ -1,4 +1,19 @@
-import { getTourSteps, TOUR_PAGE_START_STEPS } from "./tourSteps";
+import {
+  BUDGET_STAT_EXPLANATIONS,
+  getTourSteps,
+  TOUR_PAGE_START_STEPS,
+} from "./tourSteps";
+
+describe("BUDGET_STAT_EXPLANATIONS", () => {
+  it("is the single source for the budget stat tour steps' title and text", () => {
+    const steps = getTourSteps();
+    Object.entries(BUDGET_STAT_EXPLANATIONS).forEach(([id, { title, text }]) => {
+      const step = steps.find((s) => s.id === id);
+      expect(step?.title).toBe(title);
+      expect(step?.text).toBe(text);
+    });
+  });
+});
 
 describe("TOUR_PAGE_START_STEPS", () => {
   it("maps every feature page to an existing tour step", () => {

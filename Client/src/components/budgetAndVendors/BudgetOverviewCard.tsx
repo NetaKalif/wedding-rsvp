@@ -8,6 +8,7 @@ import {
   NumberInput,
   CircularProgressBar,
   Text,
+  Tooltip,
 } from "@wix/design-system";
 import {
   PiggyBank,
@@ -16,8 +17,31 @@ import {
   ClipboardList,
   HandCoins,
   CircleDollarSign,
+  Info,
 } from "lucide-react";
 import { BudgetOverview } from "../../types";
+import { BUDGET_STAT_EXPLANATIONS } from "../global/tourSteps";
+
+// Small (i) icon next to a budget stat label. Hovering it (and only it) shows
+// the same explanation as the guided tour step anchored to that card (both
+// come from BUDGET_STAT_EXPLANATIONS).
+const StatInfo: React.FC<{ stat: keyof typeof BUDGET_STAT_EXPLANATIONS }> = ({
+  stat,
+}) => (
+  <Tooltip
+    content={<div dir="rtl">{BUDGET_STAT_EXPLANATIONS[stat].text}</div>}
+    placement="bottom"
+    maxWidth="340px"
+  >
+    <span
+      data-hook={`stat-info-${stat}`}
+      aria-label={`הסבר: ${BUDGET_STAT_EXPLANATIONS[stat].title}`}
+      style={{ marginRight: 4, verticalAlign: "middle", cursor: "help", opacity: 0.6 }}
+    >
+      <Info size={12} style={{ verticalAlign: "middle" }} />
+    </span>
+  </Tooltip>
+);
 
 interface BudgetOverviewCardProps {
   budgetData: BudgetOverview | null;
@@ -133,6 +157,7 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
                   </Text>
                   <Text size="small" secondary className="budget-stat-label">
                     תקציב כולל
+                    <StatInfo stat="total-budget" />
                   </Text>
                 </Box>
               </div>
@@ -161,6 +186,7 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
                     </Text>
                     <Text size="small" secondary className="budget-stat-label">
                       התחיבויות
+                      <StatInfo stat="planned-expenses" />
                     </Text>
                   </Box>
                 </div>
@@ -187,6 +213,7 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
                     </Text>
                     <Text size="small" secondary className="budget-stat-label">
                       תקציב פנוי
+                      <StatInfo stat="remaining-budget" />
                     </Text>
                   </Box>
                 </div>
@@ -210,6 +237,7 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
                     </Text>
                     <Text size="small" secondary className="budget-stat-label">
                       שולמו
+                      <StatInfo stat="paid-total" />
                     </Text>
                   </Box>
                 </div>
@@ -248,6 +276,7 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
                   </Text>
                   <Text size="small" secondary className="budget-stat-label">
                     אורחים משוערים
+                    <StatInfo stat="guest-count" />
                   </Text>
                 </Box>
 

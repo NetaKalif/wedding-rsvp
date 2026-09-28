@@ -13,6 +13,7 @@ import {
   BudgetCategoryWithSpending,
   VendorWithPayments,
   Vendor,
+  VendorStatus,
 } from "../../types";
 import { httpRequests } from "../../httpClient";
 import { useAuth } from "../../hooks/useAuth";
@@ -20,6 +21,9 @@ import { useAppData } from "../../hooks/useAppData";
 import { useConfirm } from "../../hooks/useConfirm";
 import VendorCard from "./VendorCard";
 import VendorModal from "./VendorModal";
+import PaymentModal from "./PaymentModal";
+
+const PAID_STATUSES: VendorStatus[] = ["שולם", "שולם חלקית"];
 
 const recalcCategory = (vendors: VendorWithPayments[]) => ({
   agreed_cost: vendors
@@ -66,6 +70,7 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
   const { confirm, ConfirmDialog } = useConfirm();
   const [showVendorModal, setShowVendorModal] = useState(false);
   const [editingVendor, setEditingVendor] = useState<VendorWithPayments | null>(null);
+  const [paymentVendor, setPaymentVendor] = useState<Vendor | null>(null);
 
   const handleDeleteCategory = async () => {
     if (!user) return;
@@ -93,6 +98,7 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
   ) => {
     if (!user) return;
     try {
+      const prevStatus = editingVendor?.status;
       let savedVendor: Vendor | null = null;
       if (editingVendor) {
         savedVendor = await httpRequests.updateVendor(editingVendor.vendor_id, vendorData, files);
@@ -107,6 +113,7 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
       // Vendor moved to a different category — full refresh is simpler
       if (editingVendor && savedVendor.category_id !== category.category_id) {
         refreshBudget();
+        await maybeOfferPayment(savedVendor, prevStatus);
         return;
       }
 
@@ -155,10 +162,42 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
 
       // If files were attached, refresh in background to get file metadata from server
       if (files && files.length > 0) refreshBudget();
+
+      await maybeOfferPayment(savedVendor, prevStatus);
     } catch (error) {
       console.error("Error saving vendor:", error);
       refreshBudget();
     }
+  };
+
+  // When a vendor's status just changed to a paid status, offer to record the
+  // payment too — but let the user decide (and fill in the amount) themselves.
+  const maybeOfferPayment = async (savedVendor: Vendor, prevStatus?: VendorStatus) => {
+    if (!PAID_STATUSES.includes(savedVendor.status) || savedVendor.status === prevStatus) return;
+    const wantsPayment = await confirm({
+      title: "הוספת תשלום",
+      message: `הספק ״${savedVendor.name}״ סומן כ״${savedVendor.status}״. רוצים לתעד עכשיו את התשלום?`,
+      confirmText: "כן, הוסף תשלום",
+      confirmSkin: "standard",
+    });
+    if (wantsPayment) setPaymentVendor(savedVendor);
+  };
+
+  const handleSaveOfferedPayment = async (paymentData: { amount: number; payment_date: string; notes?: string }) => {
+    if (!user || !paymentVendor) return;
+    try {
+      await httpRequests.addPayment(
+        paymentVendor.vendor_id,
+        paymentData.amount,
+        paymentData.payment_date,
+        paymentData.notes
+      );
+    } catch (error) {
+      console.error("Error adding payment:", error);
+    }
+    setPaymentVendor(null);
+    // Sync payments/totals (and any server-side status recalc) from the server
+    refreshBudget();
   };
 
   const handleDeleteVendor = async (vendorId: number) => {
@@ -336,6 +375,13 @@ const BudgetCategoryCard: React.FC<BudgetCategoryCardProps> = ({
           selectedCategoryId={category.category_id}
           onSave={handleSaveVendor}
           onClose={() => { setShowVendorModal(false); setEditingVendor(null); }}
+        />
+      </Modal>
+
+      <Modal isOpen={!!paymentVendor} onRequestClose={() => setPaymentVendor(null)}>
+        <PaymentModal
+          onSave={handleSaveOfferedPayment}
+          onClose={() => setPaymentVendor(null)}
         />
       </Modal>
     </>
