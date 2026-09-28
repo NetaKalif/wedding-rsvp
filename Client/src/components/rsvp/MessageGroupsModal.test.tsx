@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import MessageGroupsModal from "./MessageGroupsModal";
 import { Event, EventGuest } from "../../types";
 import * as useAuthModule from "../../hooks/useAuth";
@@ -10,6 +10,7 @@ jest.mock("../../httpClient", () => ({
     sendMessage: jest.fn(() =>
       Promise.resolve({ success: 0, fail: 0, failGuestsList: [] })
     ),
+    getSendProgress: jest.fn(() => Promise.resolve({ active: false })),
     getEventImageUrl: jest.fn(() => Promise.resolve("")),
     getPrimaryImageUrl: jest.fn(() => Promise.resolve("")),
     getMessagingPermissionStatus: jest.fn(() =>
@@ -31,6 +32,7 @@ const mockHttp = httpRequests as unknown as {
   getMessagingPermissionStatus: jest.Mock;
   requestMessagingPermission: jest.Mock;
   sendMessage: jest.Mock;
+  getSendProgress: jest.Mock;
 };
 
 const event: Event = {
@@ -70,6 +72,7 @@ beforeEach(() => {
   });
   mockHttp.requestMessagingPermission.mockResolvedValue({ success: true });
   mockHttp.sendMessage.mockResolvedValue({ success: 0, fail: 0, failGuestsList: [] });
+  mockHttp.getSendProgress.mockResolvedValue({ active: false });
 });
 
 // The modal checks messaging permission on mount, so its real content only
@@ -262,6 +265,110 @@ describe("MessageGroupsModal - admin-only features", () => {
     expect(screen.getByText("תזכורת לאירוע")).toBeInTheDocument();
     expect(screen.queryByText("תזכורת לחתונה")).not.toBeInTheDocument();
     expect(screen.queryByText("הודעת תודה")).not.toBeInTheDocument();
+  });
+});
+
+describe("MessageGroupsModal - send progress", () => {
+  it("replaces the form with a progress view while sending and updates the counter from polling", async () => {
+    let resolveSend!: (value: unknown) => void;
+    mockHttp.sendMessage.mockReturnValue(new Promise((resolve) => (resolveSend = resolve)));
+    mockHttp.getSendProgress.mockResolvedValue({
+      active: true,
+      total: 3,
+      completed: 1,
+      failed: 0,
+      dispatchDone: false,
+      deliveryFailures: [],
+    });
+
+    await renderModal();
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+
+    // Form is gone, progress view is up (before the first poll lands)
+    expect(await screen.findByText("📨 שולח הודעות לאורחים...")).toBeInTheDocument();
+    expect(screen.queryByText("הזמנה לאישור הגעה")).not.toBeInTheDocument();
+
+    // First poll tick (1s interval) feeds the counter
+    expect(await screen.findByText("1 / 3 הודעות נשלחו", {}, { timeout: 2500 })).toBeInTheDocument();
+
+    resolveSend({ success: 3, fail: 0, failGuestsList: [] });
+
+    // Results replace the progress view, still listening for delivery updates
+    expect(await screen.findByText(/הודעות נשלחו בהצלחה/)).toBeInTheDocument();
+    expect(screen.getByText("בודק עדכוני מסירה מוואטסאפ...")).toBeInTheDocument();
+  });
+
+  it("shows webhook-reported delivery failures that arrive after the send completes", async () => {
+    mockHttp.sendMessage.mockResolvedValue({ success: 3, fail: 0, failGuestsList: [] });
+    mockHttp.getSendProgress.mockResolvedValue({
+      active: true,
+      total: 3,
+      completed: 3,
+      failed: 0,
+      dispatchDone: true,
+      deliveryFailures: [
+        { guestName: "Pending Guest", phone: "+972501111111", description: "כנראה שהמספר אינו רשום בוואטסאפ [error 131026]" },
+      ],
+    });
+
+    await renderModal();
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+
+    await screen.findByText(/הודעות נשלחו בהצלחה/);
+
+    // The 📵 failure lands on the next poll tick after the results are shown
+    expect(await screen.findByText("📵 נשלחו אך לא נמסרו:", {}, { timeout: 2500 })).toBeInTheDocument();
+    expect(screen.getByText(/Pending Guest.*אינו רשום בוואטסאפ/)).toBeInTheDocument();
+    // Hint to verify the numbers, fix them, and re-send
+    expect(screen.getByText(/מומלץ לבדוק אם המספרים/)).toBeInTheDocument();
+  });
+
+  it("copies the delivery-failures list to the clipboard", async () => {
+    const writeTextMock = jest.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText: writeTextMock } });
+
+    mockHttp.sendMessage.mockResolvedValue({ success: 3, fail: 0, failGuestsList: [] });
+    mockHttp.getSendProgress.mockResolvedValue({
+      active: true,
+      total: 3,
+      completed: 3,
+      failed: 0,
+      dispatchDone: true,
+      deliveryFailures: [
+        { guestName: "Pending Guest", phone: "+972501111111", description: "סיבה אחת" },
+        { guestName: "Confirmed Guest", phone: "+972502222222", description: "סיבה שנייה" },
+      ],
+    });
+
+    await renderModal();
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+    await screen.findByText("📵 נשלחו אך לא נמסרו:", {}, { timeout: 2500 });
+
+    fireEvent.click(screen.getByText("📋 העתקת הרשימה"));
+
+    await waitFor(() =>
+      expect(writeTextMock).toHaveBeenCalledWith(
+        "Pending Guest (+972501111111): סיבה אחת\nConfirmed Guest (+972502222222): סיבה שנייה",
+      ),
+    );
+    // Button gives visual feedback that the copy happened
+    expect(await screen.findByText("✓ הרשימה הועתקה")).toBeInTheDocument();
+  });
+
+  it("stops listening for delivery updates once the server reports the job is over", async () => {
+    mockHttp.sendMessage.mockResolvedValue({ success: 2, fail: 0, failGuestsList: [] });
+    mockHttp.getSendProgress.mockResolvedValue({ active: false });
+
+    await renderModal();
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+
+    await screen.findByText(/הודעות נשלחו בהצלחה/);
+
+    // The next poll returns active:false (grace window over) → indicator goes away
+    await waitFor(
+      () => expect(screen.queryByText("בודק עדכוני מסירה מוואטסאפ...")).not.toBeInTheDocument(),
+      { timeout: 2500 },
+    );
   });
 });
 

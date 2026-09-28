@@ -5,6 +5,7 @@ import { messagesMap } from "./messages";
 import { getAccessToken } from "./whatsappTokenManager";
 import Database from "./dbUtils";
 import { log, logError, logWarn } from "./logger";
+import { recordDeliveryFailure } from "./sendQueue";
 
 // Constants
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -301,6 +302,31 @@ export interface WhatsAppStatusUpdate {
   }>;
 }
 
+// Human-readable explanations (Hebrew — the activity log is read by the
+// couple, not by developers) for the Meta error codes delivery failures most
+// commonly carry. Meta's own title/details are often just "Message
+// Undeliverable" repeated, which tells the user nothing actionable.
+const DELIVERY_ERROR_EXPLANATIONS: Record<number, string> = {
+  // Per-recipient failures
+  130403: "העסק חסם את האורח הזה בוואטסאפ — יש להסיר את החסימה כדי לשלוח לו הודעות",
+  131021: "מספר האורח זהה למספר שממנו נשלחות ההודעות",
+  131026: "כנראה שהמספר אינו רשום בוואטסאפ, או שהאורח משתמש בגרסה ישנה מדי של וואטסאפ",
+  131047: "חלפו יותר מ-24 שעות מהתגובה האחרונה של האורח — ניתן לשלוח לו רק הודעת תבנית מאושרת",
+  131049: "מטא הגבילה זמנית שליחת הודעות שיווקיות לאורח זה — נסו לשלוח שוב מאוחר יותר",
+  130472: "מטא הגבילה זמנית שליחת הודעות שיווקיות לאורח זה — נסו לשלוח שוב מאוחר יותר",
+  131050: "האורח ביקש להפסיק לקבל הודעות שיווקיות מהעסק בוואטסאפ — אין לשלוח לו שוב",
+  // Sender/account-level failures (will typically hit many guests at once)
+  130429: "נשלחו יותר מדי הודעות בפרק זמן קצר — נסו לשלוח שוב לאורח זה",
+  131031: "חשבון הוואטסאפ העסקי הוגבל או הושבת על ידי מטא עקב הפרת מדיניות",
+  131042: "בעיה באמצעי התשלום של חשבון הוואטסאפ העסקי — בדקו את הגדרות החיוב במטא",
+  131048: "השליחה נחסמה זמנית עקב דיווחי ספאם או חסימות על המספר השולח",
+  131064: "מטא הגבילה את השליחה עקב סיווג שגוי של תבניות — ההגבלה תוסר אוטומטית בהמשך",
+  // Template-level failures
+  131053: "העלאת קובץ המדיה נכשלה — בדקו את התמונה המצורפת",
+  132015: "תבנית ההודעה הושהתה על ידי מטא עקב איכות נמוכה — יש לערוך אותה ולהמתין לאישור מחדש",
+  132016: "תבנית ההודעה נחסמה לצמיתות על ידי מטא עקב איכות נמוכה — יש ליצור תבנית חדשה",
+};
+
 /**
  * Handles delivery-status updates from the webhook. A 200 OK on send only
  * means Meta accepted the message — actual delivery failures arrive here as
@@ -317,10 +343,20 @@ export const handleStatusUpdates = async (statuses: WhatsAppStatusUpdate[]): Pro
 
     const phone = "+" + status.recipient_id;
     const err = status.errors?.[0];
-    const details = err?.error_data?.details || err?.message;
-    const description = err
-      ? `error ${err.code}${err.title ? ` (${err.title})` : ""}${details ? `: ${details}` : ""}`
+    const explanation = err && DELIVERY_ERROR_EXPLANATIONS[err.code];
+    const technical = err
+      ? `error ${err.code}${err.title ? ` (${err.title})` : ""}`
       : "unknown error";
+    const details = err?.error_data?.details || err?.message;
+    // Mapped codes lead with the Hebrew explanation and keep the code in
+    // brackets; unmapped codes fall back to Meta's raw title/details.
+    const description = explanation
+      ? `${explanation} [${technical}]`
+      : `${technical}${details ? `: ${details}` : ""}`;
+
+    // If a bulk send to this phone is live (or just finished), attach the
+    // failure to it so the send-progress UI can show it in the same session.
+    recordDeliveryFailure(phone, description);
 
     const candidates = await db.getAllRsvpCandidatesByPhone(phone);
     if (candidates.length === 0) {

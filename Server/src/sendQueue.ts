@@ -10,6 +10,8 @@
 export interface PacingOptions {
   concurrency?: number;
   delayMs?: number;
+  /** Called after each task resolves — drives send-progress reporting. */
+  onResult?: (result: unknown) => void;
 }
 
 // ~4 workers × one message per 250ms ≈ 16 msg/sec — well under Meta's lowest
@@ -38,8 +40,11 @@ export const runPaced = async <T>(
 
   const worker = async () => {
     while (nextIndex < tasks.length) {
+      // Safe without locking: the check and the claim run in one synchronous
+      // block — workers can only interleave at the awaits below.
       const index = nextIndex++;
       results[index] = await tasks[index]();
+      options.onResult?.(results[index]);
       if (delayMs > 0 && nextIndex < tasks.length) await sleep(delayMs);
     }
   };
@@ -49,4 +54,101 @@ export const runPaced = async <T>(
   );
 
   return results;
+};
+
+// ============================================================================
+// Send-job progress registry
+// ============================================================================
+// One live send job per data owner, kept in memory — like the queue itself:
+// if the process dies the send dies with it, so persisting would be
+// meaningless. The client polls GET /sendProgress to draw a progress bar.
+// A job lingers for a grace window after dispatch finishes so delivery
+// failures reported by the statuses webhook (most arrive within seconds of
+// the send) can be attached to the same send session and shown in the UI.
+
+export interface DeliveryFailure {
+  guestName: string;
+  phone: string;
+  description: string;
+}
+
+export interface SendJob {
+  label: string;
+  total: number;
+  completed: number;
+  failed: number;
+  dispatchDone: boolean;
+  finishedAt: number | null;
+  /** phone → guest name, for matching webhook delivery failures to this send */
+  recipients: Map<string, string>;
+  deliveryFailures: DeliveryFailure[];
+}
+
+const SEND_JOB_GRACE_MS = Number(process.env.WA_SEND_JOB_GRACE_MS ?? 30_000);
+
+const sendJobs = new Map<string, SendJob>();
+
+const isJobExpired = (job: SendJob): boolean =>
+  job.dispatchDone && job.finishedAt !== null && Date.now() - job.finishedAt > SEND_JOB_GRACE_MS;
+
+/**
+ * Registers a new send job for a data owner. Returns null if a dispatch is
+ * already running for that owner — the caller should reject the send, which
+ * also guards against a double-clicked bulk send going out twice.
+ */
+export const startSendJob = (
+  ownerID: string,
+  label: string,
+  recipients: Array<{ phone: string; name: string }>,
+): SendJob | null => {
+  const existing = sendJobs.get(ownerID);
+  if (existing && !existing.dispatchDone) return null;
+  const job: SendJob = {
+    label,
+    total: recipients.length,
+    completed: 0,
+    failed: 0,
+    dispatchDone: false,
+    finishedAt: null,
+    recipients: new Map(recipients.map((r) => [r.phone, r.name])),
+    deliveryFailures: [],
+  };
+  sendJobs.set(ownerID, job);
+  return job;
+};
+
+/** Marks dispatch as finished; the job stays readable for the grace window. */
+export const finishSendJob = (job: SendJob): void => {
+  job.dispatchDone = true;
+  job.finishedAt = Date.now();
+};
+
+/** Returns the owner's live job (still dispatching or within the grace window). */
+export const getSendJob = (ownerID: string): SendJob | null => {
+  const job = sendJobs.get(ownerID);
+  if (!job) return null;
+  if (isJobExpired(job)) {
+    sendJobs.delete(ownerID);
+    return null;
+  }
+  return job;
+};
+
+/**
+ * Attaches a webhook-reported delivery failure to whichever live job sent to
+ * this phone, so the client polling that job sees it in the same session.
+ * A phone that matches no live job is simply ignored here (it's still logged
+ * to the activity log by the webhook handler).
+ */
+export const recordDeliveryFailure = (phone: string, description: string): void => {
+  for (const [ownerID, job] of sendJobs) {
+    if (isJobExpired(job)) {
+      sendJobs.delete(ownerID);
+      continue;
+    }
+    const guestName = job.recipients.get(phone);
+    if (guestName !== undefined) {
+      job.deliveryFailures.push({ guestName, phone, description });
+    }
+  }
 };

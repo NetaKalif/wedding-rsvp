@@ -145,6 +145,22 @@ describe("RSVP mistake correction", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+describe("Manual RSVP update logging", () => {
+  it("activity log names the guest instead of the numeric id", async () => {
+    await resetRsvp(2);
+
+    const { data: logs } = await axios.get(`${REAL_SERVER}/logs`, { headers: authHeader() });
+    const entry = (logs as Array<{ message: string }>).find(
+      (l) => l.message.includes("RSVP manually updated") && l.message.includes(`event ${TEST_EVENT_ID}: 2`),
+    );
+    expect(entry).toBeDefined();
+    expect(entry!.message).toContain("Test Guest");
+    expect(entry!.message).not.toContain(`guest ${TEST_GUEST_ID}`);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe("Guests without a phone are excluded from sends", () => {
   it("/sendMessage only sends to the guest that has a phone", async () => {
     const noPhoneGuest = await addGuest("NoPhone Guest", null);

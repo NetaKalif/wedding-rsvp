@@ -8,9 +8,11 @@ import {
   Loader,
   Button,
   Checkbox,
+  LinearProgressBar,
+  TextButton,
 } from "@wix/design-system";
 import { Event, EventGuest } from "../../types";
-import { httpRequests } from "../../httpClient";
+import { httpRequests, DeliveryFailure } from "../../httpClient";
 import { useAuth } from "../../hooks/useAuth";
 import GuestPicker from "./GuestPicker";
 import WhatsAppPreview from "./WhatsAppPreview";
@@ -97,6 +99,72 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
       }
     | undefined
   >(undefined);
+  const [sendProgress, setSendProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [deliveryFailures, setDeliveryFailures] = useState<DeliveryFailure[]>([]);
+  // True between the send response arriving and the server's grace window
+  // closing — the period when webhook delivery failures (📵) can still arrive.
+  const [isListeningForFailures, setIsListeningForFailures] = useState(false);
+
+  const [copiedFailuresList, setCopiedFailuresList] = useState(false);
+  const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Only treat {active: false} as "over" once the send response arrived —
+  // before that it just means the job isn't registered yet.
+  const sendResponseReceivedRef = useRef(false);
+
+  const stopProgressPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    setIsListeningForFailures(false);
+  }, []);
+
+  const startProgressPolling = useCallback(() => {
+    if (pollingRef.current) return;
+    pollingRef.current = setInterval(async () => {
+      try {
+        const progress = await httpRequests.getSendProgress();
+        if (progress.active) {
+          if (progress.total) {
+            setSendProgress({ completed: progress.completed ?? 0, total: progress.total });
+          }
+          setDeliveryFailures(progress.deliveryFailures ?? []);
+        } else if (sendResponseReceivedRef.current) {
+          // Dispatch finished and the grace window expired — nothing more will arrive
+          stopProgressPolling();
+        }
+      } catch {
+        // Transient polling errors are fine — the next tick retries
+      }
+    }, 1000);
+  }, [stopProgressPolling]);
+
+  // Don't leak the interval if the modal unmounts mid-send (the server keeps
+  // sending regardless; results land in the activity log).
+  useEffect(() => stopProgressPolling, [stopProgressPolling]);
+
+  useEffect(
+    () => () => {
+      if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+    },
+    [],
+  );
+
+  const handleCopyFailuresList = async () => {
+    const text = deliveryFailures
+      .map((failure) => `${failure.guestName} (${failure.phone}): ${failure.description}`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedFailuresList(true);
+      if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+      copyFeedbackTimerRef.current = setTimeout(() => setCopiedFailuresList(false), 2000);
+    } catch (error) {
+      console.error("Failed to copy delivery failures list:", error);
+    }
+  };
 
   const isPrimaryEvent = event.is_primary;
 
@@ -109,6 +177,10 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
         : undefined;
 
     setIsSending(true);
+    setSendProgress(null);
+    setDeliveryFailures([]);
+    sendResponseReceivedRef.current = false;
+    startProgressPolling();
     httpRequests
       .sendMessage({
         eventId,
@@ -117,6 +189,8 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
         customText: messageType === "freeText" ? customText : undefined,
       })
       .then((result) => {
+        sendResponseReceivedRef.current = true;
+        setIsListeningForFailures(true);
         setMessageResults({
           success: result.success,
           fail: result.fail,
@@ -125,6 +199,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
       })
       .catch((err) => {
         console.error(err);
+        stopProgressPolling();
         alert("שליחת ההודעות נכשלה. אנא נסו שנית.");
       })
       .finally(() => setIsSending(false));
@@ -197,6 +272,27 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     </Box>
   );
 
+  // Shown while the send request is in flight — the counter comes from
+  // polling GET /sendProgress once a second.
+  const renderSendingProgress = () => {
+    const total = sendProgress?.total ?? 0;
+    const completed = sendProgress?.completed ?? 0;
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    return (
+      <Box direction="vertical" gap={3} padding="12px 0" align="center">
+        <Text weight="bold">📨 שולח הודעות לאורחים...</Text>
+        <LinearProgressBar value={percentage} showProgressIndication />
+        <Text secondary>
+          {total > 0 ? `${completed} / ${total} הודעות נשלחו` : "מתחיל לשלוח..."}
+        </Text>
+        <Text size="small" secondary>
+          אפשר לסגור את החלון — השליחה תמשיך ברקע והתוצאות יופיעו ביומן הפעילות
+        </Text>
+      </Box>
+    );
+  };
+
   const renderResponseMessage = () => {
     if (messageResults) {
       return (
@@ -212,6 +308,31 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                 </Text>
               ))}
             </>
+          )}
+          {deliveryFailures.length > 0 && (
+            <>
+              <Text weight="bold">📵 נשלחו אך לא נמסרו:</Text>
+              <Text size="small" secondary>
+                מומלץ לבדוק אם המספרים של האורחים האלה שגויים. אם כן — תקנו אותם
+                ברשימת האורחים ושלחו להם את ההודעה שוב.
+              </Text>
+              {deliveryFailures.map((failure) => (
+                <Text key={failure.phone} size="small">
+                  {failure.guestName}: {failure.description}
+                </Text>
+              ))}
+              <TextButton size="small" onClick={handleCopyFailuresList}>
+                {copiedFailuresList ? "✓ הרשימה הועתקה" : "📋 העתקת הרשימה"}
+              </TextButton>
+            </>
+          )}
+          {isListeningForFailures && (
+            <Box gap={1} verticalAlign="middle">
+              <Loader size="tiny" />
+              <Text size="small" secondary>
+                בודק עדכוני מסירה מוואטסאפ...
+              </Text>
+            </Box>
           )}
         </Box>
       );
@@ -234,6 +355,8 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
           </Box>
         ) : !canSendMessages ? (
           renderPermissionRequest()
+        ) : isSending ? (
+          renderSendingProgress()
         ) : messageResults ? (
           renderResponseMessage()
         ) : (
@@ -366,7 +489,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                   disabled={isSendDisabled}
                   fullWidth
                 >
-                  {isSending ? <Loader size="tiny" /> : "שליחת הודעות"}
+                  שליחת הודעות
                 </Button>
               </div>
 

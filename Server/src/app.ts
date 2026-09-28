@@ -19,7 +19,7 @@ import {
   handleStatusUpdates,
   MessageResult,
 } from "./utils";
-import { runPaced } from "./sendQueue";
+import { runPaced, startSendJob, finishSendJob, getSendJob, SendJob } from "./sendQueue";
 import { getDateFormat, getWeddingDateStrings, daysBetween, addDays } from "./dateUtils";
 import axios from "axios";
 import { getAccessToken } from "./whatsappTokenManager";
@@ -463,8 +463,9 @@ app.post("/updateRsvp", async (req: Request, res: Response) => {
     const { eventId, guestId, rsvpStatus } = req.body;
     const dataOwner = await resolveDataOwner(req.auth.userID);
     await db.updateEventGuestRsvp(Number(eventId), Number(guestId), rsvpStatus ?? null);
-    await logMessage(dataOwner, `📠 RSVP manually updated for guest ${guestId} in event ${eventId}: ${rsvpStatus}`);
     const guests = await db.getEventGuests(Number(eventId));
+    const guestName = guests.find((g) => g.guest_id === Number(guestId))?.name ?? `guest ${guestId}`;
+    await logMessage(dataOwner, `📠 RSVP manually updated for ${guestName} in event ${eventId}: ${rsvpStatus}`);
     res.status(200).json(guests);
   } catch (error) {
     logError(req.auth?.userID, "Error updating RSVP:", error);
@@ -713,10 +714,24 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
     }
 
     const label = messageType === "rsvp" ? "RSVP invitation" : messageType === "rsvpReminder" ? "RSVP reminder" : messageType === "eventReminder" ? "event reminder" : messageType === "thankYou" ? "thank-you" : "custom text";
+
+    // Register the send job (polled via GET /sendProgress). A null job means a
+    // dispatch is already running for this owner — reject rather than double-send.
+    const job = startSendJob(dataOwner, label, limited.map((eg) => ({ phone: eg.phone, name: eg.name || eg.phone })));
+    if (!job) {
+      return res.status(409).send("A message send is already in progress");
+    }
+
     await logMessage(dataOwner, `📨 Sending ${label} for "${event.ceremony_name}" to ${limited.length} guests`);
 
-    const tasks = buildMessageTasks(limited, messageType, customText, event, dataOwner);
-    const results = await sendMessagesAndLog(tasks, dataOwner, "🎯", label);
+    let results;
+    try {
+      const tasks = buildMessageTasks(limited, messageType, customText, event, dataOwner);
+      results = await sendMessagesAndLog(tasks, dataOwner, "🎯", label, [], job);
+    } finally {
+      // Always release the job — a stuck "active" job would block future sends.
+      finishSendJob(job);
+    }
 
     if (messageType === "rsvp" || messageType === "rsvpReminder") {
       await db.updateEventGuestLastRsvpSentAt(eventId, limited.map((eg) => eg.guest_id));
@@ -729,12 +744,37 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
   }
 });
 
+// Progress of the current (or just-finished) bulk send for this data owner —
+// polled by the client to drive the send-progress bar. deliveryFailures are
+// webhook-reported failures (📵) attached while the job is live, including
+// the post-dispatch grace window.
+app.get("/sendProgress", async (req: Request, res: Response) => {
+  try {
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const job = getSendJob(dataOwner);
+    if (!job) return res.status(200).json({ active: false });
+
+    res.status(200).json({
+      active: true,
+      label: job.label,
+      total: job.total,
+      completed: job.completed,
+      failed: job.failed,
+      dispatchDone: job.dispatchDone,
+      deliveryFailures: job.deliveryFailures,
+    });
+  } catch (error) {
+    return handleError(res, error, "Failed to retrieve send progress");
+  }
+});
+
 const sendMessagesAndLog = async (
   tasks: Array<() => Promise<MessageResult>>,
   userID: string,
   successEmoji: string,
   messageLabel: string,
   preMessageLogs: string[] = [],
+  job?: SendJob,
 ): Promise<{
   success: number;
   fail: number;
@@ -742,7 +782,15 @@ const sendMessagesAndLog = async (
 }> => {
   // Paced dispatch — firing the whole batch at once gets 200 OKs from Meta
   // but silently drops delivery for part of the recipients (throttling).
-  const results = await runPaced(tasks);
+  // Scheduler sends pass no job (nothing polls their progress).
+  const results = await runPaced(tasks, {
+    onResult: job
+      ? (r) => {
+          job.completed++;
+          if (!(r as MessageResult).success) job.failed++;
+        }
+      : undefined,
+  });
 
   const successCount = results.filter((r) => r.success).length;
   const fail = results.filter((r) => !r.success);

@@ -228,6 +228,26 @@ interface SendMessageOptions {
 const sendMessage = (options: SendMessageOptions) =>
   post<MessageResult>("/sendMessage", { options });
 
+export interface DeliveryFailure {
+  guestName: string;
+  phone: string;
+  description: string;
+}
+
+// Progress of the current bulk send (active also covers the short grace
+// window after dispatch, during which WhatsApp delivery failures still arrive).
+export interface SendProgress {
+  active: boolean;
+  label?: string;
+  total?: number;
+  completed?: number;
+  failed?: number;
+  dispatchDone?: boolean;
+  deliveryFailures?: DeliveryFailure[];
+}
+
+const getSendProgress = () => get<SendProgress>("/sendProgress");
+
 // ==================== Messaging Permission Methods ====================
 
 interface MessagingPermissionStatus {
@@ -416,7 +436,7 @@ export const httpRequests = {
   // Event guests + RSVP
   getEventGuests, setEventGuests, removeEventGuests, setRSVP, callPendingGuests,
   // Messages
-  sendMessage,
+  sendMessage, getSendProgress,
   // Messaging Permissions
   getMessagingPermissionStatus, requestMessagingPermission, setMessagingPermission,
   // Logs
