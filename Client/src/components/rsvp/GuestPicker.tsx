@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { Box, Input, Text, Button, Checkbox, Popover } from "@wix/design-system";
 import { ChevronDown, ChevronUp, Filter } from "lucide-react";
-import { EventGuest } from "../../types";
-import { getUniqueEventGuestValues } from "./logic";
+import { EventGuest, RsvpStatus } from "../../types";
+import { getRsvpStatus, getUniqueEventGuestValues, RSVP_STATUS_LABELS } from "./logic";
+
+const RSVP_STATUS_OPTIONS: RsvpStatus[] = ["confirmed", "pending", "declined"];
 
 interface GuestPickerProps {
   guests: EventGuest[];
@@ -11,7 +13,7 @@ interface GuestPickerProps {
 }
 
 /**
- * Searchable, filterable (whose/circle) guest checklist with select-all.
+ * Searchable, filterable (whose/circle/RSVP status) guest checklist with select-all.
  * Search/filter state is internal — remount (via `key`) to reset it.
  */
 const GuestPicker: React.FC<GuestPickerProps> = ({
@@ -20,14 +22,24 @@ const GuestPicker: React.FC<GuestPickerProps> = ({
   onSelectionChange,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [filters, setFilters] = useState<{ whose: string[]; circle: string[] }>({
+  const [filters, setFilters] = useState<{
+    whose: string[];
+    circle: string[];
+    rsvpStatus: RsvpStatus[];
+  }>({
     whose: [],
     circle: [],
+    rsvpStatus: [],
   });
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filterSectionsOpen, setFilterSectionsOpen] = useState<{ whose: boolean; circle: boolean }>({
+  const [filterSectionsOpen, setFilterSectionsOpen] = useState<{
+    whose: boolean;
+    circle: boolean;
+    rsvpStatus: boolean;
+  }>({
     whose: false,
     circle: false,
+    rsvpStatus: false,
   });
 
   const toggleGuestSelection = (guestId: number) => {
@@ -54,7 +66,16 @@ const GuestPicker: React.FC<GuestPickerProps> = ({
     }));
   };
 
-  const toggleFilterSection = (section: "whose" | "circle") => {
+  const toggleRsvpStatusFilter = (status: RsvpStatus) => {
+    setFilters((prev) => ({
+      ...prev,
+      rsvpStatus: prev.rsvpStatus.includes(status)
+        ? prev.rsvpStatus.filter((item) => item !== status)
+        : [...prev.rsvpStatus, status],
+    }));
+  };
+
+  const toggleFilterSection = (section: "whose" | "circle" | "rsvpStatus") => {
     setFilterSectionsOpen((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
@@ -65,7 +86,9 @@ const GuestPicker: React.FC<GuestPickerProps> = ({
     const matchesWhose = filters.whose.length === 0 || (g.whose != null && filters.whose.includes(g.whose));
     const matchesCircle =
       filters.circle.length === 0 || (g.circle != null && filters.circle.includes(g.circle));
-    return matchesSearch && matchesWhose && matchesCircle;
+    const matchesRsvpStatus =
+      filters.rsvpStatus.length === 0 || filters.rsvpStatus.includes(getRsvpStatus(g.rsvp_status));
+    return matchesSearch && matchesWhose && matchesCircle && matchesRsvpStatus;
   });
 
   const allFilteredSelected =
@@ -93,7 +116,7 @@ const GuestPicker: React.FC<GuestPickerProps> = ({
             placeholder="חיפוש לפי שם..."
           />
         </Box>
-        {(whoseOptions.length > 0 || circleOptions.length > 0) && (
+        {guests.length > 0 && (
           <Popover
             shown={isFilterOpen}
             placement="bottom-end"
@@ -110,8 +133,8 @@ const GuestPicker: React.FC<GuestPickerProps> = ({
               >
                 <Filter size={16} />
                 <span style={{ marginRight: "6px" }}>
-                  סינון{filters.whose.length + filters.circle.length > 0
-                    ? ` (${filters.whose.length + filters.circle.length})`
+                  סינון{filters.whose.length + filters.circle.length + filters.rsvpStatus.length > 0
+                    ? ` (${filters.whose.length + filters.circle.length + filters.rsvpStatus.length})`
                     : ""}
                 </span>
               </Button>
@@ -195,10 +218,44 @@ const GuestPicker: React.FC<GuestPickerProps> = ({
                     )}
                   </Box>
                 )}
+                <Box direction="vertical" gap="4px">
+                  <div
+                    onClick={() => toggleFilterSection("rsvpStatus")}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Text size="small" weight="bold">
+                      סטטוס אישור הגעה
+                    </Text>
+                    {filterSectionsOpen.rsvpStatus ? (
+                      <ChevronUp size={16} />
+                    ) : (
+                      <ChevronDown size={16} />
+                    )}
+                  </div>
+                  {filterSectionsOpen.rsvpStatus && (
+                    <Box direction="vertical" gap="2px">
+                      {RSVP_STATUS_OPTIONS.map((status) => (
+                        <Checkbox
+                          key={status}
+                          checked={filters.rsvpStatus.includes(status)}
+                          size="small"
+                          onChange={() => toggleRsvpStatusFilter(status)}
+                        >
+                          {RSVP_STATUS_LABELS[status]}
+                        </Checkbox>
+                      ))}
+                    </Box>
+                  )}
+                </Box>
                 <Button
                   priority="secondary"
                   size="tiny"
-                  onClick={() => setFilters({ whose: [], circle: [] })}
+                  onClick={() => setFilters({ whose: [], circle: [], rsvpStatus: [] })}
                 >
                   נקה מסננים
                 </Button>

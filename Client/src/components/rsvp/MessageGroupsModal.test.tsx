@@ -152,6 +152,49 @@ describe("MessageGroupsModal - specific guest picker", () => {
     expect(screen.queryByText(/Confirmed Guest/)).not.toBeInTheDocument();
   });
 
+  it("filters the picker by RSVP status", async () => {
+    await renderModal();
+
+    fireEvent.click(screen.getByText("בחירת אורחים ספציפיים לשליחה"));
+    fireEvent.click(screen.getByText(/סינון/));
+    fireEvent.click(screen.getByText("סטטוס אישור הגעה"));
+    fireEvent.click(screen.getByText("מאושר"));
+
+    expect(screen.getByText(/Confirmed Guest/)).toBeInTheDocument();
+    expect(screen.queryByText(/Pending Guest/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Declined Guest/)).not.toBeInTheDocument();
+  });
+
+  it("combines multiple RSVP statuses in the picker filter", async () => {
+    await renderModal();
+
+    fireEvent.click(screen.getByText("בחירת אורחים ספציפיים לשליחה"));
+    fireEvent.click(screen.getByText(/סינון/));
+    fireEvent.click(screen.getByText("סטטוס אישור הגעה"));
+    fireEvent.click(screen.getByText("ממתין"));
+    fireEvent.click(screen.getByText("סירוב"));
+
+    expect(screen.getByText(/Pending Guest/)).toBeInTheDocument();
+    expect(screen.getByText(/Declined Guest/)).toBeInTheDocument();
+    expect(screen.queryByText(/Confirmed Guest/)).not.toBeInTheDocument();
+  });
+
+  it("restores the full picker list when RSVP status filters are cleared", async () => {
+    await renderModal();
+
+    fireEvent.click(screen.getByText("בחירת אורחים ספציפיים לשליחה"));
+    fireEvent.click(screen.getByText(/סינון/));
+    fireEvent.click(screen.getByText("סטטוס אישור הגעה"));
+    fireEvent.click(screen.getByText("מאושר"));
+    expect(screen.queryByText(/Pending Guest/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("נקה מסננים"));
+
+    expect(screen.getByText(/Pending Guest/)).toBeInTheDocument();
+    expect(screen.getByText(/Confirmed Guest/)).toBeInTheDocument();
+    expect(screen.getByText(/Declined Guest/)).toBeInTheDocument();
+  });
+
   it("excludes guests without a phone from the picker and from select-all", async () => {
     const guestsWithNoPhone: EventGuest[] = [
       ...eventGuests,
