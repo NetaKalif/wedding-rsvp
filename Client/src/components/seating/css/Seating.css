@@ -69,6 +69,40 @@
   position: relative;
 }
 
+/* Switch-guests mode banner */
+.switch-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: #2a4d8f;
+  color: #fff;
+  font-size: 13px;
+  font-weight: bold;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.switch-banner button {
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: none;
+  color: #fff;
+  border-radius: 6px;
+  padding: 2px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.switch-banner button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
 /* Floor-plan seat stats, floating over the canvas */
 .canvas-stats {
   position: absolute;

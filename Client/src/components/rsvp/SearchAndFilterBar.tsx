@@ -11,8 +11,8 @@ import {
   Modal,
   Text,
 } from "@wix/design-system";
-import { getEventGuestCirclesValues, getUniqueEventGuestValues } from "./logic";
-import { Filter, Search } from "lucide-react";
+import { getEventGuestCirclesValues, getUniqueEventGuestValues, RSVP_STATUS_LABELS } from "./logic";
+import { Filter, Search, X } from "lucide-react";
 interface SearchAndFilterBarProps {
   guestsList: EventGuest[];
   filterOptions: FilterOptions;
@@ -64,6 +64,26 @@ const SearchAndFilterBar: React.FC<SearchAndFilterBarProps> = ({
     }));
   };
 
+  // Active filters rendered as removable chips — the visual indication that
+  // the list is filtered, with a one-click ✕ per individual filter value.
+  const activeChips: Array<{ key: string; label: string; onRemove: () => void }> = [
+    ...filterOptions.whose.map((value) => ({
+      key: `whose-${value}`,
+      label: `מוזמן ע״י: ${value}`,
+      onRemove: () => toggleInvitedByFilter(value),
+    })),
+    ...filterOptions.circle.map((value) => ({
+      key: `circle-${value}`,
+      label: `מעגל: ${value}`,
+      onRemove: () => toggleCircleFilter(value),
+    })),
+    ...filterOptions.rsvpStatus.map((value) => ({
+      key: `rsvp-${value}`,
+      label: `סטטוס: ${RSVP_STATUS_LABELS[value]}`,
+      onRemove: () => toggleRsvpStatusFilter(value),
+    })),
+  ];
+
   return (
     <>
       <div data-tour="search-filter">
@@ -94,21 +114,37 @@ const SearchAndFilterBar: React.FC<SearchAndFilterBarProps> = ({
             <Filter size={16} />
             סינון
           </Button>
-          <Button
-            onClick={() => {
-              setFilterOptions({
-                whose: [],
-                circle: [],
-                rsvpStatus: [],
-                searchTerm: "",
-              });
-            }}
-            size="tiny"
-          >
-            נקה מסננים
-          </Button>
         </Box>
       </Box>
+      {activeChips.length > 0 && (
+        <div className="active-filter-chips" data-testid="active-filter-chips">
+          {activeChips.map((chip) => (
+            <span key={chip.key} className="filter-chip">
+              {chip.label}
+              <button
+                type="button"
+                className="filter-chip-remove"
+                onClick={chip.onRemove}
+                title={`הסרת הסינון ${chip.label}`}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            className="filter-chip filter-chip-clear"
+            onClick={() => setFilterOptions((prev) => ({
+              ...prev,
+              whose: [],
+              circle: [],
+              rsvpStatus: [],
+            }))}
+          >
+            נקה הכל
+          </button>
+        </div>
+      )}
       </div>
       <Modal
         isOpen={filterPanelOpen}

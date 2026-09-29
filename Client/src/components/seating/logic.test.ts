@@ -2,6 +2,7 @@ import { EventGuest, SeatingAssignment, SeatingItem } from "../../types";
 import {
   buildDuplicate,
   buildEscortRows,
+  buildSwapEntries,
   canvasSeatStats,
   buildTableRows,
   clampToRoom,
@@ -273,6 +274,29 @@ describe("preset object colors", () => {
       expect(entry.color).toBeDefined();
       expect(OBJECT_COLORS).toContain(entry.color);
     }
+  });
+});
+
+describe("buildSwapEntries", () => {
+  const assignments = [
+    baseAssignment({ id: 1, item_id: 10, event_guest_id: 1 }),
+    baseAssignment({ id: 2, item_id: 10, event_guest_id: 2 }),
+    baseAssignment({ id: 3, item_id: 20, event_guest_id: 3 }),
+    baseAssignment({ id: 4, item_id: 99, event_guest_id: 4 }), // another table — untouched
+  ];
+
+  it("moves each side's guests to the other table, remembering their origin", () => {
+    expect(buildSwapEntries(10, 20, assignments)).toEqual([
+      { type: "assign", eventGuestId: 1, itemId: 20, previousItemId: 10 },
+      { type: "assign", eventGuestId: 2, itemId: 20, previousItemId: 10 },
+      { type: "assign", eventGuestId: 3, itemId: 10, previousItemId: 20 },
+    ]);
+  });
+
+  it("swapping with an empty table is a plain move", () => {
+    expect(buildSwapEntries(20, 30, assignments)).toEqual([
+      { type: "assign", eventGuestId: 3, itemId: 30, previousItemId: 20 },
+    ]);
   });
 });
 

@@ -3,7 +3,7 @@ import { Box, Button, Loader, Modal, PopoverMenu, Text, Input, FormField } from 
 import { ChevronDown } from "@wix/wix-ui-icons-common";
 import "@wix/design-system/styles.global.css";
 import Konva from "konva";
-import { Undo2, Redo2, Trash2, Copy, Eraser, Image as ImageIcon, Printer, FileSpreadsheet, Ruler } from "lucide-react";
+import { Undo2, Redo2, Trash2, Copy, Eraser, ArrowLeftRight, Image as ImageIcon, Printer, FileSpreadsheet, Ruler } from "lucide-react";
 import Header from "../global/Header";
 import { useAuth } from "../../hooks/useAuth";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -20,10 +20,12 @@ import { SeatingCanvas } from "./SeatingCanvas";
 import { ObjectsBank } from "./panel/ObjectsBank";
 import { GuestsPanel } from "./panel/GuestsPanel";
 import { TableModal } from "./TableModal";
+import { ObjectModal } from "./ObjectModal";
 import { CustomPresetModal } from "./CustomPresetModal";
 import {
   BankEntry,
   buildDuplicate,
+  buildSwapEntries,
   clampToRoom,
   nextTableNumber,
   OBJECT_COLORS,
@@ -31,6 +33,7 @@ import {
   SeatingBatchableEntry,
   SeatingHistoryEntry,
   snapToGrid,
+  tableDisplayName,
 } from "./logic";
 import { downloadDataUrl, downloadSeatingXlsx, openPrintView, stageToRoomPng } from "./export";
 import "./css/Seating.css";
@@ -61,6 +64,9 @@ export const SeatingDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"objects" | "guests">("objects");
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [modalTableId, setModalTableId] = useState<number | null>(null);
+  const [modalObjectId, setModalObjectId] = useState<number | null>(null);
+  // Switch-guests mode: the table whose guests will be swapped with a target
+  const [switchSourceId, setSwitchSourceId] = useState<number | null>(null);
   const [showPresetModal, setShowPresetModal] = useState(false);
   const [editingPreset, setEditingPreset] = useState<CustomTablePreset | null>(null);
   const [presetModalKind, setPresetModalKind] = useState<SeatingItemKind>("table");
@@ -404,6 +410,56 @@ export const SeatingDashboard: React.FC = () => {
     } catch { /* keep state — unassign failed */ }
   }, [assignments, doUnassign, pushHistory]);
 
+  /** Double-click routes to the right modal by item kind. */
+  const handleOpenItem = useCallback((id: number) => {
+    const item = items.find((i) => i.id === id);
+    if (!item) return;
+    if (item.kind === "table") setModalTableId(id);
+    else setModalObjectId(id);
+  }, [items]);
+
+  /** Target table picked in switch mode: confirm, then swap all guests as one batch. */
+  const handlePickSwitchTarget = useCallback(async (targetId: number) => {
+    if (switchSourceId == null || targetId === switchSourceId) return;
+    const source = items.find((i) => i.id === switchSourceId);
+    const target = items.find((i) => i.id === targetId);
+    if (!source || !target) return;
+    const confirmed = await confirm({
+      title: "החלפת אורחים",
+      message: `להחליף את כל האורחים בין ${tableDisplayName(source)} ל${tableDisplayName(target)}?`,
+      confirmText: "החלפה",
+      confirmSkin: "standard",
+    });
+    if (!confirmed) return;
+    const entries = buildSwapEntries(switchSourceId, targetId, assignments);
+    const applied: SeatingBatchableEntry[] = [];
+    for (const entry of entries) {
+      if (entry.type !== "assign") continue;
+      try {
+        await doAssign(entry.eventGuestId, entry.itemId);
+        applied.push(entry);
+      } catch { /* skip failed move; the rest still applies */ }
+    }
+    if (applied.length > 0) pushHistory({ type: "batch", entries: applied });
+    setSwitchSourceId(null);
+  }, [switchSourceId, items, assignments, confirm, doAssign, pushHistory]);
+
+  // Switch mode ends on Escape, and can't outlive its source table
+  useEffect(() => {
+    if (switchSourceId != null && !items.some((i) => i.id === switchSourceId)) {
+      setSwitchSourceId(null);
+    }
+  }, [switchSourceId, items]);
+
+  useEffect(() => {
+    if (switchSourceId == null) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSwitchSourceId(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [switchSourceId]);
+
   /**
    * The table-modal save: props changes + staged guest removals/additions are
    * applied together and recorded as ONE batch history entry — a single undo
@@ -533,6 +589,7 @@ export const SeatingDashboard: React.FC = () => {
   // ==================== Render ====================
 
   const modalTable = modalTableId != null ? items.find((i) => i.id === modalTableId) ?? null : null;
+  const modalObject = modalObjectId != null ? items.find((i) => i.id === modalObjectId) ?? null : null;
   const selectedItem = selectedItemId != null ? items.find((i) => i.id === selectedItemId) ?? null : null;
 
   if (isLoading) {
@@ -621,6 +678,16 @@ export const SeatingDashboard: React.FC = () => {
                   />
                 </div>
               )}
+              {selectedItem.kind === "table" && (
+                <Button
+                  size="small"
+                  skin={switchSourceId === selectedItem.id ? "standard" : "light"}
+                  onClick={() => setSwitchSourceId((prev) => prev === selectedItem.id ? null : selectedItem.id)}
+                  prefixIcon={<ArrowLeftRight size={14} />}
+                >
+                  {switchSourceId === selectedItem.id ? "ביטול החלפה" : "החלפת אורחים"}
+                </Button>
+              )}
               <Button
                 size="small"
                 skin="light"
@@ -676,12 +743,15 @@ export const SeatingDashboard: React.FC = () => {
               items={items}
               assignments={assignments}
               selectedItemId={selectedItemId}
+              switchSourceId={switchSourceId}
               stageRef={stageRef}
               onSelect={setSelectedItemId}
               onItemChange={handleItemChange}
               onDropNewItem={handleDropNewItem}
               onDropGuest={handleAssignGuest}
-              onOpenTable={setModalTableId}
+              onOpenItem={handleOpenItem}
+              onPickSwitchTarget={handlePickSwitchTarget}
+              onCancelSwitch={() => setSwitchSourceId(null)}
             />
           ) : (
             <div className="seating-empty-state" dir="rtl">
@@ -737,6 +807,16 @@ export const SeatingDashboard: React.FC = () => {
             eventGuests={eventGuests}
             onApply={(changes, guestChanges) => handleTableModalSave(modalTable.id, changes, guestChanges)}
             onClose={() => setModalTableId(null)}
+          />
+        )}
+      </Modal>
+
+      <Modal isOpen={modalObject != null} onRequestClose={() => setModalObjectId(null)} shouldCloseOnOverlayClick>
+        {modalObject && (
+          <ObjectModal
+            object={modalObject}
+            onApply={(changes) => handleTableModalSave(modalObject.id, changes, { assign: [], unassign: [] })}
+            onClose={() => setModalObjectId(null)}
           />
         )}
       </Modal>

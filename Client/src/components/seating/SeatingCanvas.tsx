@@ -15,6 +15,7 @@ import {
   MIN_ITEM_CM,
   parseDragPayload,
   tableAtPoint,
+  tableDisplayName,
   tableOccupancy,
 } from "./logic";
 
@@ -23,12 +24,16 @@ interface SeatingCanvasProps {
   items: SeatingItem[];
   assignments: SeatingAssignment[];
   selectedItemId: number | null;
+  /** When set, the canvas is in switch-guests mode: this table awaits a partner. */
+  switchSourceId: number | null;
   stageRef: React.RefObject<Konva.Stage | null>;
   onSelect: (id: number | null) => void;
   onItemChange: (id: number, changes: Partial<SeatingItem>) => void;
   onDropNewItem: (entry: BankEntry, label: string | null, xCm: number, yCm: number) => void;
   onDropGuest: (eventGuestId: number, tableId: number) => void;
-  onOpenTable: (id: number) => void;
+  onOpenItem: (id: number) => void;
+  onPickSwitchTarget: (tableId: number) => void;
+  onCancelSwitch: () => void;
 }
 
 interface ViewState { scale: number; x: number; y: number; }
@@ -36,8 +41,9 @@ interface ViewState { scale: number; x: number; y: number; }
 const ZOOM_FACTOR = 1.06;
 
 export const SeatingCanvas: React.FC<SeatingCanvasProps> = ({
-  layout, items, assignments, selectedItemId, stageRef,
-  onSelect, onItemChange, onDropNewItem, onDropGuest, onOpenTable,
+  layout, items, assignments, selectedItemId, switchSourceId, stageRef,
+  onSelect, onItemChange, onDropNewItem, onDropGuest, onOpenItem,
+  onPickSwitchTarget, onCancelSwitch,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -194,10 +200,16 @@ export const SeatingCanvas: React.FC<SeatingCanvasProps> = ({
           }
         }}
         onClick={(e) => {
-          if (e.target === stageRef.current || e.target.name() === "room") onSelect(null);
+          if (e.target === stageRef.current || e.target.name() === "room") {
+            if (switchSourceId != null) onCancelSwitch();
+            else onSelect(null);
+          }
         }}
         onTap={(e) => {
-          if (e.target === stageRef.current || e.target.name() === "room") onSelect(null);
+          if (e.target === stageRef.current || e.target.name() === "room") {
+            if (switchSourceId != null) onCancelSwitch();
+            else onSelect(null);
+          }
         }}
       >
         <Layer>
@@ -220,11 +232,14 @@ export const SeatingCanvas: React.FC<SeatingCanvasProps> = ({
               isSelected={item.id === selectedItemId}
               isOverlapping={overlappingIds.has(item.id)}
               isDropTarget={item.id === dropTableId}
+              isSwitchMode={switchSourceId != null}
+              isSwitchSource={item.id === switchSourceId}
               roomWidthCm={layout.room_width_cm}
               roomHeightCm={layout.room_height_cm}
               onSelect={onSelect}
               onChange={onItemChange}
-              onOpenTable={onOpenTable}
+              onOpenItem={onOpenItem}
+              onPickSwitchTarget={onPickSwitchTarget}
             />
           ))}
           <Transformer
@@ -244,6 +259,17 @@ export const SeatingCanvas: React.FC<SeatingCanvasProps> = ({
           />
         </Layer>
       </Stage>
+      {switchSourceId != null && (
+        <div className="switch-banner" dir="rtl" data-testid="switch-banner">
+          <span>
+            {`בחרו שולחן להחלפת האורחים עם ${(() => {
+              const source = items.find((i) => i.id === switchSourceId);
+              return source ? tableDisplayName(source) : "";
+            })()}`}
+          </span>
+          <button type="button" onClick={onCancelSwitch}>ביטול</button>
+        </div>
+      )}
       {/* Seat capacity stats for the whole floor plan */}
       <div className="canvas-stats" dir="rtl" data-testid="canvas-stats">
         <span>{`סה״כ מקומות: ${seatStats.totalSeats}`}</span>

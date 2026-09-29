@@ -183,6 +183,11 @@ describe("GuestsPanel", () => {
     fireEvent.click(screen.getByText("כלה")); // whose checkbox in the filter modal
     expect(screen.getByText("אבי כהן")).toBeInTheDocument();
     expect(screen.queryByText("דנה לוי")).not.toBeInTheDocument();
+    // The active filter shows as a chip; removing it via the ✕ unfilters the list
+    expect(screen.getByTestId("active-filter-chips")).toHaveTextContent("מוזמן ע״י: כלה");
+    fireEvent.click(screen.getByTitle("הסרת הסינון מוזמן ע״י: כלה"));
+    expect(screen.getByText("דנה לוי")).toBeInTheDocument();
+    expect(screen.queryByTestId("active-filter-chips")).not.toBeInTheDocument();
   });
 
   it("renders no drag handle for declined guests", () => {

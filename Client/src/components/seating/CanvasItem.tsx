@@ -20,18 +20,23 @@ interface CanvasItemProps {
   isOverlapping: boolean;
   /** A guest is being dragged and this table is under the cursor. */
   isDropTarget: boolean;
+  /** Switch-guests mode: a source table is chosen and awaits a target table. */
+  isSwitchMode: boolean;
+  /** This item IS the switch source — greyed out and not pickable. */
+  isSwitchSource: boolean;
   roomWidthCm: number;
   roomHeightCm: number;
   onSelect: (id: number) => void;
   onChange: (id: number, changes: Partial<SeatingItem>) => void;
-  onOpenTable: (id: number) => void;
+  onOpenItem: (id: number) => void;
+  onPickSwitchTarget: (tableId: number) => void;
 }
 
 const OBJECT_FILL = "#e8e4f5";
 
 export const CanvasItem: React.FC<CanvasItemProps> = ({
-  item, occupancy, isSelected, isOverlapping, isDropTarget, roomWidthCm, roomHeightCm,
-  onSelect, onChange, onOpenTable,
+  item, occupancy, isSelected, isOverlapping, isDropTarget, isSwitchMode, isSwitchSource,
+  roomWidthCm, roomHeightCm, onSelect, onChange, onOpenItem, onPickSwitchTarget,
 }) => {
   const halfW = item.width_cm / 2;
   const halfH = item.height_cm / 2;
@@ -77,17 +82,27 @@ export const CanvasItem: React.FC<CanvasItemProps> = ({
     dash: isOverlapping && !isDropTarget ? [12, 8] : undefined,
   };
 
+  // In switch mode clicks pick the swap target (the source itself is inert)
+  const handleClick = () => {
+    if (isSwitchMode) {
+      if (isTable && !isSwitchSource) onPickSwitchTarget(item.id);
+      return;
+    }
+    onSelect(item.id);
+  };
+
   return (
     <Group
       id={`item-${item.id}`}
       x={item.x_cm + halfW}
       y={item.y_cm + halfH}
       rotation={item.rotation_deg}
-      draggable
-      onClick={() => onSelect(item.id)}
-      onTap={() => onSelect(item.id)}
-      onDblClick={() => isTable && onOpenTable(item.id)}
-      onDblTap={() => isTable && onOpenTable(item.id)}
+      draggable={!isSwitchMode}
+      opacity={isSwitchSource ? 0.35 : 1}
+      onClick={handleClick}
+      onTap={handleClick}
+      onDblClick={() => !isSwitchMode && onOpenItem(item.id)}
+      onDblTap={() => !isSwitchMode && onOpenItem(item.id)}
       onDragStart={() => onSelect(item.id)}
       onDragEnd={handleDragEnd}
       onTransformEnd={handleTransformEnd}

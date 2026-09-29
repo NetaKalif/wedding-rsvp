@@ -341,6 +341,35 @@ export const remapItemId = (
     };
   });
 
+/**
+ * The assignment moves that swap all guests between two tables, expressed as
+ * history sub-entries (each guest keeps its origin in previousItemId, so a
+ * single batch undo restores both tables). The caller executes each move and
+ * records the whole list as one batch.
+ */
+export const buildSwapEntries = (
+  sourceId: number,
+  targetId: number,
+  assignments: SeatingAssignment[],
+): SeatingBatchableEntry[] => [
+  ...assignments
+    .filter((a) => a.item_id === sourceId)
+    .map((a) => ({
+      type: "assign" as const,
+      eventGuestId: a.event_guest_id,
+      itemId: targetId,
+      previousItemId: sourceId,
+    })),
+  ...assignments
+    .filter((a) => a.item_id === targetId)
+    .map((a) => ({
+      type: "assign" as const,
+      eventGuestId: a.event_guest_id,
+      itemId: sourceId,
+      previousItemId: targetId,
+    })),
+];
+
 // ==================== Duplication ====================
 
 /**

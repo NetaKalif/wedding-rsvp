@@ -32,3 +32,52 @@
   padding-top: 24px;
   padding-bottom: 24px;
 }
+
+/* Active filters as removable chips (rendered by SearchAndFilterBar) */
+.active-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 14px;
+  background: #eef3fb;
+  border: 1px solid #b9cff2;
+  color: #2a4d8f;
+  font-size: 12px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.filter-chip-remove {
+  display: flex;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 1px;
+  cursor: pointer;
+  color: #2a4d8f;
+  border-radius: 50%;
+}
+
+.filter-chip-remove:hover {
+  background: #d4e2f7;
+}
+
+/* "Clear all" as a pill at the end of the chip row */
+.filter-chip-clear {
+  cursor: pointer;
+  background: #fff;
+  border: 1px dashed #b9cff2;
+  font-family: inherit;
+}
+
+.filter-chip-clear:hover {
+  background: #eef3fb;
+}
