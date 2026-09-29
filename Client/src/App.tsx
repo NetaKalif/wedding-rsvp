@@ -17,6 +17,7 @@ import { WeddingDashboard } from "./components/userDashboard/WeddingDashboard";
 import { TasksDashboard } from "./components/tasks/TasksDashboard";
 import { BudgetDashboard } from "./components/budgetAndVendors/BudgetDashboard";
 import { GiftsDashboard } from "./components/gifts/GiftsDashboard";
+import { SeatingDashboard } from "./components/seating/SeatingDashboard";
 import WelcomePage from "./components/welcomePage/WelcomePage";
 import PendingApprovalPage from "./components/pendingApproval/PendingApprovalPage";
 import AdminUsersPage from "./components/admin/AdminUsersPage";
@@ -25,6 +26,7 @@ import { AppDataProvider, useAppData } from "./hooks/useAppData";
 import { TourProvider } from "./hooks/useTour";
 import { getTourSteps } from "./components/global/tourSteps";
 import { Loader } from "@wix/design-system";
+import { isFullScreenRoute } from "./layout";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -39,6 +41,7 @@ function ScrollToTop() {
 function AppContent() {
   const { user, isAdmin, isLoading: authLoading, pendingApproval } = useAuth();
   const { isDataLoading } = useAppData();
+  const location = useLocation();
 
   if (authLoading || isDataLoading) {
     return (
@@ -72,6 +75,7 @@ function AppContent() {
           <Route path="/tasks" element={<TasksDashboard />} />
           <Route path="/budget" element={<BudgetDashboard />} />
           <Route path="/gifts" element={<GiftsDashboard />} />
+          <Route path="/seating" element={<SeatingDashboard />} />
           <Route
             path="/admin"
             element={isAdmin ? <AdminUsersPage /> : <Navigate to="/" />}
@@ -81,17 +85,19 @@ function AppContent() {
         </Routes>
       </main>
 
-      <footer className="App-footer">
-        <div className="footer-links">
-          <Link to="/privacy-policy">Privacy Policy</Link>
-          <span className="footer-divider">|</span>
-          <Link to="/terms-of-service">Terms of Service</Link>
-        </div>
-        <p>
-          &copy; {new Date().getFullYear()} RSVP by Neta Kalif. All rights
-          reserved.
-        </p>
-      </footer>
+      {!isFullScreenRoute(location.pathname) && (
+        <footer className="App-footer">
+          <div className="footer-links">
+            <Link to="/privacy-policy">Privacy Policy</Link>
+            <span className="footer-divider">|</span>
+            <Link to="/terms-of-service">Terms of Service</Link>
+          </div>
+          <p>
+            &copy; {new Date().getFullYear()} RSVP by Neta Kalif. All rights
+            reserved.
+          </p>
+        </footer>
+      )}
     </div>
   );
 }

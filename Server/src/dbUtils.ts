@@ -18,6 +18,10 @@ import {
   VendorFile,
   Gift,
   GiftType,
+  SeatingLayout,
+  SeatingItem,
+  SeatingAssignment,
+  CustomTablePreset,
 } from "./types";
 import defaultTasks from "./defaultTasks.json";
 import { getDateStrings } from "./dateUtils";
@@ -308,6 +312,74 @@ class Database {
         role TEXT NOT NULL CHECK (role IN ('owner','partner')),
         deleted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
       );`, []);
+
+    // Seating arrangement: floor plan + guest-to-table assignments, per event.
+    // Geometry is integer centimeters; width/height are the bounding box (for
+    // circles both equal the diameter). kind/shape allowed values are validated
+    // at the app layer (SEATING_ITEM_KINDS / SEATING_SHAPES in types.ts).
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS seating_layouts (
+        id SERIAL PRIMARY KEY,
+        event_id INTEGER NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
+        room_width_cm INTEGER NOT NULL,
+        room_height_cm INTEGER NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );`, []);
+
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS seating_items (
+        id SERIAL PRIMARY KEY,
+        event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        shape TEXT NOT NULL,
+        label TEXT,
+        table_number INTEGER,
+        capacity INTEGER,
+        x_cm INTEGER NOT NULL,
+        y_cm INTEGER NOT NULL,
+        width_cm INTEGER NOT NULL,
+        height_cm INTEGER NOT NULL,
+        rotation_deg INTEGER NOT NULL DEFAULT 0,
+        color TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );`, []);
+
+    // Fill-color override for objects (tables are colored by occupancy state)
+    await this.runQuery(`
+      ALTER TABLE seating_items ADD COLUMN IF NOT EXISTS color TEXT;`, []);
+
+    // UNIQUE(event_guest_id): a party sits at exactly one table per event
+    // (event_guests rows are already event-scoped, so a global unique works).
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS seating_assignments (
+        id SERIAL PRIMARY KEY,
+        item_id INTEGER NOT NULL REFERENCES seating_items(id) ON DELETE CASCADE,
+        event_guest_id INTEGER NOT NULL UNIQUE REFERENCES event_guests(id) ON DELETE CASCADE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );`, []);
+
+    // Custom table/object presets are owned by the data owner (shared with a
+    // linked partner via resolveDataOwner), like budget_categories.
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS custom_table_presets (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
+        kind TEXT NOT NULL DEFAULT 'table',
+        name TEXT NOT NULL,
+        shape TEXT NOT NULL,
+        width_cm INTEGER NOT NULL,
+        height_cm INTEGER NOT NULL,
+        capacity INTEGER,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, name)
+      );`, []);
+
+    // Presets grew to cover objects (tree, concrete stand, ...): kind
+    // discriminates, and capacity became nullable since objects have none.
+    await this.runQuery(`
+      ALTER TABLE custom_table_presets ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'table';`, []);
+    await this.runQuery(`
+      ALTER TABLE custom_table_presets ALTER COLUMN capacity DROP NOT NULL;`, []);
   }
 
   // Add or update user (Google login). Returns whether the row was newly
@@ -629,6 +701,202 @@ class Database {
       guestName: row.guest_name,
       lastRsvpSentAt: row.last_rsvp_sent_at ? new Date(row.last_rsvp_sent_at) : null,
     }));
+  }
+
+  // ==================== Seating Methods ====================
+
+  async getSeatingLayout(eventId: number): Promise<SeatingLayout | null> {
+    const rows = await this.runQuery(
+      `SELECT * FROM seating_layouts WHERE event_id=$1;`,
+      [eventId],
+    );
+    return rows[0] ?? null;
+  }
+
+  async upsertSeatingLayout(
+    eventId: number,
+    roomWidthCm: number,
+    roomHeightCm: number,
+  ): Promise<SeatingLayout> {
+    const rows = await this.runQuery(
+      `INSERT INTO seating_layouts (event_id,room_width_cm,room_height_cm)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (event_id)
+       DO UPDATE SET room_width_cm=EXCLUDED.room_width_cm, room_height_cm=EXCLUDED.room_height_cm
+       RETURNING *;`,
+      [eventId, roomWidthCm, roomHeightCm],
+    );
+    return rows[0];
+  }
+
+  async getSeatingItems(eventId: number): Promise<SeatingItem[]> {
+    return this.runQuery(
+      `SELECT * FROM seating_items WHERE event_id=$1 ORDER BY id ASC;`,
+      [eventId],
+    );
+  }
+
+  async getSeatingItemById(itemId: number): Promise<SeatingItem | null> {
+    const rows = await this.runQuery(
+      `SELECT * FROM seating_items WHERE id=$1;`,
+      [itemId],
+    );
+    return rows[0] ?? null;
+  }
+
+  async createSeatingItem(
+    eventId: number,
+    item: Omit<SeatingItem, "id" | "event_id" | "created_at">,
+  ): Promise<SeatingItem> {
+    const rows = await this.runQuery(
+      `INSERT INTO seating_items
+         (event_id,kind,shape,label,table_number,capacity,x_cm,y_cm,width_cm,height_cm,rotation_deg,color)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       RETURNING *;`,
+      [eventId, item.kind, item.shape, item.label ?? null,
+        item.table_number ?? null, item.capacity ?? null,
+        item.x_cm, item.y_cm, item.width_cm, item.height_cm, item.rotation_deg ?? 0,
+        item.color ?? null],
+    );
+    return rows[0];
+  }
+
+  /**
+   * Batch geometry/props update — the debounced-autosave target. Each entry
+   * updates only its provided fields; items are scoped to the event so a stale
+   * id from another event can't be touched.
+   */
+  async updateSeatingItems(
+    eventId: number,
+    updates: Array<{ id: number } & Partial<Omit<SeatingItem, "id" | "event_id" | "created_at">>>,
+  ): Promise<SeatingItem[]> {
+    const updated: SeatingItem[] = [];
+    for (const { id, ...fields } of updates) {
+      const keys = Object.keys(fields);
+      if (keys.length === 0) continue;
+      const setClauses = keys.map((f, i) => `${f}=$${i + 3}`).join(", ");
+      const rows = await this.runQuery(
+        `UPDATE seating_items SET ${setClauses} WHERE id=$1 AND event_id=$2 RETURNING *;`,
+        [id, eventId, ...keys.map(k => (fields as any)[k])],
+      );
+      if (rows[0]) updated.push(rows[0]);
+    }
+    return updated;
+  }
+
+  /** Clears the whole floor plan (assignments cascade); the layout row stays. */
+  async deleteAllSeatingItems(eventId: number): Promise<number> {
+    const rows = await this.runQuery(
+      `DELETE FROM seating_items WHERE event_id=$1 RETURNING id;`,
+      [eventId],
+    );
+    return rows.length;
+  }
+
+  async deleteSeatingItem(eventId: number, itemId: number): Promise<boolean> {
+    const rows = await this.runQuery(
+      `DELETE FROM seating_items WHERE id=$1 AND event_id=$2 RETURNING id;`,
+      [itemId, eventId],
+    );
+    return rows.length > 0;
+  }
+
+  /** Assignments joined with guest identity + live RSVP, for occupancy math. */
+  async getSeatingAssignments(eventId: number): Promise<SeatingAssignment[]> {
+    return this.runQuery(
+      `SELECT sa.id, sa.item_id, sa.event_guest_id,
+              eg.rsvp_status, g.name, g.number_of_guests
+       FROM seating_assignments sa
+       JOIN seating_items si ON si.id=sa.item_id
+       JOIN event_guests eg ON eg.id=sa.event_guest_id
+       JOIN guests g ON g.id=eg.guest_id
+       WHERE si.event_id=$1
+       ORDER BY g.name ASC;`,
+      [eventId],
+    );
+  }
+
+  /** Upsert on event_guest_id: assigning an already-seated guest moves them. */
+  async assignGuestToItem(itemId: number, eventGuestId: number): Promise<SeatingAssignment> {
+    const rows = await this.runQuery(
+      `INSERT INTO seating_assignments (item_id,event_guest_id)
+       VALUES ($1,$2)
+       ON CONFLICT (event_guest_id) DO UPDATE SET item_id=EXCLUDED.item_id
+       RETURNING *;`,
+      [itemId, eventGuestId],
+    );
+    return rows[0];
+  }
+
+  async unassignGuest(eventId: number, eventGuestId: number): Promise<boolean> {
+    const rows = await this.runQuery(
+      `DELETE FROM seating_assignments sa
+       USING event_guests eg
+       WHERE sa.event_guest_id=$1 AND eg.id=sa.event_guest_id AND eg.event_id=$2
+       RETURNING sa.id;`,
+      [eventGuestId, eventId],
+    );
+    return rows.length > 0;
+  }
+
+  /** The event_guests row, verified to belong to the given event (ownership guard helper). */
+  async getEventGuestById(eventGuestId: number): Promise<EventGuest | null> {
+    const rows = await this.runQuery(
+      `SELECT * FROM event_guests WHERE id=$1;`,
+      [eventGuestId],
+    );
+    return rows[0] ?? null;
+  }
+
+  async getCustomTablePresets(userID: string): Promise<CustomTablePreset[]> {
+    return this.runQuery(
+      `SELECT * FROM custom_table_presets WHERE user_id=$1 ORDER BY created_at ASC;`,
+      [userID],
+    );
+  }
+
+  async createCustomTablePreset(
+    userID: string,
+    preset: Omit<CustomTablePreset, "id" | "user_id" | "created_at">,
+  ): Promise<CustomTablePreset> {
+    const rows = await this.runQuery(
+      `INSERT INTO custom_table_presets (user_id,kind,name,shape,width_cm,height_cm,capacity)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING *;`,
+      [userID, preset.kind, preset.name, preset.shape, preset.width_cm, preset.height_cm, preset.capacity ?? null],
+    );
+    return rows[0];
+  }
+
+  async getCustomTablePresetById(userID: string, presetId: number): Promise<CustomTablePreset | null> {
+    const rows = await this.runQuery(
+      `SELECT * FROM custom_table_presets WHERE id=$1 AND user_id=$2;`,
+      [presetId, userID],
+    );
+    return rows[0] ?? null;
+  }
+
+  async updateCustomTablePreset(
+    userID: string,
+    presetId: number,
+    updates: Partial<Omit<CustomTablePreset, "id" | "user_id" | "created_at">>,
+  ): Promise<CustomTablePreset | null> {
+    const fields = Object.keys(updates);
+    if (fields.length === 0) return this.getCustomTablePresetById(userID, presetId);
+    const setClauses = fields.map((f, i) => `${f}=$${i + 3}`).join(", ");
+    const rows = await this.runQuery(
+      `UPDATE custom_table_presets SET ${setClauses} WHERE id=$1 AND user_id=$2 RETURNING *;`,
+      [presetId, userID, ...fields.map(f => (updates as any)[f])],
+    );
+    return rows[0] ?? null;
+  }
+
+  async deleteCustomTablePreset(userID: string, presetId: number): Promise<boolean> {
+    const rows = await this.runQuery(
+      `DELETE FROM custom_table_presets WHERE id=$1 AND user_id=$2 RETURNING id;`,
+      [presetId, userID],
+    );
+    return rows.length > 0;
   }
 
   // Add a log entry

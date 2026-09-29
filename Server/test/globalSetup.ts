@@ -170,6 +170,59 @@ async function createTables(pool: Pool): Promise<void> {
   await pool.query(`ALTER TABLE gifts ADD COLUMN IF NOT EXISTS other_description TEXT;`);
   await pool.query(`ALTER TABLE gifts DROP CONSTRAINT IF EXISTS gifts_gift_type_check;`);
 
+  // Seating arrangement tables — keep in sync with dbUtils.initializeTables
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS seating_layouts (
+      id SERIAL PRIMARY KEY,
+      event_id INTEGER NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
+      room_width_cm INTEGER NOT NULL,
+      room_height_cm INTEGER NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS seating_items (
+      id SERIAL PRIMARY KEY,
+      event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      shape TEXT NOT NULL,
+      label TEXT,
+      table_number INTEGER,
+      capacity INTEGER,
+      x_cm INTEGER NOT NULL,
+      y_cm INTEGER NOT NULL,
+      width_cm INTEGER NOT NULL,
+      height_cm INTEGER NOT NULL,
+      rotation_deg INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`);
+  await pool.query(`ALTER TABLE seating_items ADD COLUMN IF NOT EXISTS color TEXT;`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS seating_assignments (
+      id SERIAL PRIMARY KEY,
+      item_id INTEGER NOT NULL REFERENCES seating_items(id) ON DELETE CASCADE,
+      event_guest_id INTEGER NOT NULL UNIQUE REFERENCES event_guests(id) ON DELETE CASCADE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS custom_table_presets (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users("userID") ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'table',
+      name TEXT NOT NULL,
+      shape TEXT NOT NULL,
+      width_cm INTEGER NOT NULL,
+      height_cm INTEGER NOT NULL,
+      capacity INTEGER,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, name)
+    );`);
+  await pool.query(`ALTER TABLE custom_table_presets ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'table';`);
+  await pool.query(`ALTER TABLE custom_table_presets ALTER COLUMN capacity DROP NOT NULL;`);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS whatsapp_token (
       id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),

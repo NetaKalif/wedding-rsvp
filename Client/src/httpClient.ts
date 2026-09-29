@@ -16,6 +16,11 @@ import {
   VendorFile,
   Gift,
   GiftType,
+  SeatingData,
+  SeatingLayout,
+  SeatingItem,
+  SeatingAssignment,
+  CustomTablePreset,
 } from "./types";
 
 const url = process.env.REACT_APP_SERVER_URL;
@@ -395,6 +400,48 @@ const updateGift = (giftId: number, gift_type: GiftType, amount: number, other_d
 
 const deleteGift = (giftId: number) => del<void>(`/gifts/${giftId}`);
 
+// ==================== Seating Methods ====================
+
+export type NewSeatingItem = Omit<SeatingItem, "id" | "event_id">;
+export type SeatingItemUpdate = { id: number } & Partial<NewSeatingItem>;
+
+const getSeating = (eventId: number) => get<SeatingData>(`/events/${eventId}/seating`);
+
+const saveSeatingLayout = (eventId: number, room_width_cm: number, room_height_cm: number) =>
+  patch<SeatingLayout>(`/events/${eventId}/seating/layout`, { room_width_cm, room_height_cm });
+
+const createSeatingItem = (eventId: number, item: NewSeatingItem) =>
+  post<SeatingItem>(`/events/${eventId}/seating/items`, item);
+
+// Batch geometry/props update — the debounced-autosave target
+const updateSeatingItems = (eventId: number, updates: SeatingItemUpdate[]) =>
+  patch<SeatingItem[]>(`/events/${eventId}/seating/items`, { updates });
+
+const deleteSeatingItem = (eventId: number, itemId: number) =>
+  del<{ success: boolean }>(`/events/${eventId}/seating/items/${itemId}`);
+
+// Clean canvas: removes every item (and, via cascade, every assignment); layout stays
+const clearSeatingItems = (eventId: number) =>
+  del<{ success: boolean; deleted: number }>(`/events/${eventId}/seating/items`);
+
+// Upsert semantics: assigning an already-seated guest moves them
+const assignGuestToTable = (eventId: number, itemId: number, eventGuestId: number) =>
+  post<SeatingAssignment>(`/events/${eventId}/seating/items/${itemId}/guests`, { eventGuestId });
+
+const unassignGuest = (eventId: number, eventGuestId: number) =>
+  del<{ success: boolean }>(`/events/${eventId}/seating/guests/${eventGuestId}`);
+
+const getTablePresets = () => get<CustomTablePreset[]>("/table-presets");
+
+const addTablePreset = (preset: Omit<CustomTablePreset, "id" | "user_id">) =>
+  post<CustomTablePreset>("/table-presets", preset);
+
+const updateTablePreset = (presetId: number, updates: Partial<Omit<CustomTablePreset, "id" | "user_id">>) =>
+  patch<CustomTablePreset>(`/table-presets/${presetId}`, updates);
+
+const deleteTablePreset = (presetId: number) =>
+  del<{ success: boolean }>(`/table-presets/${presetId}`);
+
 // ==================== Vendor File Methods ====================
 
 const uploadVendorFile = async (vendorId: number, file: File): Promise<VendorFile> => {
@@ -457,4 +504,7 @@ export const httpRequests = {
   uploadVendorFile, getVendorFileDownloadUrl, deleteVendorFile,
   // Gifts
   getGifts, addGift, updateGift, deleteGift,
+  // Seating
+  getSeating, saveSeatingLayout, createSeatingItem, updateSeatingItems, deleteSeatingItem, clearSeatingItems,
+  assignGuestToTable, unassignGuest, getTablePresets, addTablePreset, updateTablePreset, deleteTablePreset,
 };

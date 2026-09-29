@@ -3,7 +3,16 @@ import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import Database from "./dbUtils";
-import { User, Event, EventGuest, GIFT_TYPES, GiftType } from "./types";
+import {
+  User,
+  Event,
+  EventGuest,
+  GIFT_TYPES,
+  GiftType,
+  SEATING_ITEM_KINDS,
+  SEATING_SHAPES,
+  SeatingItem,
+} from "./types";
 import { Request, Response, RequestHandler } from "express-serve-static-core";
 import multer from "multer";
 import {
@@ -2005,6 +2014,318 @@ app.get("/events/:eventId/image", async (req: Request, res: Response) => {
   } catch (err) {
     logError(mediaUserID, err);
     return res.status(500).json({ error: "Failed to fetch event image" });
+  }
+});
+
+// ==================== Seating Endpoints ====================
+// Floor plan + guest-to-table assignments, per event. Geometry is integer cm;
+// width/height are the bounding box (circles: both = diameter). Occupancy is
+// never stored — it's derived client-side from assignments ⋈ live rsvp_status.
+
+const isPositiveInt = (v: unknown): v is number => Number.isInteger(v) && (v as number) > 0;
+const isNonNegativeInt = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
+
+// Fields the client may set on a seating item (kind is create-only; event_id/id never).
+const SEATING_ITEM_MUTABLE_FIELDS = [
+  "shape", "label", "table_number", "capacity",
+  "x_cm", "y_cm", "width_cm", "height_cm", "rotation_deg", "color",
+] as const;
+
+const isValidHexColor = (v: unknown): boolean =>
+  typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
+
+/** Returns an error message, or null if the fields are valid. `partial` skips required-field checks. */
+function validateSeatingItemFields(item: any, partial: boolean): string | null {
+  if (!partial && !SEATING_ITEM_KINDS.includes(item.kind)) return "kind must be 'table' or 'object'";
+  if (item.shape !== undefined || !partial) {
+    if (!SEATING_SHAPES.includes(item.shape)) return "shape must be 'circle' or 'rect'";
+  }
+  for (const f of ["x_cm", "y_cm"]) {
+    if (item[f] !== undefined || !partial) {
+      if (!isNonNegativeInt(item[f])) return `${f} must be a non-negative integer`;
+    }
+  }
+  for (const f of ["width_cm", "height_cm"]) {
+    if (item[f] !== undefined || !partial) {
+      if (!isPositiveInt(item[f])) return `${f} must be a positive integer`;
+    }
+  }
+  if (item.rotation_deg !== undefined && !Number.isInteger(item.rotation_deg)) {
+    return "rotation_deg must be an integer";
+  }
+  if (item.table_number !== undefined && item.table_number !== null && !isPositiveInt(item.table_number)) {
+    return "table_number must be a positive integer";
+  }
+  if (item.capacity !== undefined && item.capacity !== null && !isPositiveInt(item.capacity)) {
+    return "capacity must be a positive integer";
+  }
+  if (item.color !== undefined && item.color !== null && !isValidHexColor(item.color)) {
+    return "color must be a hex color like #a1b2c3";
+  }
+  // Circles store diameter in both bounding-box columns.
+  if (item.width_cm !== undefined && item.height_cm !== undefined &&
+      item.shape === "circle" && item.width_cm !== item.height_cm) {
+    return "circle items must have width_cm equal to height_cm (the diameter)";
+  }
+  if (!partial && item.kind === "table" && !isPositiveInt(item.capacity)) {
+    return "tables require a positive integer capacity";
+  }
+  return null;
+}
+
+/** Standard ownership guard: the event exists and belongs to the caller's data owner. */
+async function getOwnedEvent(userID: string, eventId: number): Promise<Event | null> {
+  const dataOwner = await resolveDataOwner(userID);
+  const event = await db.getEventById(eventId);
+  if (!event || event.user_id !== dataOwner) return null;
+  return event;
+}
+
+// One-shot page load: layout (or null), items, and assignments joined with live guest/RSVP data
+app.get("/events/:eventId/seating", async (req: Request, res: Response) => {
+  try {
+    const eventId = parseInt(req.params.eventId);
+    const event = await getOwnedEvent(req.auth.userID, eventId);
+    if (!event) return res.status(404).send("Event not found");
+    const [layout, items, assignments] = await Promise.all([
+      db.getSeatingLayout(eventId),
+      db.getSeatingItems(eventId),
+      db.getSeatingAssignments(eventId),
+    ]);
+    return res.status(200).json({ layout, items, assignments });
+  } catch (error) {
+    return handleError(res, error, "Failed to get seating data", req.auth.userID);
+  }
+});
+
+app.patch("/events/:eventId/seating/layout", async (req: Request, res: Response) => {
+  try {
+    const eventId = parseInt(req.params.eventId);
+    const { room_width_cm, room_height_cm } = req.body;
+    if (!isPositiveInt(room_width_cm) || !isPositiveInt(room_height_cm)) {
+      return res.status(400).send("room_width_cm and room_height_cm must be positive integers");
+    }
+    const event = await getOwnedEvent(req.auth.userID, eventId);
+    if (!event) return res.status(404).send("Event not found");
+    const layout = await db.upsertSeatingLayout(eventId, room_width_cm, room_height_cm);
+    return res.status(200).json(layout);
+  } catch (error) {
+    return handleError(res, error, "Failed to save seating layout", req.auth.userID);
+  }
+});
+
+// Create on drop — returns the row so the client swaps its temp id for the real id
+app.post("/events/:eventId/seating/items", async (req: Request, res: Response) => {
+  try {
+    const eventId = parseInt(req.params.eventId);
+    const validationError = validateSeatingItemFields(req.body, false);
+    if (validationError) return res.status(400).send(validationError);
+    const event = await getOwnedEvent(req.auth.userID, eventId);
+    if (!event) return res.status(404).send("Event not found");
+    const b = req.body;
+    const item = await db.createSeatingItem(eventId, {
+      kind: b.kind,
+      shape: b.shape,
+      label: b.label ?? null,
+      table_number: b.kind === "table" ? b.table_number ?? null : null,
+      capacity: b.kind === "table" ? b.capacity : null,
+      x_cm: b.x_cm,
+      y_cm: b.y_cm,
+      width_cm: b.width_cm,
+      height_cm: b.height_cm,
+      rotation_deg: b.rotation_deg ?? 0,
+      color: b.color ?? null,
+    });
+    return res.status(201).json(item);
+  } catch (error) {
+    return handleError(res, error, "Failed to create seating item", req.auth.userID);
+  }
+});
+
+// Batch geometry/props update — the debounced-autosave target
+app.patch("/events/:eventId/seating/items", async (req: Request, res: Response) => {
+  try {
+    const eventId = parseInt(req.params.eventId);
+    const { updates } = req.body;
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).send("updates must be a non-empty array");
+    }
+    const sanitized: Array<{ id: number } & Partial<SeatingItem>> = [];
+    for (const u of updates) {
+      if (!isPositiveInt(u?.id)) return res.status(400).send("each update must have a numeric id");
+      const validationError = validateSeatingItemFields(u, true);
+      if (validationError) return res.status(400).send(validationError);
+      const fields: any = { id: u.id };
+      for (const f of SEATING_ITEM_MUTABLE_FIELDS) {
+        if (u[f] !== undefined) fields[f] = u[f];
+      }
+      sanitized.push(fields);
+    }
+    const event = await getOwnedEvent(req.auth.userID, eventId);
+    if (!event) return res.status(404).send("Event not found");
+    const items = await db.updateSeatingItems(eventId, sanitized);
+    return res.status(200).json(items);
+  } catch (error) {
+    return handleError(res, error, "Failed to update seating items", req.auth.userID);
+  }
+});
+
+// Clean canvas: removes every table and object (assignments cascade); the room layout stays
+app.delete("/events/:eventId/seating/items", async (req: Request, res: Response) => {
+  try {
+    const eventId = parseInt(req.params.eventId);
+    const event = await getOwnedEvent(req.auth.userID, eventId);
+    if (!event) return res.status(404).send("Event not found");
+    const deleted = await db.deleteAllSeatingItems(eventId);
+    return res.status(200).json({ success: true, deleted });
+  } catch (error) {
+    return handleError(res, error, "Failed to clear seating items", req.auth.userID);
+  }
+});
+
+app.delete("/events/:eventId/seating/items/:itemId", async (req: Request, res: Response) => {
+  try {
+    const eventId = parseInt(req.params.eventId);
+    const itemId = parseInt(req.params.itemId);
+    const event = await getOwnedEvent(req.auth.userID, eventId);
+    if (!event) return res.status(404).send("Event not found");
+    const deleted = await db.deleteSeatingItem(eventId, itemId);
+    if (!deleted) return res.status(404).send("Seating item not found");
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    return handleError(res, error, "Failed to delete seating item", req.auth.userID);
+  }
+});
+
+// Assign a guest party to a table; upsert semantics — an already-seated guest is moved
+app.post("/events/:eventId/seating/items/:itemId/guests", async (req: Request, res: Response) => {
+  try {
+    const eventId = parseInt(req.params.eventId);
+    const itemId = parseInt(req.params.itemId);
+    const { eventGuestId } = req.body;
+    if (!isPositiveInt(eventGuestId)) {
+      return res.status(400).send("eventGuestId must be a positive integer");
+    }
+    const event = await getOwnedEvent(req.auth.userID, eventId);
+    if (!event) return res.status(404).send("Event not found");
+    const item = await db.getSeatingItemById(itemId);
+    if (!item || item.event_id !== eventId) return res.status(404).send("Seating item not found");
+    if (item.kind !== "table") return res.status(400).send("Guests can only be assigned to tables");
+    const eventGuest = await db.getEventGuestById(eventGuestId);
+    if (!eventGuest || eventGuest.event_id !== eventId) {
+      return res.status(404).send("Guest not found in this event");
+    }
+    const assignment = await db.assignGuestToItem(itemId, eventGuestId);
+    return res.status(200).json(assignment);
+  } catch (error) {
+    return handleError(res, error, "Failed to assign guest to table", req.auth.userID);
+  }
+});
+
+app.delete("/events/:eventId/seating/guests/:eventGuestId", async (req: Request, res: Response) => {
+  try {
+    const eventId = parseInt(req.params.eventId);
+    const eventGuestId = parseInt(req.params.eventGuestId);
+    const event = await getOwnedEvent(req.auth.userID, eventId);
+    if (!event) return res.status(404).send("Event not found");
+    const removed = await db.unassignGuest(eventId, eventGuestId);
+    if (!removed) return res.status(404).send("Assignment not found");
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    return handleError(res, error, "Failed to unassign guest", req.auth.userID);
+  }
+});
+
+// Custom table presets — user-owned (shared with linked partner), not event-scoped
+app.get("/table-presets", async (req: Request, res: Response) => {
+  try {
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const presets = await db.getCustomTablePresets(dataOwner);
+    return res.status(200).json(presets);
+  } catch (error) {
+    return handleError(res, error, "Failed to get table presets", req.auth.userID);
+  }
+});
+
+/** Validates a full preset shape (POST body, or an existing preset merged with PATCH updates). */
+function validatePresetFields(p: any): string | null {
+  if (!SEATING_ITEM_KINDS.includes(p.kind)) return "kind must be 'table' or 'object'";
+  if (!p.name || typeof p.name !== "string" || !p.name.trim()) return "name is required";
+  if (!SEATING_SHAPES.includes(p.shape)) return "shape must be 'circle' or 'rect'";
+  if (!isPositiveInt(p.width_cm) || !isPositiveInt(p.height_cm)) {
+    return "width_cm and height_cm must be positive integers";
+  }
+  if (p.shape === "circle" && p.width_cm !== p.height_cm) {
+    return "circle presets must have width_cm equal to height_cm (the diameter)";
+  }
+  if (p.kind === "table" && !isPositiveInt(p.capacity)) {
+    return "table presets require a positive integer capacity";
+  }
+  return null;
+}
+
+app.post("/table-presets", async (req: Request, res: Response) => {
+  try {
+    const { name, shape, width_cm, height_cm, capacity } = req.body;
+    const kind = req.body.kind ?? "table";
+    const validationError = validatePresetFields({ kind, name, shape, width_cm, height_cm, capacity });
+    if (validationError) return res.status(400).send(validationError);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    try {
+      const preset = await db.createCustomTablePreset(dataOwner, {
+        kind, name: name.trim(), shape, width_cm, height_cm,
+        capacity: kind === "table" ? capacity : null,
+      });
+      return res.status(201).json(preset);
+    } catch (error: any) {
+      if (error?.code === "23505") { // unique_violation on (user_id, name)
+        return res.status(400).send("A preset with this name already exists");
+      }
+      throw error;
+    }
+  } catch (error) {
+    return handleError(res, error, "Failed to create table preset", req.auth.userID);
+  }
+});
+
+app.patch("/table-presets/:presetId", async (req: Request, res: Response) => {
+  try {
+    const presetId = parseInt(req.params.presetId);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const existing = await db.getCustomTablePresetById(dataOwner, presetId);
+    if (!existing) return res.status(404).send("Preset not found");
+    const updates: any = {};
+    for (const f of ["kind", "name", "shape", "width_cm", "height_cm", "capacity"]) {
+      if (req.body[f] !== undefined) updates[f] = req.body[f];
+    }
+    const merged = { ...existing, ...updates };
+    const validationError = validatePresetFields(merged);
+    if (validationError) return res.status(400).send(validationError);
+    if (updates.name) updates.name = updates.name.trim();
+    if (merged.kind === "object") updates.capacity = null;
+    try {
+      const preset = await db.updateCustomTablePreset(dataOwner, presetId, updates);
+      return res.status(200).json(preset);
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        return res.status(400).send("A preset with this name already exists");
+      }
+      throw error;
+    }
+  } catch (error) {
+    return handleError(res, error, "Failed to update table preset", req.auth.userID);
+  }
+});
+
+app.delete("/table-presets/:presetId", async (req: Request, res: Response) => {
+  try {
+    const presetId = parseInt(req.params.presetId);
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    const deleted = await db.deleteCustomTablePreset(dataOwner, presetId);
+    if (!deleted) return res.status(404).send("Preset not found");
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    return handleError(res, error, "Failed to delete table preset", req.auth.userID);
   }
 });
 

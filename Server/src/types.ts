@@ -225,3 +225,72 @@ export interface Gift {
   amount: number;
   created_at?: Date;
 }
+
+// ==================== Seating types ====================
+
+// Allowed values are validated at the app layer (no DB CHECK), like GIFT_TYPES.
+export type SeatingItemKind = "table" | "object";
+export const SEATING_ITEM_KINDS: SeatingItemKind[] = ["table", "object"];
+
+export type SeatingShape = "circle" | "rect";
+export const SEATING_SHAPES: SeatingShape[] = ["circle", "rect"];
+
+/** Room dimensions for an event's floor plan. All geometry is integer cm. */
+export interface SeatingLayout {
+  id?: number;
+  event_id: number;
+  room_width_cm: number;
+  room_height_cm: number;
+  created_at?: Date;
+}
+
+/**
+ * A table or object placed on the floor plan. width/height are the bounding
+ * box; for circles both equal the diameter. table_number/capacity are
+ * table-only (null for objects).
+ */
+export interface SeatingItem {
+  id?: number;
+  event_id: number;
+  kind: SeatingItemKind;
+  shape: SeatingShape;
+  label?: string | null;
+  table_number?: number | null;
+  capacity?: number | null;
+  x_cm: number;
+  y_cm: number;
+  width_cm: number;
+  height_cm: number;
+  rotation_deg: number;
+  /** Fill-color override (hex), objects only — tables are colored by occupancy. */
+  color?: string | null;
+  created_at?: Date;
+}
+
+/** Guest-party-to-table assignment; a party sits at exactly one table per event. */
+export interface SeatingAssignment {
+  id?: number;
+  item_id: number;
+  event_guest_id: number;
+  created_at?: Date;
+  // Joined from event_guests/guests at query time (not stored here):
+  rsvp_status?: number | null;
+  name?: string;
+  number_of_guests?: number;
+}
+
+/**
+ * A user-saved custom table or object (tree, concrete stand, ...), reusable
+ * across events (owned by the data owner). capacity is table-only.
+ */
+export interface CustomTablePreset {
+  id?: number;
+  user_id: string;
+  kind: SeatingItemKind;
+  name: string;
+  shape: SeatingShape;
+  width_cm: number;
+  height_cm: number;
+  capacity: number | null;
+  created_at?: Date;
+}

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, CheckSquare, DollarSign, Gift } from "lucide-react";
+import { Users, CheckSquare, DollarSign, Gift, LayoutGrid } from "lucide-react";
 import { Box, Card, Badge, Loader } from "@wix/design-system";
 import "@wix/design-system/styles.global.css";
 import "./css/WeddingDashboard.css";
@@ -155,6 +155,15 @@ export const WeddingDashboard = () => {
       icon: <Gift size={28} />,
       path: "/gifts",
       skin: "gold" as const,
+      available: true,
+    },
+    {
+      id: "seating",
+      title: "סידורי הושבה",
+      description: "תכננו את מפת האולם והושיבו את האורחים",
+      icon: <LayoutGrid size={28} />,
+      path: "/seating",
+      skin: "green" as const,
       available: true,
     },
   ];

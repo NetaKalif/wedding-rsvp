@@ -236,3 +236,66 @@ export interface Gift {
   amount: number;
   created_at?: string;
 }
+
+// ==================== Seating ====================
+
+export type SeatingItemKind = "table" | "object";
+export type SeatingShape = "circle" | "rect";
+
+/** Room dimensions for an event's floor plan. All geometry is integer cm. */
+export interface SeatingLayout {
+  id?: number;
+  event_id: number;
+  room_width_cm: number;
+  room_height_cm: number;
+}
+
+/**
+ * A table or object on the floor plan. width/height are the bounding box;
+ * for circles both equal the diameter. table_number/capacity are table-only.
+ */
+export interface SeatingItem {
+  id: number;
+  event_id: number;
+  kind: SeatingItemKind;
+  shape: SeatingShape;
+  label: string | null;
+  table_number: number | null;
+  capacity: number | null;
+  x_cm: number;
+  y_cm: number;
+  width_cm: number;
+  height_cm: number;
+  rotation_deg: number;
+  /** Fill-color override (hex), objects only — tables are colored by occupancy. */
+  color?: string | null;
+}
+
+/** Guest-party-to-table assignment, joined with live guest/RSVP data. */
+export interface SeatingAssignment {
+  id: number;
+  item_id: number;
+  event_guest_id: number;
+  // Joined server-side:
+  rsvp_status?: number | null;
+  name?: string;
+  number_of_guests?: number;
+}
+
+/** A user-saved custom table or object (tree, concrete stand, ...); capacity is table-only. */
+export interface CustomTablePreset {
+  id: number;
+  user_id?: string;
+  kind: SeatingItemKind;
+  name: string;
+  shape: SeatingShape;
+  width_cm: number;
+  height_cm: number;
+  capacity: number | null;
+}
+
+export interface SeatingData {
+  layout: SeatingLayout | null;
+  items: SeatingItem[];
+  assignments: SeatingAssignment[];
+}

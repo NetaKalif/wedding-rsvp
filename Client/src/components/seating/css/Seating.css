@@ -1,0 +1,561 @@
+.seating-dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Two sides: general canvas tools on the right (RTL start), selection tools + export on the left.
+   min-height reserves room for the tallest state (the selection group appearing on select),
+   so the bar never changes height and the canvas below never shifts. */
+.seating-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 6px 16px;
+  min-height: 56px;
+  box-sizing: border-box;
+  border-bottom: 1px solid #e0e0e0;
+  background: #fff;
+}
+
+.seating-title {
+  font-size: 20px;
+  margin: 0;
+}
+
+.toolbar-side {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Selected-item tools get a subtle container so they read as contextual.
+   Vertical padding stays small so the group is no taller than a regular button row. */
+.toolbar-group-selection {
+  padding: 3px 10px;
+  border: 1px dashed #d0d0d0;
+  border-radius: 10px;
+  background: #fcfaf6;
+}
+
+/* 70% canvas / 30% panel */
+.seating-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.seating-canvas-area {
+  flex: 0 0 70%;
+  min-width: 0;
+  position: relative;
+  background: #eceff1;
+}
+
+.seating-canvas-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* Floor-plan seat stats, floating over the canvas */
+.canvas-stats {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #ddd;
+  font-size: 12px;
+  font-weight: bold;
+  color: #444;
+}
+
+.canvas-stats-divider {
+  color: #bbb;
+}
+
+/* Zoom readout + fit-to-screen, floating over the canvas */
+.zoom-control {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #ddd;
+  font-size: 12px;
+  font-weight: bold;
+  color: #444;
+  min-width: 66px;
+  justify-content: space-between;
+}
+
+.zoom-control button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  color: #444;
+}
+
+.zoom-control button:hover {
+  color: #b5721f;
+}
+
+.seating-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+}
+
+.seating-side-panel {
+  flex: 0 0 30%;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #e0e0e0;
+  background: #fff;
+  overflow: hidden;
+}
+
+/* Tabs */
+.seating-tabs {
+  display: flex;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.seating-tab {
+  flex: 1;
+  padding: 10px 6px;
+  background: #f7f7f7;
+  border: none;
+  border-bottom: 3px solid transparent;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.seating-tab-active {
+  background: #fff;
+  border-bottom-color: #e8a33d;
+  font-weight: bold;
+}
+
+/* Objects bank */
+.objects-bank {
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.bank-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.bank-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fafafa;
+  cursor: grab;
+  text-align: center;
+}
+
+.bank-card:hover {
+  border-color: #e8a33d;
+  background: #fff8ee;
+}
+
+.bank-card-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.bank-shape {
+  width: 44px;
+  height: 34px;
+  border: 2px solid #9a9a9a;
+  background: #fff;
+}
+
+.bank-shape-circle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+}
+
+.bank-shape-rect {
+  border-radius: 4px;
+}
+
+.bank-shape-object {
+  background: #e8e4f5;
+}
+
+.bank-delete {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  border: none;
+  background: none;
+  color: #c53030;
+  cursor: pointer;
+  padding: 2px;
+  display: none;
+}
+
+.bank-edit {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  border: none;
+  background: none;
+  color: #3182ce;
+  cursor: pointer;
+  padding: 2px;
+  display: none;
+}
+
+.bank-card:hover .bank-delete,
+.bank-card:hover .bank-edit {
+  display: block;
+}
+
+/* Guests panel */
+.guests-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  padding: 12px;
+  gap: 10px;
+}
+
+.seating-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progress-track {
+  height: 8px;
+  border-radius: 4px;
+  background: #eee;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #7fd1a8;
+  transition: width 0.3s;
+}
+
+.needs-attention {
+  border: 1px solid #f0b4b4;
+  background: #fdf3f3;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attention-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.attention-remove {
+  border: none;
+  background: none;
+  color: #c53030;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+}
+
+.guests-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Keep the reused RSVP search+filter bar compact inside the 30% panel */
+.guests-filters .search-filter-container {
+  flex-wrap: wrap;
+}
+
+.guests-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.guest-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.guest-row-main {
+  flex: 1;
+}
+
+.guest-row-declined {
+  opacity: 0.55;
+}
+
+/* The one small element that starts a guest drag */
+.guest-drag-handle {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #bbb;
+  border-radius: 6px;
+  background: #fafafa;
+  color: #888;
+  cursor: grab;
+}
+
+.guest-drag-handle:hover {
+  border-color: #e8a33d;
+  background: #fff8ee;
+  color: #b5721f;
+}
+
+.guest-drag-handle:active {
+  cursor: grabbing;
+}
+
+.guest-row-clickable {
+  cursor: pointer;
+}
+
+.guest-row-clickable:hover {
+  border-color: #a3a4fa;
+  background: #f5f5ff;
+}
+
+/* Drag image: count + name pill (parked offscreen while the browser snapshots it) */
+.guest-drag-ghost {
+  position: absolute;
+  top: -1000px;
+  left: -1000px;
+  direction: rtl;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #fff;
+  border: 2px solid #e8a33d;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+  font-weight: bold;
+  color: #333;
+  white-space: nowrap;
+}
+
+.guest-drag-ghost-count {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #e8a33d;
+  color: #fff;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Object color picker in the toolbar */
+.color-swatches {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+
+.color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid #bbb;
+  cursor: pointer;
+  padding: 0;
+}
+
+.color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.color-swatch-active {
+  border: 2px solid #333;
+}
+
+/* Native color input styled to sit at the end of the swatch row */
+.color-swatch-custom {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
+  overflow: hidden;
+}
+
+.color-swatch-custom::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-swatch-custom::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+  opacity: 0.7;
+}
+
+.guest-row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.guest-row-side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.guest-seats {
+  min-width: 26px;
+  text-align: center;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: #e3f2e8;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.guest-seats-pending {
+  background: #fdf0d5;
+}
+
+.guest-table-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #e6e0f8;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Table modal guest list */
+.table-modal-guests {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.table-modal-guest-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.table-modal-guest-row .guest-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.table-modal-addable {
+  max-height: 220px;
+}
+
+/* Guests staged to be added — applied only when the modal is saved */
+.table-modal-staged-row {
+  background: #fff8ee;
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+/* Small screens: stack vertically (view-oriented; editing is desktop-first) */
+@media (max-width: 900px) {
+  .seating-dashboard {
+    height: auto;
+    overflow: visible;
+  }
+
+  .seating-workspace {
+    flex-direction: column;
+  }
+
+  .seating-canvas-area {
+    flex: none;
+    height: 60vh;
+  }
+
+  .seating-side-panel {
+    flex: none;
+    border-right: none;
+    border-top: 1px solid #e0e0e0;
+  }
+}
