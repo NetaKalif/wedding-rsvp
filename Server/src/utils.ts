@@ -58,7 +58,7 @@ export const handleTextResponse = async (
 
   if (msg === HEBREW_MISTAKE_KEYWORD) {
     const db = Database.getInstance();
-    await db.updateEventGuestRsvp(eventId, guestId, null);
+    await db.updateEventGuestRsvp(eventId, guestId, 0);
     await logMessage(userID, `🗑️ RSVP reset (mistake) for ${guestName} in event ${eventId}`);
     await sendWhatsAppMessage(recipient, { freeText: messagesMap.mistake });
     return;
