@@ -10,6 +10,8 @@ import {
   Checkbox,
   LinearProgressBar,
   TextButton,
+  Modal,
+  CustomModalLayout,
 } from "@wix/design-system";
 import { Event, EventGuest } from "../../types";
 import { httpRequests, DeliveryFailure } from "../../httpClient";
@@ -80,6 +82,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   const [messageType, setMessageType] = useState<MessageType>("rsvp");
   const [customText, setCustomText] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [showSendConfirmation, setShowSendConfirmation] = useState(false);
   const [selectSpecificGuests, setSelectSpecificGuests] = useState(false);
   const sendButtonRef = useRef<HTMLDivElement>(null);
 
@@ -171,6 +174,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   const handleSend = () => {
     if (messageType === "freeText" && (!customText || customText.trim() === "")) return;
 
+    setShowSendConfirmation(false);
     const guestIds =
       selectSpecificGuests && selectedGuestIds.size > 0
         ? Array.from(selectedGuestIds)
@@ -219,6 +223,13 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   })();
 
   const targetGuestCount = selectableGuests.length;
+
+  // How many messages the send button will actually fire — mirrors the
+  // guestIds logic in handleSend.
+  const messagesToSendCount =
+    selectSpecificGuests && selectedGuestIds.size > 0
+      ? selectedGuestIds.size
+      : targetGuestCount;
 
   const emptyGroupMessage = (() => {
     if (selectSpecificGuests || targetGuestCount > 0) return null;
@@ -485,13 +496,37 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
 
               <div ref={sendButtonRef}>
                 <Button
-                  onClick={handleSend}
+                  onClick={() => setShowSendConfirmation(true)}
                   disabled={isSendDisabled}
                   fullWidth
                 >
                   שליחת הודעות
                 </Button>
               </div>
+
+              <Modal
+                isOpen={showSendConfirmation}
+                onRequestClose={() => setShowSendConfirmation(false)}
+              >
+                <CustomModalLayout
+                  title="אישור שליחה"
+                  primaryButtonText="שליחה"
+                  primaryButtonOnClick={handleSend}
+                  secondaryButtonText="ביטול"
+                  secondaryButtonOnClick={() => setShowSendConfirmation(false)}
+                  width="400px"
+                  className="modal"
+                  content={
+                    <div dir="rtl">
+                      <Text>
+                        {messagesToSendCount === 1
+                          ? "הודעה אחת עומדת להישלח. האם להמשיך?"
+                          : `${messagesToSendCount} הודעות עומדות להישלח. האם להמשיך?`}
+                      </Text>
+                    </div>
+                  }
+                />
+              </Modal>
 
               <div data-tour="whatsapp-preview">
                 <WhatsAppPreview

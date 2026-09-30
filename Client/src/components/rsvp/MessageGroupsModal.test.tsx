@@ -92,6 +92,13 @@ const renderModal = async (
   await screen.findByText("הזמנה לאישור הגעה");
 };
 
+// The send button opens a confirmation popup; the actual send happens on its
+// "שליחה" button.
+const clickSendAndConfirm = () => {
+  fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+  fireEvent.click(screen.getByRole("button", { name: "שליחה" }));
+};
+
 describe("MessageGroupsModal - specific guest picker", () => {
   it("only lists guests who have not RSVP'd when resend-to-pending and select-specific-guests are both chosen", async () => {
     await renderModal();
@@ -287,7 +294,7 @@ describe("MessageGroupsModal - admin-only features", () => {
     await renderModal();
 
     fireEvent.click(screen.getByText("תזכורת לחתונה"));
-    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+    clickSendAndConfirm();
 
     await screen.findByText(/הודעות נשלחו בהצלחה/);
     expect(mockHttp.sendMessage).toHaveBeenCalledWith(
@@ -311,6 +318,65 @@ describe("MessageGroupsModal - admin-only features", () => {
   });
 });
 
+describe("MessageGroupsModal - send confirmation popup", () => {
+  it("shows a confirmation with the number of messages about to be sent instead of sending immediately", async () => {
+    await renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+
+    // All 3 guests have a phone → 3 messages
+    expect(screen.getByText("3 הודעות עומדות להישלח. האם להמשיך?")).toBeInTheDocument();
+    expect(mockHttp.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("counts only the target group of the selected message type", async () => {
+    await renderModal();
+
+    // Only one guest is still pending
+    fireEvent.click(screen.getByText("שליחה חוזרת לממתינים"));
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+
+    expect(screen.getByText("הודעה אחת עומדת להישלח. האם להמשיך?")).toBeInTheDocument();
+  });
+
+  it("counts the picked guests when specific guests are selected", async () => {
+    await renderModal();
+
+    fireEvent.click(screen.getByText("בחירת אורחים ספציפיים לשליחה"));
+    fireEvent.click(screen.getByText(/Pending Guest/));
+    fireEvent.click(screen.getByText(/Confirmed Guest/));
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+
+    expect(screen.getByText("2 הודעות עומדות להישלח. האם להמשיך?")).toBeInTheDocument();
+  });
+
+  it("sends only after the confirmation is approved", async () => {
+    await renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+    expect(mockHttp.sendMessage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "שליחה" }));
+
+    await screen.findByText(/הודעות נשלחו בהצלחה/);
+    expect(mockHttp.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send when the confirmation is cancelled", async () => {
+    await renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+    fireEvent.click(screen.getByRole("button", { name: "ביטול" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/עומדות להישלח/)).not.toBeInTheDocument(),
+    );
+    expect(mockHttp.sendMessage).not.toHaveBeenCalled();
+    // The form is still there for another attempt
+    expect(screen.getByText("הזמנה לאישור הגעה")).toBeInTheDocument();
+  });
+});
+
 describe("MessageGroupsModal - send progress", () => {
   it("replaces the form with a progress view while sending and updates the counter from polling", async () => {
     let resolveSend!: (value: unknown) => void;
@@ -325,7 +391,7 @@ describe("MessageGroupsModal - send progress", () => {
     });
 
     await renderModal();
-    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+    clickSendAndConfirm();
 
     // Form is gone, progress view is up (before the first poll lands)
     expect(await screen.findByText("📨 שולח הודעות לאורחים...")).toBeInTheDocument();
@@ -355,7 +421,7 @@ describe("MessageGroupsModal - send progress", () => {
     });
 
     await renderModal();
-    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+    clickSendAndConfirm();
 
     await screen.findByText(/הודעות נשלחו בהצלחה/);
 
@@ -384,7 +450,7 @@ describe("MessageGroupsModal - send progress", () => {
     });
 
     await renderModal();
-    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+    clickSendAndConfirm();
     await screen.findByText("📵 נשלחו אך לא נמסרו:", {}, { timeout: 2500 });
 
     fireEvent.click(screen.getByText("📋 העתקת הרשימה"));
@@ -403,7 +469,7 @@ describe("MessageGroupsModal - send progress", () => {
     mockHttp.getSendProgress.mockResolvedValue({ active: false });
 
     await renderModal();
-    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעות" }));
+    clickSendAndConfirm();
 
     await screen.findByText(/הודעות נשלחו בהצלחה/);
 
