@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Box, Button, Card, Checkbox, Input, Modal, Popover, SectionHelper, SidePanel, Text } from "@wix/design-system";
+import { Box, Button, Card, Checkbox, Input, Modal, Popover, SidePanel, Text } from "@wix/design-system";
 import { Event, EventGuest, Guest } from "../../types";
 import { httpRequests } from "../../httpClient";
 import { useAppData } from "../../hooks/useAppData";
@@ -7,6 +7,7 @@ import { useConfirm } from "../../hooks/useConfirm";
 import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Download, Edit2, Filter, MessageSquare, PhoneCall, Trash2, UserPlus, X } from "lucide-react";
 import GuestList from "./GuestList";
 import MessageGroupsModal from "./MessageGroupsModal";
+import CallPendingModal from "./CallPendingModal";
 import EventEditModal from "./EventEditModal";
 import { getNumberOfGuests, getNumberOfGuestsDeclined, getNumberOfGuestsRSVP, getRsvpCounts, getUniqueValues, handleExport } from "./logic";
 import "./css/ControlPanel.css";
@@ -55,39 +56,12 @@ const EventDetail: React.FC<EventDetailProps> = ({
     circle: false,
   });
 
-  const [isCalling, setIsCalling] = useState(false);
-  const [callResult, setCallResult] = useState<string | null>(null);
+  const [isCallPendingModalOpen, setIsCallPendingModalOpen] = useState(false);
 
   const syncGuests = async () => {
     const guests = await httpRequests.getEventGuests(event.id);
     setEventGuests(guests);
     updateEventGuests(event.id, guests);
-  };
-
-  const handleCallPending = async () => {
-    const pending = getRsvpCounts(eventGuests).pending;
-    const ok = await confirm({
-      message: `להתקשר לכל ${pending} האורחים שטרם אישרו הגעה? כל אורח יקבל שיחה אוטומטית לאישור הגעה.`,
-      confirmText: "התקשר",
-    });
-    if (!ok) return;
-    setIsCalling(true);
-    setCallResult(null);
-    try {
-      const res = await httpRequests.callPendingGuests(event.id);
-      const parts = [`יצאו ${res.queued} שיחות`];
-      if (res.skippedNoPhone) parts.push(`דילגנו על ${res.skippedNoPhone} ללא מספר טלפון`);
-      if (res.failed) parts.push(`${res.failed} נכשלו`);
-      setCallResult(parts.join(" · "));
-    } catch (e: any) {
-      setCallResult(
-        e?.message?.includes("503") || e?.status === 503
-          ? "שירות השיחות אינו מוגדר עדיין. יש להשלים את הגדרות ה-Twilio."
-          : "אירעה שגיאה בהוצאת השיחות. נסו שוב.",
-      );
-    } finally {
-      setIsCalling(false);
-    }
   };
 
   // Remove from event only (not from global guests table)
@@ -267,14 +241,12 @@ const EventDetail: React.FC<EventDetailProps> = ({
                   <span style={{ marginRight: "8px" }}>שליחת הודעות</span>
                 </Button>
                 <Button
-                  onClick={handleCallPending}
+                  onClick={() => setIsCallPendingModalOpen(true)}
                   priority="secondary"
-                  disabled={getRsvpCounts(eventGuests).pending === 0 || isCalling}
+                  disabled={getRsvpCounts(eventGuests).pending === 0}
                 >
                   <PhoneCall />
-                  <span style={{ marginRight: "8px" }}>
-                    {isCalling ? "מתקשר..." : "שיחות לממתינים"}
-                  </span>
+                  <span style={{ marginRight: "8px" }}>שיחות לממתינים</span>
                 </Button>
                 <Button onClick={() => setIsEditModalOpen(true)} priority="secondary">
                   <Edit2 />
@@ -295,11 +267,6 @@ const EventDetail: React.FC<EventDetailProps> = ({
               </div>
             </Card.Content>
           </Card>
-          {callResult && (
-            <SectionHelper skin="standard" onClose={() => setCallResult(null)}>
-              {callResult}
-            </SectionHelper>
-          )}
         </div>
       </Box>
 
@@ -332,6 +299,19 @@ const EventDetail: React.FC<EventDetailProps> = ({
             ...event,
             bride_name: event.bride_name || primaryEvent?.bride_name,
             groom_name: event.groom_name || primaryEvent?.groom_name,
+          }}
+        />
+      </Modal>
+
+      {/* Call pending guests — same guest-picker flow as the send-messages modal */}
+      <Modal isOpen={isCallPendingModalOpen}>
+        <CallPendingModal
+          onClose={() => setIsCallPendingModalOpen(false)}
+          eventId={event.id}
+          eventGuests={eventGuests}
+          onGuestsUpdated={(guests) => {
+            setEventGuests(guests);
+            updateEventGuests(event.id, guests);
           }}
         />
       </Modal>

@@ -6,26 +6,8 @@ import { Box, Text, IconButton, Loader, Heading, FormField, Input, Table, TableC
 import { RowDataDefaultType } from "@wix/design-system/dist/types/Table/DataTable";
 import { Check, X, LogIn, ShieldCheck, Trash2, ChevronUp, ChevronDown, MessageSquare, UserX, MoreVertical, Clock } from "lucide-react";
 import Header from "../global/Header";
+import { SortField, getSortValue, daysUntilWedding, daysUntilDeletion } from "./logic";
 import "./css/AdminUsersPage.css";
-
-const DELETION_DAYS = 60;
-
-const daysUntilDeletion = (weddingDate: string): number => {
-  const deletionDate = new Date(weddingDate);
-  deletionDate.setDate(deletionDate.getDate() + DELETION_DAYS);
-  const msPerDay = 24 * 60 * 60 * 1000;
-  return Math.ceil((deletionDate.getTime() - Date.now()) / msPerDay);
-};
-
-// Positive: wedding is upcoming. Negative: wedding already happened that many days ago.
-const daysUntilWedding = (weddingDate: string): number => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const wedding = new Date(weddingDate);
-  wedding.setHours(0, 0, 0, 0);
-  const msPerDay = 24 * 60 * 60 * 1000;
-  return Math.round((wedding.getTime() - today.getTime()) / msPerDay);
-};
 
 const STATUS_LABELS: Record<AdminUserRow["status"], string> = {
   pending: "ממתין לאישור",
@@ -39,27 +21,6 @@ const STATUS_SKINS: Record<AdminUserRow["status"], "warningLight" | "neutralSucc
   declined: "neutralDanger",
 };
 
-type SortField = "name" | "email" | "status" | "messaging" | "partner" | "wedding" | "deletion";
-
-const getSortValue = (row: AdminUserRow, field: SortField): string | number => {
-  switch (field) {
-    case "name":
-      return row.name.toLowerCase();
-    case "email":
-      return row.email.toLowerCase();
-    case "status":
-      return row.status;
-    case "messaging":
-      return row.messagingPermissionStatus === "approved" ? 2 : row.hasPendingMessageRequest ? 1 : 0;
-    case "partner":
-      return (row.partnerName || row.linkedToName || "").toLowerCase();
-    case "wedding":
-      return row.weddingDate ? daysUntilWedding(row.weddingDate) : Infinity;
-    case "deletion":
-      return row.weddingDate ? daysUntilDeletion(row.weddingDate) : Infinity;
-  }
-};
-
 const AdminUsersPage = () => {
   const { user, switchUser } = useAuth();
   const navigate = useNavigate();
@@ -68,7 +29,7 @@ const AdminUsersPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [actioningUserID, setActioningUserID] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState<boolean>(window.innerWidth <= 768);
-  const [sortField, setSortField] = useState<SortField>("name");
+  const [sortField, setSortField] = useState<SortField>("wedding");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
