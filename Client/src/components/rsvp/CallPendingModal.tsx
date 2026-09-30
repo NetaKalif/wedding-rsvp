@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { SidePanel, Box, Text, Loader, Button, Checkbox } from "@wix/design-system";
+import {
+  SidePanel,
+  Box,
+  Text,
+  Loader,
+  Button,
+  Checkbox,
+  Modal,
+  CustomModalLayout,
+} from "@wix/design-system";
 import { EventGuest } from "../../types";
 import { httpRequests, CallPendingResult } from "../../httpClient";
 import { getCallOutcomeCounts } from "./logic";
@@ -27,6 +36,7 @@ const CallPendingModal: React.FC<CallPendingModalProps> = ({
   const [selectSpecificGuests, setSelectSpecificGuests] = useState(false);
   const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set());
   const [isCalling, setIsCalling] = useState(false);
+  const [showCallConfirmation, setShowCallConfirmation] = useState(false);
   const [callResult, setCallResult] = useState<CallPendingResult | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
   const [freshGuests, setFreshGuests] = useState<EventGuest[] | null>(null);
@@ -71,6 +81,7 @@ const CallPendingModal: React.FC<CallPendingModalProps> = ({
   const targetCount = selectSpecificGuests ? selectedGuestIds.size : callableGuests.length;
 
   const handleCall = () => {
+    setShowCallConfirmation(false);
     const guestIds =
       selectSpecificGuests && selectedGuestIds.size > 0
         ? Array.from(selectedGuestIds)
@@ -169,7 +180,7 @@ const CallPendingModal: React.FC<CallPendingModalProps> = ({
             )}
 
             <Button
-              onClick={handleCall}
+              onClick={() => setShowCallConfirmation(true)}
               disabled={isCalling || targetCount === 0}
               fullWidth
             >
@@ -179,6 +190,30 @@ const CallPendingModal: React.FC<CallPendingModalProps> = ({
                 `התקשר ל-${targetCount} אורחים`
               )}
             </Button>
+
+            <Modal
+              isOpen={showCallConfirmation}
+              onRequestClose={() => setShowCallConfirmation(false)}
+            >
+              <CustomModalLayout
+                title="אישור שיחות"
+                primaryButtonText="התקשר"
+                primaryButtonOnClick={handleCall}
+                secondaryButtonText="ביטול"
+                secondaryButtonOnClick={() => setShowCallConfirmation(false)}
+                width="400px"
+                className="modal"
+                content={
+                  <div dir="rtl">
+                    <Text>
+                      {targetCount === 1
+                        ? "שיחה אחת עומדת לצאת. האם להמשיך?"
+                        : `${targetCount} שיחות עומדות לצאת. האם להמשיך?`}
+                    </Text>
+                  </div>
+                }
+              />
+            </Modal>
           </Box>
         )}
       </SidePanel.Content>

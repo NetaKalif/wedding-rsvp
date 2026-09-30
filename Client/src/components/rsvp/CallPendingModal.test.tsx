@@ -43,11 +43,18 @@ const renderModal = () =>
     <CallPendingModal onClose={jest.fn()} eventId={1} eventGuests={eventGuests} />
   );
 
+// The call button opens a confirmation popup; the calls actually go out on
+// its "התקשר" button.
+const clickCallAndConfirm = (callButtonName: string | RegExp = /התקשר ל-/) => {
+  fireEvent.click(screen.getByRole("button", { name: callButtonName }));
+  fireEvent.click(screen.getByRole("button", { name: "התקשר" }));
+};
+
 describe("CallPendingModal - calling everyone", () => {
   it("calls all pending guests (no guestIds) when no specific guests are selected", async () => {
     renderModal();
 
-    fireEvent.click(screen.getByRole("button", { name: "התקשר ל-2 אורחים" }));
+    clickCallAndConfirm("התקשר ל-2 אורחים");
 
     await screen.findByText(/יצאו/);
     expect(mockHttp.callPendingGuests).toHaveBeenCalledWith(1, undefined);
@@ -62,7 +69,7 @@ describe("CallPendingModal - calling everyone", () => {
     });
 
     renderModal();
-    fireEvent.click(screen.getByRole("button", { name: /התקשר/ }));
+    clickCallAndConfirm();
 
     expect(await screen.findByText("📞 יצאו 2 שיחות")).toBeInTheDocument();
     expect(screen.getByText("דילגנו על 1 אורחים ללא מספר טלפון")).toBeInTheDocument();
@@ -73,11 +80,43 @@ describe("CallPendingModal - calling everyone", () => {
     mockHttp.callPendingGuests.mockRejectedValue(new Error("Request failed with status 503"));
 
     renderModal();
-    fireEvent.click(screen.getByRole("button", { name: /התקשר/ }));
+    clickCallAndConfirm();
 
     expect(
       await screen.findByText(/שירות השיחות אינו מוגדר עדיין/)
     ).toBeInTheDocument();
+  });
+});
+
+describe("CallPendingModal - call confirmation popup", () => {
+  it("shows a confirmation with the number of calls about to go out instead of calling immediately", () => {
+    renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "התקשר ל-2 אורחים" }));
+
+    expect(screen.getByText("2 שיחות עומדות לצאת. האם להמשיך?")).toBeInTheDocument();
+    expect(mockHttp.callPendingGuests).not.toHaveBeenCalled();
+  });
+
+  it("uses the singular wording when only one call will go out", () => {
+    renderModal();
+
+    fireEvent.click(screen.getByText("בחירת אורחים ספציפיים להתקשרות"));
+    fireEvent.click(screen.getByText(/Other Pending Guest/));
+    fireEvent.click(screen.getByRole("button", { name: "התקשר ל-1 אורחים" }));
+
+    expect(screen.getByText("שיחה אחת עומדת לצאת. האם להמשיך?")).toBeInTheDocument();
+  });
+
+  it("does not call when the confirmation is cancelled", () => {
+    renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "התקשר ל-2 אורחים" }));
+    fireEvent.click(screen.getByRole("button", { name: "ביטול" }));
+
+    expect(mockHttp.callPendingGuests).not.toHaveBeenCalled();
+    // The form is still there for another attempt
+    expect(screen.getByRole("button", { name: "התקשר ל-2 אורחים" })).toBeInTheDocument();
   });
 });
 
@@ -125,7 +164,7 @@ describe("CallPendingModal - specific guest picker", () => {
     openPicker();
 
     fireEvent.click(screen.getByText(/Other Pending Guest/));
-    fireEvent.click(screen.getByRole("button", { name: "התקשר ל-1 אורחים" }));
+    clickCallAndConfirm("התקשר ל-1 אורחים");
 
     await screen.findByText(/יצאו/);
     expect(mockHttp.callPendingGuests).toHaveBeenCalledWith(1, [5]);
@@ -185,7 +224,7 @@ describe("CallPendingModal - last call round outcomes", () => {
       .mockResolvedValue(calledGuests);
 
     renderModal();
-    fireEvent.click(screen.getByRole("button", { name: /התקשר/ }));
+    clickCallAndConfirm();
 
     await screen.findByText("📞 יצאו 2 שיחות");
     expect(await screen.findByText("✅ ענו לשיחה: 1")).toBeInTheDocument();
