@@ -22,6 +22,8 @@ import { getMissingInvitationContent } from "./logic";
 import GuestPicker from "./GuestPicker";
 import WhatsAppPreview from "./WhatsAppPreview";
 import TargetedGuestListModal from "./TargetedGuestListModal";
+import TestMessageSend from "./TestMessageSend";
+import SendModalTabs from "./SendModalTabs";
 import "./css/WhatsAppMessage.css";
 
 interface MessageGroupsModalProps {
@@ -107,6 +109,8 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     };
   }, [eventId]);
 
+  // Top tabs: the real send to guests vs. a test message to the couple's own phone
+  const [activeTab, setActiveTab] = useState<"guests" | "test">("guests");
   const [messageType, setMessageType] = useState<MessageType>("rsvp");
   // Invitation sub-target: everyone (the regular send), guests added after the
   // invitation went out (unsentOnly), or guests whose delivery failed (failedOnly).
@@ -428,7 +432,16 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
       height="auto"
       maxHeight="85vh"
     >
-      <SidePanel.Header title="שליחת הודעות" />
+      <SidePanel.Header title="שליחת הודעות">
+        <SendModalTabs
+          items={[
+            { id: "guests", title: "שליחה לאורחים" },
+            { id: "test", title: "הודעת ניסיון" },
+          ]}
+          activeId={activeTab}
+          onChange={(id) => setActiveTab(id === "test" ? "test" : "guests")}
+        />
+      </SidePanel.Header>
       <SidePanel.Content>
         {isLoadingPermission ? (
           <Box align="center" padding="24px 0">
@@ -436,6 +449,8 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
           </Box>
         ) : !canSendMessages ? (
           renderPermissionRequest()
+        ) : activeTab === "test" ? (
+          <TestMessageSend eventId={eventId} event={event} />
         ) : isSending ? (
           renderSendingProgress()
         ) : messageResults ? (

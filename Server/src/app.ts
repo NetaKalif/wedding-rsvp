@@ -855,6 +855,94 @@ app.get("/sendProgress", async (req: Request, res: Response) => {
   }
 });
 
+// Message types the couple can try out on their own phone.
+const TEST_MESSAGE_TYPES = ["rsvp", "rsvpReminder", "eventReminder", "thankYou", "freeText"];
+
+/** Accepts the local formats guests are entered with (05x…, 5x…) and normalizes to +9725xxxxxxxx. */
+const normalizeTestPhone = (phone: string): string | null => {
+  const trimmed = phone.replace(/[\s-]/g, "");
+  const formatted = trimmed.startsWith("0")
+    ? `+972${trimmed.slice(1)}`
+    : trimmed.startsWith("5") ? `+972${trimmed}` : trimmed;
+  return /^\+9725\d{8}$/.test(formatted) ? formatted : null;
+};
+
+// Send a single test message to the couple's own phone, so they can see a
+// message exactly as guests will receive it before any real send. Available on
+// both messaging plans: a "send and go" couple can't send to guests manually,
+// but a test send targets only the provided phone — never guests — so the
+// scheduled-plan block doesn't apply, and no guest send-state is stamped.
+app.post("/sendTestMessage", async (req: Request, res: Response) => {
+  try {
+    const { options } = req.body;
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+
+    // Same permission gate as /sendMessage — a test still sends a real
+    // (billable) WhatsApp message.
+    const messagingStatus = await db.getMessagingPermissionStatus(dataOwner);
+    if (!req.auth.isAdmin && messagingStatus !== "approved") {
+      return res.status(403).json({
+        error: "You don't have permission to send messages. Please request permission from the admin.",
+        messagingStatus,
+      });
+    }
+
+    const phone = normalizeTestPhone(typeof options?.phone === "string" ? options.phone : "");
+    if (!phone) return res.status(400).send("A valid Israeli mobile number is required");
+
+    const messageType: string = options?.messageType || "rsvp";
+    if (!TEST_MESSAGE_TYPES.includes(messageType)) {
+      return res.status(400).send(`Unknown message type: ${messageType}`);
+    }
+
+    const customText: string = options?.customText;
+    if (messageType === "freeText" && (!customText || !customText.trim())) {
+      return res.status(400).send("Custom text message cannot be empty");
+    }
+
+    // Resolve the event the same way /sendMessage does
+    let event: Event | null;
+    if (options?.eventId) {
+      event = await db.getEventById(Number(options.eventId));
+      if (!event || event.user_id !== dataOwner) return res.status(404).send("Event not found");
+    } else {
+      event = await db.getPrimaryEvent(dataOwner);
+      if (!event) return res.status(400).send("No primary event found — please set up wedding info first");
+    }
+    event = await withInheritedCoupleNames(event);
+
+    // The invitation template renders the photo/names/date/location — testing
+    // it needs the same content the real send does.
+    if (messageType === "rsvp") {
+      const missingFields = getMissingInvitationFields(event);
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          error: `Invitation details are incomplete — missing: ${missingFields.join(", ")}`,
+          missingFields,
+        });
+      }
+    }
+
+    // A pseudo-guest carrying only what buildMessageTasks reads (phone, name,
+    // user_id) — nothing is written to event_guests for a test send.
+    const testRecipient = { phone, name: "הודעת ניסיון", user_id: dataOwner } as EventGuest;
+    const [task] = buildMessageTasks([testRecipient], messageType, customText, event, dataOwner);
+    const result = await task();
+
+    await logMessage(
+      dataOwner,
+      result.success
+        ? `🧪 Test message (${messageType}) sent to ${phone}`
+        : `🧪 Test message (${messageType}) to ${phone} failed: ${result.error}`,
+    );
+
+    return res.status(200).send({ success: result.success, error: result.success ? undefined : result.error });
+  } catch (error) {
+    logError(req.auth?.userID, "Error sending test message:", error);
+    return res.status(500).send(error.message);
+  }
+});
+
 const sendMessagesAndLog = async (
   tasks: Array<() => Promise<MessageResult>>,
   userID: string,

@@ -15,6 +15,8 @@ import { httpRequests, ScheduledRoundInput } from "../../httpClient";
 import { useAuth } from "../../hooks/useAuth";
 import { getMissingInvitationContent } from "./logic";
 import TargetedInvitationSends from "./TargetedInvitationSends";
+import TestMessageSend from "./TestMessageSend";
+import SendModalTabs from "./SendModalTabs";
 
 /**
  * The "send and go" (messagingPlan="scheduled") replacement for the manual
@@ -100,6 +102,8 @@ const ScheduledMessagingModal: React.FC<ScheduledMessagingModalProps> = ({
   onSwitchToManual,
 }) => {
   const { isAdmin } = useAuth();
+  // Top tabs: the scheduled rounds for guests vs. a test message to the couple's own phone
+  const [activeTab, setActiveTab] = useState<"schedule" | "test">("schedule");
   const [rounds, setRounds] = useState<ScheduledRound[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [edited, setEdited] = useState<Record<string, string>>({});
@@ -210,15 +214,29 @@ const ScheduledMessagingModal: React.FC<ScheduledMessagingModalProps> = ({
   return (
     <SidePanel onCloseButtonClick={onClose} skin="floating" width="480px" height="100%">
       <SidePanel.Header title="תזמון הודעות — שלח וגמרנו">
-        <Text size="small" secondary>
-          ממלאים הכל פעם אחת, בוחרים מועד לכל סבב — והמערכת שולחת בשבילכם.
-        </Text>
+        <Box padding="0 16px">
+          <Text size="small" secondary>
+            ממלאים הכל פעם אחת, בוחרים מועד לכל סבב — והמערכת שולחת בשבילכם.
+          </Text>
+        </Box>
+        <Box paddingTop="8px">
+          <SendModalTabs
+            items={[
+              { id: "schedule", title: "תזמון לאורחים" },
+              { id: "test", title: "הודעת ניסיון" },
+            ]}
+            activeId={activeTab}
+            onChange={(id) => setActiveTab(id === "test" ? "test" : "schedule")}
+          />
+        </Box>
       </SidePanel.Header>
       <SidePanel.Content>
         {isLoading ? (
           <Box align="center" padding="24px">
             <Loader size="small" />
           </Box>
+        ) : activeTab === "test" ? (
+          <TestMessageSend eventId={eventId} event={event} />
         ) : (
           <Box direction="vertical" gap="18px">
             {isAdmin && onSwitchToManual && (

@@ -1,0 +1,33 @@
+/* Simple full-width tab header for the send modals. Replaces the wix
+   design-system <Tabs>, which truncates/overflows the Hebrew titles in the
+   RTL side panels. Each tab takes exactly half the row. */
+.send-modal-tabs {
+  display: flex;
+  width: 100%;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.send-modal-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 8px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+  font-family: inherit;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.send-modal-tab:hover {
+  background: #eef3fb;
+}
+
+.send-modal-tab.active {
+  color: #116dff;
+  border-bottom-color: #116dff;
+  font-weight: 600;
+}

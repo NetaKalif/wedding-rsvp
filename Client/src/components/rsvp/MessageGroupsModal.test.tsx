@@ -18,6 +18,7 @@ jest.mock("../../httpClient", () => ({
     ),
     requestMessagingPermission: jest.fn(() => Promise.resolve({ success: true })),
     getEventGuests: jest.fn(() => Promise.resolve([])),
+    sendTestMessage: jest.fn(() => Promise.resolve({ success: true })),
   },
 }));
 
@@ -83,6 +84,7 @@ beforeEach(() => {
   mockHttp.getSendProgress.mockResolvedValue({ active: false });
   // The targeted-sends panel refreshes guests on mount
   (httpRequests.getEventGuests as jest.Mock).mockResolvedValue([]);
+  (httpRequests.sendTestMessage as jest.Mock).mockResolvedValue({ success: true });
 });
 
 // The modal checks messaging permission on mount, so its real content only
@@ -818,5 +820,45 @@ describe("MessageGroupsModal - admin view switch", () => {
   it("hides the switch from regular users even when the callback is provided", async () => {
     await renderModal({ onSwitchToScheduled: jest.fn() });
     expect(screen.queryByText("תצוגת אדמין: מעבר לתזמון (שלח וגמרנו)")).not.toBeInTheDocument();
+  });
+});
+
+describe("MessageGroupsModal - test message tab", () => {
+  it("defaults to the guests tab, without the test UI", async () => {
+    await renderModal();
+
+    expect(screen.getByRole("button", { name: "שליחת הודעות" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("מספר טלפון להודעת ניסיון")).not.toBeInTheDocument();
+  });
+
+  it("switches to the self-test tab and back", async () => {
+    await renderModal();
+
+    fireEvent.click(screen.getByText("הודעת ניסיון"));
+    expect(screen.getByLabelText("מספר טלפון להודעת ניסיון")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "שליחת הודעות" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("שליחה לאורחים"));
+    expect(screen.getByRole("button", { name: "שליחת הודעות" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("מספר טלפון להודעת ניסיון")).not.toBeInTheDocument();
+  });
+
+  it("sends a test message from the test tab", async () => {
+    await renderModal();
+
+    fireEvent.click(screen.getByText("הודעת ניסיון"));
+    fireEvent.change(screen.getByLabelText("מספר טלפון להודעת ניסיון"), {
+      target: { value: "0521234567" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעת ניסיון" }));
+
+    await screen.findByText(/הודעת הניסיון נשלחה/);
+    expect(httpRequests.sendTestMessage).toHaveBeenCalledWith({
+      eventId: 1,
+      messageType: "rsvp",
+      phone: "+972521234567",
+    });
+    // The test send targets only the couple's phone — never the guests
+    expect(mockHttp.sendMessage).not.toHaveBeenCalled();
   });
 });

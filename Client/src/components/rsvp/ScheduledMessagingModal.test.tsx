@@ -12,6 +12,7 @@ jest.mock("../../httpClient", () => ({
     getSendProgress: jest.fn(() => Promise.resolve({ active: false })),
     getEventGuests: jest.fn(() => Promise.resolve([])),
     resetMessageSchedule: jest.fn(() => Promise.resolve({ deletedRounds: 0 })),
+    sendTestMessage: jest.fn(() => Promise.resolve({ success: true })),
   },
 }));
 
@@ -83,6 +84,7 @@ beforeEach(() => {
   mockHttp.sendMessage.mockResolvedValue({ success: 1, fail: 0, failGuestsList: [] });
   mockHttp.getSendProgress.mockResolvedValue({ active: false });
   mockHttp.getEventGuests.mockResolvedValue(eventGuests);
+  (httpRequests.sendTestMessage as jest.Mock).mockResolvedValue({ success: true });
 });
 
 const renderModal = (overrides: Partial<React.ComponentProps<typeof ScheduledMessagingModal>> = {}) =>
@@ -368,5 +370,38 @@ describe("ScheduledMessagingModal - guests added after the invitation round", ()
     await screen.findByText("הזמנה ואישור הגעה");
 
     expect(screen.queryByText("אורחים שנוספו אחרי שליחת ההזמנה")).not.toBeInTheDocument();
+  });
+});
+
+describe("ScheduledMessagingModal - test message tab", () => {
+  it("switches between the schedule and the self-test", async () => {
+    renderModal();
+    await screen.findByText("מועדי השליחה");
+    expect(screen.queryByLabelText("מספר טלפון להודעת ניסיון")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("הודעת ניסיון"));
+    expect(screen.getByLabelText("מספר טלפון להודעת ניסיון")).toBeInTheDocument();
+    expect(screen.queryByText("מועדי השליחה")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("תזמון לאורחים"));
+    expect(await screen.findByText("מועדי השליחה")).toBeInTheDocument();
+  });
+
+  it("sends a test message from the test tab (allowed on the scheduled plan)", async () => {
+    renderModal();
+    await screen.findByText("מועדי השליחה");
+
+    fireEvent.click(screen.getByText("הודעת ניסיון"));
+    fireEvent.change(screen.getByLabelText("מספר טלפון להודעת ניסיון"), {
+      target: { value: "0521234567" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "שליחת הודעת ניסיון" }));
+
+    await screen.findByText(/הודעת הניסיון נשלחה/);
+    expect(httpRequests.sendTestMessage).toHaveBeenCalledWith({
+      eventId: 1,
+      messageType: "rsvp",
+      phone: "+972521234567",
+    });
   });
 });

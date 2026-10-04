@@ -240,6 +240,19 @@ interface SendMessageOptions {
 const sendMessage = (options: SendMessageOptions) =>
   post<MessageResult>("/sendMessage", { options });
 
+interface SendTestMessageOptions {
+  eventId?: number;
+  messageType: string;
+  /** The couple's own phone — the single recipient of the test. */
+  phone: string;
+  customText?: string;
+}
+
+// Sends one message to the couple's own phone so they can preview it as guests
+// will see it. Allowed on both messaging plans (it never targets guests).
+const sendTestMessage = (options: SendTestMessageOptions) =>
+  post<{ success: boolean; error?: string }>("/sendTestMessage", { options });
+
 export interface DeliveryFailure {
   guestName: string;
   phone: string;
@@ -517,7 +530,7 @@ export const httpRequests = {
   // Event guests + RSVP
   getEventGuests, setEventGuests, removeEventGuests, setRSVP, callPendingGuests,
   // Messages
-  sendMessage, getSendProgress,
+  sendMessage, sendTestMessage, getSendProgress,
   // Messaging Permissions
   getMessagingPermissionStatus, requestMessagingPermission, setMessagingPermission,
   // Messaging plan + scheduled rounds
