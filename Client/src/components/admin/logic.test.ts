@@ -14,6 +14,7 @@ const userRow = (name: string, weddingDate: string | null): AdminUserRow => ({
   cancelledAt: null,
   messagingPermissionStatus: "approved",
   hasPendingMessageRequest: false,
+  messagingPlan: "manual",
 });
 
 const dateInDays = (days: number): string => {

@@ -4,7 +4,7 @@ import { httpRequests, AdminUserRow } from "../../httpClient";
 import { useAuth } from "../../hooks/useAuth";
 import { Box, Text, IconButton, Loader, Heading, FormField, Input, Table, TableColumn, Badge, PopoverMenu } from "@wix/design-system";
 import { RowDataDefaultType } from "@wix/design-system/dist/types/Table/DataTable";
-import { Check, X, LogIn, ShieldCheck, Trash2, ChevronUp, ChevronDown, MessageSquare, UserX, MoreVertical, Clock } from "lucide-react";
+import { Check, X, LogIn, ShieldCheck, Trash2, ChevronUp, ChevronDown, MessageSquare, UserX, MoreVertical, Clock, CalendarClock } from "lucide-react";
 import Header from "../global/Header";
 import { SortField, getSortValue, daysUntilWedding, daysUntilDeletion } from "./logic";
 import "./css/AdminUsersPage.css";
@@ -86,6 +86,13 @@ const AdminUsersPage = () => {
       userID,
       () => httpRequests.setMessagingPermission(userID, approved),
       "שגיאה בעדכון הרשאת שליחת הודעות. אנא נסו שנית.",
+    );
+
+  const handleSetMessagingPlan = (userID: string, plan: "manual" | "scheduled") =>
+    withAction(
+      userID,
+      () => httpRequests.setMessagingPlan(userID, plan),
+      "שגיאה בעדכון מסלול שליחת ההודעות. אנא נסו שנית.",
     );
 
   const handleImpersonate = async (row: AdminUserRow) => {
@@ -205,6 +212,18 @@ const AdminUsersPage = () => {
       showOnMobile: true,
     },
     {
+      title: "מסלול הודעות",
+      render: (row: AdminUserRow) =>
+        row.messagingPlan === "scheduled" ? (
+          <Badge uppercase={false} skin="standard">שלח וגמרנו</Badge>
+        ) : (
+          <Badge uppercase={false} skin="neutralStandard">שליחה ידנית</Badge>
+        ),
+      align: "start",
+      width: isMobile ? "70px" : "120px",
+      showOnMobile: false,
+    },
+    {
       title: sortableTitle("קישור בן/בת זוג", "partner"),
       render: (row: AdminUserRow) =>
         row.partnerName ? `בן/בת זוג: ${row.partnerName}` : row.linkedToName ? `מקושר/ת עם: ${row.linkedToName}` : "—",
@@ -292,6 +311,20 @@ const AdminUsersPage = () => {
                   prefixIcon={<MessageSquare size={14} />}
                   onClick={() =>
                     handleSetMessagingPermission(row.userID, row.messagingPermissionStatus !== "approved")
+                  }
+                />
+              ),
+              row.status === "approved" && (
+                <PopoverMenu.MenuItem
+                  key="messaging-plan"
+                  text={
+                    row.messagingPlan === "scheduled"
+                      ? "העברה למסלול שליחה ידנית"
+                      : 'העברה למסלול "שלח וגמרנו" (תזמון אוטומטי)'
+                  }
+                  prefixIcon={<CalendarClock size={14} />}
+                  onClick={() =>
+                    handleSetMessagingPlan(row.userID, row.messagingPlan === "scheduled" ? "manual" : "scheduled")
                   }
                 />
               ),

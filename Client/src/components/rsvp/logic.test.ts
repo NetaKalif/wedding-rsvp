@@ -3,8 +3,9 @@ import {
   guestExportColumns,
   guestExportRow,
   getCallOutcomeCounts,
+  getMissingInvitationContent,
 } from "./logic";
-import { EventGuest, Guest } from "../../types";
+import { Event, EventGuest, Guest } from "../../types";
 
 const baseGuest = (overrides: Partial<Guest> = {}): Guest => ({
   name: "Test Guest",
@@ -194,5 +195,41 @@ describe("getCallOutcomeCounts", () => {
       failed: 0,
       inProgress: 0,
     });
+  });
+});
+
+describe("getMissingInvitationContent", () => {
+  const completeEvent: Event = {
+    id: 1,
+    user_id: "u1",
+    is_primary: true,
+    ceremony_name: "חתונה",
+    date: "2027-06-01",
+    location: "גן האירועים",
+    file_id: "media-1",
+    bride_name: "כלה",
+    groom_name: "חתן",
+  };
+
+  it("returns nothing when all invitation content is filled", () => {
+    expect(getMissingInvitationContent(completeEvent)).toEqual([]);
+  });
+
+  it("requires the invitation photo", () => {
+    expect(getMissingInvitationContent({ ...completeEvent, file_id: undefined })).toEqual([
+      "תמונת ההזמנה",
+    ]);
+  });
+
+  it("lists every missing field", () => {
+    expect(
+      getMissingInvitationContent({
+        ...completeEvent,
+        file_id: undefined,
+        bride_name: "  ",
+        date: undefined,
+        location: "",
+      })
+    ).toEqual(["תמונת ההזמנה", "שמות בני הזוג", "תאריך האירוע", "מיקום האירוע"]);
   });
 });

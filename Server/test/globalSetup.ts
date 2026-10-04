@@ -250,10 +250,11 @@ async function seedData(pool: Pool): Promise<void> {
     ["test-user-id", "Test Guest", "+972501234567", "bride", "family", 1],
   );
 
+  // file_id: invitation sends are blocked while the invitation photo is missing
   const { rows: [event] } = await pool.query(
-    `INSERT INTO events (user_id, is_primary, ceremony_name, date, bride_name, groom_name, location)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-    ["test-user-id", true, "חתונה", "2027-01-01", "כלה", "חתן", "תל אביב"],
+    `INSERT INTO events (user_id, is_primary, ceremony_name, date, bride_name, groom_name, location, file_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    ["test-user-id", true, "חתונה", "2027-01-01", "כלה", "חתן", "תל אביב", "test-file-id"],
   );
 
   // Basic test guest → wedding only
@@ -266,9 +267,9 @@ async function seedData(pool: Pool): Promise<void> {
   // ── Multi-event guests ──────────────────────────────────────────────────────
   // Henna event (non-primary, id=2)
   const { rows: [hennaEvent] } = await pool.query(
-    `INSERT INTO events (user_id, is_primary, ceremony_name, date, bride_name, groom_name, location)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-    ["test-user-id", false, "חינה", "2026-12-31", "כלה", "חתן", "תל אביב"],
+    `INSERT INTO events (user_id, is_primary, ceremony_name, date, bride_name, groom_name, location, file_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    ["test-user-id", false, "חינה", "2026-12-31", "כלה", "חתן", "תל אביב", "test-file-id"],
   );
 
   // Alice (id=2) — wedding + henna

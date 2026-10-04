@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import EventDetail from "./EventDetail";
 import { Event, EventGuest } from "../../types";
 import { httpRequests } from "../../httpClient";
@@ -24,10 +24,23 @@ const eventGuests: EventGuest[] = [
 
 const mockUpdateEventGuests = jest.fn();
 
+// Overridable per test (e.g. to seed a guest with a delivery error)
+let mockEventGuests: EventGuest[] = eventGuests;
+
 jest.mock("../../hooks/useAppData", () => ({
   useAppData: () => ({
-    eventGuestsByEventId: { 7: eventGuests },
+    eventGuestsByEventId: { 7: mockEventGuests },
     updateEventGuests: mockUpdateEventGuests,
+  }),
+}));
+
+// EventDetail reads the messaging plan to pick the send modal and to hide
+// the manual call button for "send and go" couples.
+let mockMessagingPlan: "manual" | "scheduled" = "manual";
+jest.mock("../../hooks/useAuth", () => ({
+  useAuth: () => ({
+    user: { userID: "u1", name: "u1", email: "u1@test.com", messagingPlan: mockMessagingPlan },
+    isAdmin: false,
   }),
 }));
 
@@ -57,6 +70,12 @@ const renderDetail = () =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockMessagingPlan = "manual";
+  mockEventGuests = eventGuests;
+  // Behave like the real store: an update is visible on the next render
+  mockUpdateEventGuests.mockImplementation((_id: number, guests: EventGuest[]) => {
+    mockEventGuests = guests;
+  });
   mockHttp.getEventGuests.mockResolvedValue(eventGuests);
   mockHttp.callPendingGuests.mockResolvedValue({
     queued: 0,
@@ -86,6 +105,8 @@ describe("EventDetail - call pending guests", () => {
     fireEvent.click(await screen.findByText("בחירת אורחים ספציפיים להתקשרות"));
     fireEvent.click(screen.getByText(/Other Pending Guest/));
     fireEvent.click(screen.getByRole("button", { name: "התקשר ל-1 אורחים" }));
+    // The call button opens a confirmation popup; calls go out on its "התקשר"
+    fireEvent.click(screen.getByRole("button", { name: "התקשר" }));
 
     await screen.findByText(/יצאו/);
     expect(mockHttp.callPendingGuests).toHaveBeenCalledWith(7, [2]);
@@ -98,8 +119,50 @@ describe("EventDetail - call pending guests", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "התקשר ל-2 אורחים" })
     );
+    fireEvent.click(screen.getByRole("button", { name: "התקשר" }));
 
     await screen.findByText(/יצאו/);
     expect(mockHttp.callPendingGuests).toHaveBeenCalledWith(7, undefined);
+  });
+
+  it('hides the call-pending button for "send and go" (scheduled plan) users', () => {
+    mockMessagingPlan = "scheduled";
+    renderDetail();
+
+    expect(screen.queryByRole("button", { name: "שיחות לממתינים" })).not.toBeInTheDocument();
+    // The rest of the quick actions are untouched
+    expect(screen.getByRole("button", { name: "שליחת הודעות" })).toBeInTheDocument();
+  });
+});
+
+describe("EventDetail - undelivered guests banner", () => {
+  it("shows the banner automatically from the server fetch and its link opens the send modal", async () => {
+    // The cached (context) list has no errors — the failure only exists server-side
+    mockHttp.getEventGuests.mockResolvedValue([
+      ...eventGuests,
+      {
+        guest_id: 4,
+        event_id: 7,
+        name: "Failed Guest",
+        phone: "444",
+        rsvp_status: null,
+        last_message_type: "rsvp",
+        last_send_error: "המספר אינו רשום בוואטסאפ",
+      },
+    ]);
+    renderDetail();
+
+    expect(await screen.findByText(/ההזמנה לא נמסרה לאורח אחד/)).toBeInTheDocument();
+    expect(screen.queryByTestId("message-groups-modal")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("לבדיקה ושליחה חוזרת"));
+    expect(screen.getByTestId("message-groups-modal")).toBeInTheDocument();
+  });
+
+  it("shows no banner when every delivery succeeded", async () => {
+    renderDetail();
+    // Wait for the banner's own fetch to settle before asserting absence
+    await waitFor(() => expect(mockHttp.getEventGuests).toHaveBeenCalledWith(7));
+    expect(screen.queryByText(/ההזמנה לא נמסרה/)).not.toBeInTheDocument();
   });
 });

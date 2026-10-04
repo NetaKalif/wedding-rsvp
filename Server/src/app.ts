@@ -12,6 +12,10 @@ import {
   SEATING_ITEM_KINDS,
   SEATING_SHAPES,
   SeatingItem,
+  MessagingPlan,
+  ScheduledRound,
+  ScheduledRoundType,
+  SCHEDULED_ROUND_LIMITS,
 } from "./types";
 import { Request, Response, RequestHandler } from "express-serve-static-core";
 import multer from "multer";
@@ -21,6 +25,7 @@ import {
   sendWhatsAppMessage,
   uploadImage,
   getTemplateParams,
+  getMissingInvitationFields,
   logMessage,
   batchLogMessageResults,
   sendNewUserRequestNotification,
@@ -38,7 +43,7 @@ import {
   verifyGoogleToken,
   issueSessionToken,
 } from "./auth";
-import { sendApprovalDecisionEmail, sendDataExportWarningEmail, sendMessagingPermissionApprovedEmail } from "./email";
+import { sendApprovalDecisionEmail, sendDataExportWarningEmail, sendMessagingPermissionApprovedEmail, sendDeliveryFailureReportEmail } from "./email";
 import { buildAllExports, zipExports } from "./dataExport";
 import { log, logError } from "./logger";
 import {
@@ -275,7 +280,9 @@ app.post("/auth/google", async (req: Request, res: Response) => {
 
     await logMessage(identity.userID, `🔑 Signed in: ${identity.name} (${identity.email})`);
 
-    res.status(200).json({ token, user: identity, isAdmin, status: "approved" });
+    // The plan lives on the effective data owner, so a linked partner sees the same plan
+    const messagingPlan = await db.getMessagingPlan(await db.getEffectiveUserID(identity.userID));
+    res.status(200).json({ token, user: { ...identity, messagingPlan }, isAdmin, status: "approved" });
   } catch (error) {
     return handleError(res, error, "Failed to sign in with Google");
   }
@@ -315,6 +322,20 @@ if (process.env.NODE_ENV === "test") {
       res.status(200).send("ok");
     } catch (error) {
       return handleError(res, error, "Failed to run scheduled messages");
+    }
+  });
+
+  // Test-only trigger for the "send and go" scheduled-rounds sweep. Bypasses
+  // the scheduled_at check and (via bypassTime) the failure-report grace
+  // window; eventId scopes the sweep so parallel tests don't claim each
+  // other's rounds.
+  app.post("/test/run-scheduled-rounds", async (req: Request, res: Response) => {
+    try {
+      const eventId = req.body?.eventId ? Number(req.body.eventId) : undefined;
+      await processScheduledRounds({ bypassTime: true, eventId });
+      res.status(200).send("ok");
+    } catch (error) {
+      return handleError(res, error, "Failed to run scheduled rounds");
     }
   });
 }
@@ -398,8 +419,10 @@ app.get("/auth/me", async (req: Request, res: Response) => {
   try {
     const user = await db.getUserByID(req.auth.userID);
     if (!user) return res.status(404).send("User not found");
+    // The plan lives on the effective data owner, so a linked partner sees the same plan
+    const messagingPlan = await db.getMessagingPlan(await resolveDataOwner(req.auth.userID));
     // status lets the client kick a revoked user back to the pending page on session restore
-    res.status(200).json({ user, isAdmin: req.auth.isAdmin, status: user.status });
+    res.status(200).json({ user: { ...user, messagingPlan }, isAdmin: req.auth.isAdmin, status: user.status });
   } catch (error) {
     return handleError(res, error, "Failed to load current user");
   }
@@ -442,7 +465,8 @@ app.post("/auth/impersonate", requireAdmin, async (req: Request, res: Response) 
 
     await logMessage(req.auth.actorUserID, `🎭 Admin switched into account: ${targetUser.name} (${targetUser.userID})`);
 
-    res.status(200).json({ token, user: targetUser });
+    const messagingPlan = await db.getMessagingPlan(await resolveDataOwner(targetUser.userID));
+    res.status(200).json({ token, user: { ...targetUser, messagingPlan } });
   } catch (error) {
     return handleError(res, error, "Failed to switch user");
   }
@@ -660,6 +684,13 @@ app.get("/getWeddingInfo", async (req: Request, res: Response) => {
   }
 });
 
+// Non-primary events inherit bride/groom names from the primary event when unset.
+const withInheritedCoupleNames = async (event: Event): Promise<Event> => {
+  if (event.is_primary && event.bride_name) return event;
+  const primary = event.is_primary ? event : await db.getPrimaryEvent(event.user_id);
+  return { ...event, bride_name: event.bride_name || primary?.bride_name, groom_name: event.groom_name || primary?.groom_name };
+};
+
 // Send messages for a specific event
 app.post("/sendMessage", async (req: Request, res: Response) => {
   try {
@@ -675,9 +706,31 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
       });
     }
 
-    const messageType: string = options?.messageType || "rsvp";
     const customText: string = options?.customText;
     const selectedGuestIds: number[] | undefined = options?.guestIds;
+    const failedOnly: boolean = options?.failedOnly === true;
+    // Guests added after the invitation already went out: no send was ever
+    // attempted for them (last_message_type is NULL), so they need the
+    // invitation now.
+    const unsentOnly: boolean = options?.unsentOnly === true;
+    if (failedOnly && unsentOnly) {
+      return res.status(400).send("failedOnly and unsentOnly cannot be combined");
+    }
+    // Both targeted sends are always the invitation: a failed delivery means
+    // a number to fix, a never-sent guest was added late — either way the
+    // invitation is what they're missing, and they can still RSVP from it.
+    const messageType: string = failedOnly || unsentOnly ? "rsvp" : options?.messageType || "rsvp";
+
+    // "Send and go" couples don't send manually — the scheduler does. The
+    // exceptions are the targeted invitation sends: resending to guests whose
+    // delivery failed, and inviting guests added after the invitation round.
+    const messagingPlan = await db.getMessagingPlan(dataOwner);
+    if (!req.auth.isAdmin && messagingPlan === "scheduled" && !failedOnly && !unsentOnly) {
+      return res.status(403).json({
+        error: "Your messages are sent on a schedule. Manual sending is only available for failed-delivery resends and newly added guests.",
+        messagingPlan,
+      });
+    }
 
     if (messageType === "freeText" && (!customText || !customText.trim())) {
       return res.status(400).send("Custom text message cannot be empty");
@@ -695,20 +748,38 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
       eventId = event.id;
     }
 
-    // For non-primary events, fill bride/groom from the primary event
-    if (!event.is_primary || !event.bride_name) {
-      const primary = event.is_primary ? event : await db.getPrimaryEvent(dataOwner);
-      event = { ...event, bride_name: event.bride_name || primary?.bride_name, groom_name: event.groom_name || primary?.groom_name };
+    event = await withInheritedCoupleNames(event);
+
+    // An incomplete invitation (no photo, no date…) must never reach guests —
+    // this also covers the targeted sends (failedOnly/unsentOnly), which are
+    // always the invitation.
+    if (messageType === "rsvp") {
+      const missingFields = getMissingInvitationFields(event);
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          error: `Invitation details are incomplete — missing: ${missingFields.join(", ")}`,
+          missingFields,
+        });
+      }
     }
 
     // Get event guests with optional RSVP filter. Thank-yous only go to guests
-    // who confirmed, matching the scheduled day-after send.
+    // who confirmed, matching the scheduled day-after send. A failed-only
+    // resend ignores the filter — it targets exactly the guests with a stored
+    // send error, whatever message type failed for them.
     const rsvpFilter =
-      messageType === "rsvpReminder" ? "pending"
-        : messageType === "eventReminder" || messageType === "thankYou" ? "approved"
-          : undefined;
+      failedOnly || unsentOnly ? undefined
+        : messageType === "rsvpReminder" ? "pending"
+          : messageType === "eventReminder" || messageType === "thankYou" ? "approved"
+            : undefined;
     let eventGuests = await db.getEventGuests(eventId, rsvpFilter).then((guests) => guests.filter(hasPhone));
 
+    if (failedOnly) {
+      eventGuests = eventGuests.filter((eg) => eg.last_send_error);
+    }
+    if (unsentOnly) {
+      eventGuests = eventGuests.filter((eg) => !eg.last_message_type);
+    }
     if (selectedGuestIds?.length) {
       eventGuests = eventGuests.filter((eg) => selectedGuestIds.includes(eg.guest_id));
     }
@@ -722,7 +793,7 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
       await logMessage(dataOwner, `⚠️ Guest list limited to ${MAX_GUESTS_PER_MESSAGE_BATCH} (WhatsApp limit)`);
     }
 
-    const label = messageType === "rsvp" ? "RSVP invitation" : messageType === "rsvpReminder" ? "RSVP reminder" : messageType === "eventReminder" ? "event reminder" : messageType === "thankYou" ? "thank-you" : "custom text";
+    const label = failedOnly ? "failed-messages resend" : unsentOnly ? "invitation for newly added guests" : messageType === "rsvp" ? "RSVP invitation" : messageType === "rsvpReminder" ? "RSVP reminder" : messageType === "eventReminder" ? "event reminder" : messageType === "thankYou" ? "thank-you" : "custom text";
 
     // Register the send job (polled via GET /sendProgress). A null job means a
     // dispatch is already running for this owner — reject rather than double-send.
@@ -742,11 +813,18 @@ app.post("/sendMessage", async (req: Request, res: Response) => {
       finishSendJob(job);
     }
 
+    await db.setEventGuestsLastMessageType(eventId, limited.map((eg) => eg.guest_id), messageType);
     if (messageType === "rsvp" || messageType === "rsvpReminder") {
       await db.updateEventGuestLastRsvpSentAt(eventId, limited.map((eg) => eg.guest_id));
     }
+    // Only invitation outcomes drive the failed-guests panel/email — a failed
+    // invitation means a number to fix; later-round failures are mostly
+    // transient (frequency caps, opt-outs) and only go to the activity log.
+    if (messageType === "rsvp") {
+      await db.recordGuestSendResults(eventId, results.results);
+    }
 
-    return res.status(200).send(results);
+    return res.status(200).send({ success: results.success, fail: results.fail, failGuestsList: results.failGuestsList });
   } catch (error) {
     logError(req.auth?.userID, "Error sending messages:", error);
     return res.status(500).send(error.message);
@@ -788,6 +866,7 @@ const sendMessagesAndLog = async (
   success: number;
   fail: number;
   failGuestsList: Pick<MessageResult, "guestName" | "logMessage">[];
+  results: MessageResult[];
 }> => {
   // Paced dispatch — firing the whole batch at once gets 200 OKs from Meta
   // but silently drops delivery for part of the recipients (throttling).
@@ -795,9 +874,9 @@ const sendMessagesAndLog = async (
   const results = await runPaced(tasks, {
     onResult: job
       ? (r) => {
-          job.completed++;
-          if (!(r as MessageResult).success) job.failed++;
-        }
+        job.completed++;
+        if (!(r as MessageResult).success) job.failed++;
+      }
       : undefined,
   });
 
@@ -824,7 +903,7 @@ const sendMessagesAndLog = async (
     ...results,
     { success: true, userID, guestName: "", logMessage: summaryMessage },
   ]);
-  return { success: successCount, fail: failCount, failGuestsList };
+  return { success: successCount, fail: failCount, failGuestsList, results };
 };
 
 // Returns thunks (not live promises) so sendMessagesAndLog can pace the
@@ -836,7 +915,7 @@ const buildMessageTasks = (
   event: Event,
   userID: string,
 ): Array<() => Promise<MessageResult>> => {
-  const toRecipient = (eg: EventGuest) => ({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone });
+  const toRecipient = (eg: EventGuest) => ({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone, guest_id: eg.guest_id });
 
   if (messageType === "freeText") {
     return eventGuests.map((eg) => () => sendWhatsAppMessage(toRecipient(eg), { freeText: customText }));
@@ -1180,6 +1259,48 @@ app.post("/admin/setMessagingPermission", requireAdmin, async (req: Request, res
     res.status(200).send(approved ? "Messaging permission approved" : "Messaging permission denied");
   } catch (error) {
     return handleError(res, error, "Failed to update messaging permission");
+  }
+});
+
+// Assigns a user's messaging plan: 'manual' (they send everything themselves)
+// or 'scheduled' ("send and go" — they fill everything up front and the
+// scheduler sends at the times they picked).
+app.post("/admin/setMessagingPlan", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { userID, plan } = req.body;
+    if (!userID || (plan !== "manual" && plan !== "scheduled")) {
+      return res.status(400).send("userID and plan ('manual' | 'scheduled') are required");
+    }
+    const target = await db.getUserByID(userID);
+    if (!target) return res.status(404).send("User not found");
+
+    await db.setMessagingPlan(userID, plan as MessagingPlan);
+    await logMessage(req.auth.userID, `📋 Set messaging plan for ${target.name}: ${plan}`);
+    res.status(200).send("Messaging plan updated");
+  } catch (error) {
+    return handleError(res, error, "Failed to update messaging plan");
+  }
+});
+
+// QA tool: wipes an event's scheduled rounds (and optionally the per-guest
+// send markers) so the "send and go" flow can be re-tested from scratch with
+// fresh times. Rounds are deleted, not flipped back to pending — a pending
+// round with a past time would re-fire on the next scheduler tick.
+app.post("/admin/resetMessageSchedule", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { eventId, clearGuestState } = req.body;
+    if (!eventId) return res.status(400).send("eventId is required");
+    const event = await db.getEventById(Number(eventId));
+    if (!event) return res.status(404).send("Event not found");
+
+    const deleted = await db.deleteAllScheduledRounds(event.id!);
+    if (clearGuestState === true) {
+      await db.clearEventGuestSendState(event.id!);
+    }
+    await logMessage(req.auth.actorUserID, `🧪 QA reset of message schedule for "${event.ceremony_name}" (event ${event.id}) — ${deleted} rounds deleted${clearGuestState ? ", guest send-state cleared" : ""}`);
+    res.status(200).json({ deletedRounds: deleted });
+  } catch (error) {
+    return handleError(res, error, "Failed to reset message schedule");
   }
 });
 
@@ -1971,6 +2092,15 @@ app.post("/events/:eventId/voice/call-pending", async (req: Request, res: Respon
     if (!event || event.user_id !== dataOwner) {
       return res.status(404).send("Event not found");
     }
+    // "Send and go" couples don't place calls manually — the scheduler runs
+    // their call rounds at the times they picked (same gate as /sendMessage).
+    const messagingPlan = await db.getMessagingPlan(dataOwner);
+    if (!req.auth.isAdmin && messagingPlan === "scheduled") {
+      return res.status(403).json({
+        error: "Your call rounds run automatically on the schedule you set.",
+        messagingPlan,
+      });
+    }
     if (!isVoiceConfigured()) {
       return res.status(503).send(
         "Voice calling is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_CALLER_ID and PUBLIC_BASE_URL.",
@@ -1984,6 +2114,88 @@ app.post("/events/:eventId/voice/call-pending", async (req: Request, res: Respon
     return res.status(200).json(result);
   } catch (error) {
     return handleError(res, error, "Failed to place voice RSVP calls", req.auth.userID);
+  }
+});
+
+// ==== Scheduled message rounds ("send and go" plan) ====
+
+app.get("/events/:eventId/messageSchedule", async (req: Request, res: Response) => {
+  try {
+    const event = await getOwnedEvent(req.auth.userID, parseInt(req.params.eventId));
+    if (!event) return res.status(404).send("Event not found");
+    const rounds = await db.getScheduledRounds(event.id!);
+    res.status(200).json({ rounds });
+  } catch (error) {
+    return handleError(res, error, "Failed to load message schedule", req.auth.userID);
+  }
+});
+
+// Upserts round times: body { rounds: [{ roundType, roundNumber, scheduledAt }] }.
+// A round with scheduledAt=null is removed (skipped). Rounds already claimed or
+// sent by the scheduler are immutable; new times must be in the future.
+app.post("/events/:eventId/messageSchedule", async (req: Request, res: Response) => {
+  try {
+    const event = await getOwnedEvent(req.auth.userID, parseInt(req.params.eventId));
+    if (!event) return res.status(404).send("Event not found");
+
+    const rounds = req.body?.rounds;
+    if (!Array.isArray(rounds) || rounds.length === 0) {
+      return res.status(400).send("rounds must be a non-empty array");
+    }
+
+    // Validate everything before writing anything, so a bad entry doesn't
+    // leave a half-saved schedule.
+    for (const r of rounds) {
+      const limit = SCHEDULED_ROUND_LIMITS[r?.roundType as ScheduledRoundType];
+      if (!limit) return res.status(400).send(`Invalid roundType: ${r?.roundType}`);
+      const num = Number(r.roundNumber ?? 1);
+      if (!Number.isInteger(num) || num < 1 || num > limit) {
+        return res.status(400).send(`Invalid roundNumber for ${r.roundType}: ${r.roundNumber}`);
+      }
+      if (r.scheduledAt !== null) {
+        const when = new Date(r.scheduledAt);
+        if (isNaN(when.getTime())) return res.status(400).send(`Invalid scheduledAt for ${r.roundType} ${num}`);
+        if (when.getTime() <= Date.now()) {
+          return res.status(400).send(`Scheduled time for ${r.roundType} ${num} must be in the future`);
+        }
+      }
+    }
+
+    // Scheduling the invitation round requires complete invitation content —
+    // same gate as a manual invitation send.
+    if (rounds.some((r) => r.roundType === "rsvp" && r.scheduledAt !== null)) {
+      const missingFields = getMissingInvitationFields(await withInheritedCoupleNames(event));
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          error: `Invitation details are incomplete — missing: ${missingFields.join(", ")}`,
+          missingFields,
+        });
+      }
+    }
+
+    const rejected: string[] = [];
+    for (const r of rounds) {
+      const num = Number(r.roundNumber ?? 1);
+      if (r.scheduledAt === null) {
+        await db.deleteScheduledRound(event.id!, r.roundType, num);
+        continue;
+      }
+      const saved = await db.upsertScheduledRound(event.id!, r.roundType, num, new Date(r.scheduledAt));
+      if (!saved) rejected.push(`${r.roundType} ${num}`);
+    }
+
+    if (rejected.length > 0) {
+      return res.status(409).json({
+        error: `These rounds were already sent and can no longer be changed: ${rejected.join(", ")}`,
+        rounds: await db.getScheduledRounds(event.id!),
+      });
+    }
+
+    const dataOwner = await resolveDataOwner(req.auth.userID);
+    await logMessage(dataOwner, `🗓️ Message schedule updated for "${event.ceremony_name}"`);
+    res.status(200).json({ rounds: await db.getScheduledRounds(event.id!) });
+  } catch (error) {
+    return handleError(res, error, "Failed to save message schedule", req.auth.userID);
   }
 });
 
@@ -2064,7 +2276,7 @@ function validateSeatingItemFields(item: any, partial: boolean): string | null {
   }
   // Circles store diameter in both bounding-box columns.
   if (item.width_cm !== undefined && item.height_cm !== undefined &&
-      item.shape === "circle" && item.width_cm !== item.height_cm) {
+    item.shape === "circle" && item.width_cm !== item.height_cm) {
     return "circle items must have width_cm equal to height_cm (the diameter)";
   }
   if (!partial && item.kind === "table" && !isPositiveInt(item.capacity)) {
@@ -2075,6 +2287,9 @@ function validateSeatingItemFields(item: any, partial: boolean): string | null {
 
 /** Standard ownership guard: the event exists and belongs to the caller's data owner. */
 async function getOwnedEvent(userID: string, eventId: number): Promise<Event | null> {
+  // A malformed URL param (e.g. /events/undefined/...) parses to NaN — treat it
+  // as not-found instead of letting the query blow up with a pg type error.
+  if (!Number.isInteger(eventId)) return null;
   const dataOwner = await resolveDataOwner(userID);
   const event = await db.getEventById(eventId);
   if (!event || event.user_id !== dataOwner) return null;
@@ -2363,9 +2578,12 @@ const sendScheduledMessages = async (bypassTimeGuards = false) => {
           if (eventGuests.length > 0) {
             await logMessage(userID, `🔄 Sending ${isEventDay ? "event day" : "day before"} reminder for "${event.ceremony_name}" to ${eventGuests.length} guests`);
             const tasks = eventGuests.map((eg) => () =>
-              sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone }, { template: { name: "event_reminder", event } })
+              sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone, guest_id: eg.guest_id }, { template: { name: "event_reminder", event } })
             );
             await sendMessagesAndLog(tasks, userID, "💍", `${isEventDay ? "event day" : "day before"} reminder`);
+            // Stamped so a later delivery-failed webhook knows this wasn't the
+            // invitation (only invitation failures feed the failed panel).
+            await db.setEventGuestsLastMessageType(event.id!, eventGuests.map((eg) => eg.guest_id), "eventReminder");
           }
         }
       }
@@ -2377,14 +2595,154 @@ const sendScheduledMessages = async (bypassTimeGuards = false) => {
           await logMessage(userID, `🔄 Sending thank-you for "${event.ceremony_name}" to ${eventGuests.length} guests`);
           const templateName = event.thank_you_message?.trim() ? "custom_thank_you_message" : "thank_you_message";
           const tasks = eventGuests.map((eg) => () =>
-            sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone }, { template: { name: templateName, event } })
+            sendWhatsAppMessage({ phone: eg.phone, user_id: eg.user_id || userID, name: eg.name || eg.phone, guest_id: eg.guest_id }, { template: { name: templateName, event } })
           );
           await sendMessagesAndLog(tasks, userID, "🙏", "thank-you messages");
+          await db.setEventGuestsLastMessageType(event.id!, eventGuests.map((eg) => eg.guest_id), "thankYou");
         }
       }
     }
   } catch (error) {
     logError(undefined, "Error sending scheduled messages:", error);
+  }
+};
+
+// ==================== Scheduled Rounds ("send and go" plan) ====================
+
+const SCHEDULED_ROUND_LABELS: Record<ScheduledRoundType, string> = {
+  rsvp: "scheduled RSVP invitation",
+  rsvpReminder: "scheduled RSVP reminder",
+  call: "scheduled RSVP call round",
+};
+
+// Grace window between a scheduled invitation send and its failed-numbers
+// report email, so async delivery-failed webhooks have time to arrive.
+const FAILURE_REPORT_DELAY_MS = Number(process.env.SCHEDULED_FAILURE_REPORT_DELAY_MS ?? 3 * 60 * 1000);
+
+/**
+ * Executes due scheduled rounds for "send and go" couples: the RSVP
+ * invitation, up to 3 pending-guest reminders, and up to 2 voice-call rounds,
+ * each at the date/time the couple picked. Rounds are claimed atomically
+ * (pending → processing) so overlapping ticks can't double-send.
+ * bypassTime/eventId are test-only (see /test/run-scheduled-rounds).
+ */
+const processScheduledRounds = async (opts: { bypassTime?: boolean; eventId?: number } = {}) => {
+  try {
+    const rounds = await db.claimDueScheduledRounds(opts.bypassTime ?? false, opts.eventId);
+    for (const round of rounds) {
+      const label = `${SCHEDULED_ROUND_LABELS[round.round_type]} ${round.round_number}`;
+      try {
+        const event = await db.getEventById(round.event_id);
+        if (!event) {
+          await db.updateScheduledRoundStatus(round.id!, "skipped");
+          continue;
+        }
+        const ownerID = event.user_id;
+
+        // Same gate as /sendMessage, plus the plan itself: if the admin moved
+        // the couple back to manual, their leftover rounds must not fire.
+        const isAdminOwner = ownerID === process.env.ADMIN_USER_ID;
+        const permission = await db.getMessagingPermissionStatus(ownerID);
+        const plan = await db.getMessagingPlan(ownerID);
+        if (!isAdminOwner && (permission !== "approved" || plan !== "scheduled")) {
+          await db.updateScheduledRoundStatus(round.id!, "skipped");
+          await logMessage(ownerID, `⏭️ Skipped ${label} for "${event.ceremony_name}" — messaging permission or scheduled plan not active`);
+          continue;
+        }
+
+        if (round.round_type === "call") {
+          if (!isVoiceConfigured()) {
+            await db.updateScheduledRoundStatus(round.id!, "skipped");
+            await logMessage(ownerID, `⏭️ Skipped ${label} for "${event.ceremony_name}" — voice calling is not configured`);
+            continue;
+          }
+          const result = await placeRsvpCalls(round.event_id);
+          await db.updateScheduledRoundStatus(round.id!, "sent");
+          await logMessage(ownerID, `📞 ${label} for "${event.ceremony_name}": queued ${result.queued}, failed ${result.failed}, skipped ${result.skippedNoPhone}`);
+          continue;
+        }
+
+        const eventForSend = await withInheritedCoupleNames(event);
+
+        // Same invitation-completeness gate as /sendMessage — a round scheduled
+        // before the details were completed must not send a half-empty invitation.
+        if (round.round_type === "rsvp") {
+          const missingFields = getMissingInvitationFields(eventForSend);
+          if (missingFields.length > 0) {
+            await db.updateScheduledRoundStatus(round.id!, "skipped");
+            await logMessage(ownerID, `⏭️ Skipped ${label} for "${event.ceremony_name}" — invitation details incomplete (missing: ${missingFields.join(", ")})`);
+            continue;
+          }
+        }
+
+        const rsvpFilter = round.round_type === "rsvpReminder" ? "pending" as const : undefined;
+        const eventGuests = limitGuests((await db.getEventGuests(round.event_id, rsvpFilter)).filter(hasPhone));
+        if (eventGuests.length === 0) {
+          await db.updateScheduledRoundStatus(round.id!, "sent");
+          await logMessage(ownerID, `🗓️ ${label} for "${event.ceremony_name}" — no guests to send to`);
+          continue;
+        }
+
+        await logMessage(ownerID, `🗓️ Sending ${label} for "${event.ceremony_name}" to ${eventGuests.length} guests`);
+        const tasks = buildMessageTasks(eventGuests, round.round_type, "", eventForSend, ownerID);
+        const outcome = await sendMessagesAndLog(tasks, ownerID, "🗓️", label);
+        // Only the invitation round feeds the failed-guests panel/email —
+        // reminder-round failures are mostly transient and stay in the log.
+        if (round.round_type === "rsvp") {
+          await db.recordGuestSendResults(round.event_id, outcome.results);
+        }
+        await db.setEventGuestsLastMessageType(round.event_id, eventGuests.map((eg) => eg.guest_id), round.round_type);
+        await db.updateEventGuestLastRsvpSentAt(round.event_id, eventGuests.map((eg) => eg.guest_id));
+        await db.updateScheduledRoundStatus(round.id!, "sent");
+      } catch (error) {
+        logError(undefined, `Error executing ${label} (round ${round.id}):`, error);
+        await db.updateScheduledRoundStatus(round.id!, "failed").catch(() => { });
+      }
+    }
+
+    await sendPendingFailureReports(opts.bypassTime ?? false, opts.eventId);
+  } catch (error) {
+    logError(undefined, "Error processing scheduled rounds:", error);
+  }
+};
+
+/**
+ * Emails the couple about guests whose invitation wasn't delivered, so they
+ * can fix the numbers and resend to just those guests. Keyed off the guests
+ * themselves (not scheduled rounds): failures from scheduled rounds, manual
+ * sends, targeted resends, and late-arriving webhooks all get reported, each
+ * failure exactly once, after a grace window that lets async webhook
+ * failures accumulate into a single email.
+ */
+const sendPendingFailureReports = async (bypassDelay = false, eventId?: number) => {
+  const dueEvents = await db.getEventsWithUnreportedSendFailures(bypassDelay ? 0 : FAILURE_REPORT_DELAY_MS, eventId);
+  for (const due of dueEvents) {
+    try {
+      // Mark first: a report that fails to send shouldn't retry forever on
+      // every tick (the failures also live in the activity log and the app).
+      await db.markEventSendFailuresReported(due.event_id);
+
+      const failures = (await db.getEventGuests(due.event_id)).filter((eg) => eg.last_send_error);
+      if (failures.length === 0) continue;
+
+      const owner = await db.getUserByID(due.user_id);
+      if (!owner) continue;
+
+      await sendDeliveryFailureReportEmail({
+        userID: owner.userID,
+        name: owner.name,
+        email: owner.email,
+        eventName: due.ceremony_name,
+        failures: failures.map((eg) => ({
+          guestName: eg.name || String(eg.guest_id),
+          phone: eg.phone || "",
+          error: eg.last_send_error!,
+        })),
+      });
+      await logMessage(due.user_id, `📧 Emailed delivery-failure report for "${due.ceremony_name}" — ${failures.length} guests need a number check`);
+    } catch (error) {
+      logError(due.user_id, "Failed to send delivery-failure report:", error);
+    }
   }
 };
 
@@ -2462,6 +2820,7 @@ const runAccountRetentionCheck = async () => {
 
 setInterval(() => {
   sendScheduledMessages();
+  processScheduledRounds();
   const now = new Date();
   if (now.getHours() === 0 && now.getMinutes() === 0) {
     cleanupOldLogs();
@@ -2478,6 +2837,7 @@ async function startServer() {
     app.listen(PORT, () => {
       log(undefined, `Server listening on port ${PORT}`);
       sendScheduledMessages();
+      processScheduledRounds();
       runAccountRetentionCheck();
     });
   } catch (error) {

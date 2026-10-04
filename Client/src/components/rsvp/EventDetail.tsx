@@ -7,7 +7,10 @@ import { useConfirm } from "../../hooks/useConfirm";
 import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Download, Edit2, Filter, MessageSquare, PhoneCall, Trash2, UserPlus, X } from "lucide-react";
 import GuestList from "./GuestList";
 import MessageGroupsModal from "./MessageGroupsModal";
+import ScheduledMessagingModal from "./ScheduledMessagingModal";
+import UndeliveredGuestsBanner from "./UndeliveredGuestsBanner";
 import CallPendingModal from "./CallPendingModal";
+import { useAuth } from "../../hooks/useAuth";
 import EventEditModal from "./EventEditModal";
 import { getNumberOfGuests, getNumberOfGuestsDeclined, getNumberOfGuestsRSVP, getRsvpCounts, getUniqueValues, handleExport } from "./logic";
 import "./css/ControlPanel.css";
@@ -32,6 +35,7 @@ const EventDetail: React.FC<EventDetailProps> = ({
   onEventUpdated,
 }) => {
   const { eventGuestsByEventId, updateEventGuests } = useAppData();
+  const { user, isAdmin } = useAuth();
   const { confirm, ConfirmDialog } = useConfirm();
   const [event, setEvent] = useState<Event>(initialEvent);
   const [eventGuests, setEventGuests] = useState<EventGuest[]>(
@@ -42,6 +46,9 @@ const EventDetail: React.FC<EventDetailProps> = ({
     setEventGuests(eventGuestsByEventId[event.id] ?? []);
   }, [eventGuestsByEventId, event.id]);
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
+  // Admin/QA: flip between the scheduling modal (default for "send and go"
+  // users) and the manual send modal.
+  const [adminManualView, setAdminManualView] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddFromListOpen, setIsAddFromListOpen] = useState(false);
   const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set());
@@ -185,6 +192,17 @@ const EventDetail: React.FC<EventDetailProps> = ({
         </Box>
       </Box>
 
+      <UndeliveredGuestsBanner
+        eventId={event.id}
+        eventGuests={eventGuests}
+        refreshSignal={isSendModalOpen}
+        onGuestsRefreshed={(guests) => {
+          setEventGuests(guests);
+          updateEventGuests(event.id, guests);
+        }}
+        onOpenSendModal={() => setIsSendModalOpen(true)}
+      />
+
       {/* ControlPanel-style cards — same layout as wedding tab */}
       <Box direction="horizontal" gap="20px" padding="20px">
         <div className="control-panel">
@@ -240,14 +258,17 @@ const EventDetail: React.FC<EventDetailProps> = ({
                   <MessageSquare />
                   <span style={{ marginRight: "8px" }}>שליחת הודעות</span>
                 </Button>
-                <Button
-                  onClick={() => setIsCallPendingModalOpen(true)}
-                  priority="secondary"
-                  disabled={getRsvpCounts(eventGuests).pending === 0}
-                >
-                  <PhoneCall />
-                  <span style={{ marginRight: "8px" }}>שיחות לממתינים</span>
-                </Button>
+                {/* "Send and go" couples: call rounds run automatically on their schedule */}
+                {!(user?.messagingPlan === "scheduled" && !isAdmin) && (
+                  <Button
+                    onClick={() => setIsCallPendingModalOpen(true)}
+                    priority="secondary"
+                    disabled={getRsvpCounts(eventGuests).pending === 0}
+                  >
+                    <PhoneCall />
+                    <span style={{ marginRight: "8px" }}>שיחות לממתינים</span>
+                  </Button>
+                )}
                 <Button onClick={() => setIsEditModalOpen(true)} priority="secondary">
                   <Edit2 />
                   <span style={{ marginRight: "8px" }}>עריכת פרטים</span>
@@ -286,21 +307,52 @@ const EventDetail: React.FC<EventDetailProps> = ({
         </Box>
       )}
 
-      {/* Send messages modal */}
+      {/* Send messages modal — "send and go" couples schedule rounds instead of
+          sending manually; admins can flip between the two views. */}
       <Modal isOpen={isSendModalOpen}>
-        <MessageGroupsModal
-          setIsMessageGroupsModalOpen={(open) => {
-            setIsSendModalOpen(open);
-            if (!open) syncGuests();
-          }}
-          eventId={event.id}
-          eventGuests={eventGuests}
-          event={{
-            ...event,
-            bride_name: event.bride_name || primaryEvent?.bride_name,
-            groom_name: event.groom_name || primaryEvent?.groom_name,
-          }}
-        />
+        {user?.messagingPlan === "scheduled" && !adminManualView ? (
+          <ScheduledMessagingModal
+            onClose={() => {
+              setIsSendModalOpen(false);
+              syncGuests();
+            }}
+            eventId={event.id}
+            event={{
+              ...event,
+              bride_name: event.bride_name || primaryEvent?.bride_name,
+              groom_name: event.groom_name || primaryEvent?.groom_name,
+            }}
+            eventGuests={eventGuests}
+            onGuestsUpdated={(guests) => {
+              setEventGuests(guests);
+              updateEventGuests(event.id, guests);
+            }}
+            onEditDetails={() => {
+              setIsSendModalOpen(false);
+              setIsEditModalOpen(true);
+            }}
+            onSwitchToManual={isAdmin ? () => setAdminManualView(true) : undefined}
+          />
+        ) : (
+          <MessageGroupsModal
+            setIsMessageGroupsModalOpen={(open) => {
+              setIsSendModalOpen(open);
+              if (!open) syncGuests();
+            }}
+            eventId={event.id}
+            eventGuests={eventGuests}
+            event={{
+              ...event,
+              bride_name: event.bride_name || primaryEvent?.bride_name,
+              groom_name: event.groom_name || primaryEvent?.groom_name,
+            }}
+            onSwitchToScheduled={
+              isAdmin && user?.messagingPlan === "scheduled"
+                ? () => setAdminManualView(false)
+                : undefined
+            }
+          />
+        )}
       </Modal>
 
       {/* Call pending guests — same guest-picker flow as the send-messages modal */}

@@ -57,6 +57,12 @@ export interface EventGuest {
   last_call_status?: string | null;
   last_call_answered_by?: string | null;
   last_call_at?: string | null;
+  // Last WhatsApp send outcome: null after a successful send, the error
+  // description after a failed send/delivery. Drives the resend-to-failed flow.
+  last_send_error?: string | null;
+  last_send_error_at?: string | null;
+  /** messageType of the most recent send attempt (server-internal marker). */
+  last_message_type?: string | null;
   // Joined from guests table:
   name?: string;
   phone?: string | null;
@@ -81,10 +87,33 @@ export type SetGuestsList = (guests: Guest[] | ((prev: Guest[]) => Guest[])) => 
 
 // ==================== Auth / User ====================
 
+/**
+ * "manual" — the couple sends every message themselves (default).
+ * "scheduled" — "send and go": all content is filled up front, each round gets
+ * a date/time, and the server sends automatically. Assigned by the admin.
+ */
+export type MessagingPlan = "manual" | "scheduled";
+
 export interface User {
   userID: string;
   name: string;
   email: string;
+  messagingPlan?: MessagingPlan;
+}
+
+// ==================== Scheduled message rounds ("send and go") ====================
+
+export type ScheduledRoundType = "rsvp" | "rsvpReminder" | "call";
+
+export interface ScheduledRound {
+  id?: number;
+  event_id: number;
+  round_type: ScheduledRoundType;
+  round_number: number;
+  scheduled_at: string;
+  status: "pending" | "processing" | "sent" | "failed" | "skipped";
+  sent_at?: string | null;
+  failure_report_sent_at?: string | null;
 }
 
 export interface PartnerInfo {

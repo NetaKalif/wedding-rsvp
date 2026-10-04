@@ -6,6 +6,41 @@ export interface User {
   userID: string;
 }
 
+/**
+ * How a couple's messages go out:
+ * - "manual"    — they open the send modal and fire each message themselves (default).
+ * - "scheduled" — "send and go": they fill in all message content up front, pick a
+ *   date/time per round (invitation, 3 reminders, 2 call rounds), and the server
+ *   scheduler sends everything; manual sends are blocked except resending to
+ *   guests whose delivery failed.
+ */
+export type MessagingPlan = "manual" | "scheduled";
+
+export type ScheduledRoundType = "rsvp" | "rsvpReminder" | "call";
+
+/** The fixed set of schedulable rounds per event: one invitation, three reminders, two call rounds. */
+export const SCHEDULED_ROUND_LIMITS: Record<ScheduledRoundType, number> = {
+  rsvp: 1,
+  rsvpReminder: 3,
+  call: 2,
+};
+
+/**
+ * One scheduled send round for an event ("send and go" plan). A round is
+ * editable while status is "pending"; once the scheduler claims it, it ends
+ * up sent/failed/skipped and is immutable.
+ */
+export interface ScheduledRound {
+  id?: number;
+  event_id: number;
+  round_type: ScheduledRoundType;
+  round_number: number;
+  scheduled_at: Date;
+  status: "pending" | "processing" | "sent" | "failed" | "skipped";
+  sent_at?: Date | null;
+  failure_report_sent_at?: Date | null;
+}
+
 /** Full admin-view row: every user, any status, with partner links and deletion-timeline status. */
 export interface AdminUserRow {
   userID: string;
@@ -20,6 +55,7 @@ export interface AdminUserRow {
   cancelledAt: Date | null;
   messagingPermissionStatus: "denied" | "pending" | "approved";
   hasPendingMessageRequest: boolean;
+  messagingPlan: MessagingPlan;
 }
 
 /** Pure guest data — no RSVP, no event coupling. */
@@ -85,6 +121,17 @@ export interface EventGuest {
   last_call_status?: string | null;
   last_call_answered_by?: string | null;
   last_call_at?: Date | null;
+  // Last WhatsApp send outcome for this guest: null after a successful send,
+  // the (Hebrew) error description after a failed send or a delivery-failed
+  // webhook. Drives the "resend to failed guests" flow.
+  last_send_error?: string | null;
+  last_send_error_at?: Date | null;
+  /**
+   * messageType of the most recent send attempt. Internal marker: the
+   * delivery-failed webhook uses it to flag only invitation failures
+   * (later-round failures stay in the activity log).
+   */
+  last_message_type?: string | null;
   // Joined from guests at query time (not stored here):
   name?: string;
   phone?: string | null;

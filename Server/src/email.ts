@@ -105,3 +105,41 @@ export const sendMessagingPermissionApprovedEmail = async ({
     text: `שלום ${name},\n\nבקשתך לשליחת הודעות לאורחים אושרה. מעכשיו אפשר לשלוח הודעות לאורחים דרך המערכת.\n\nבברכה,\nצוות ה-RSVP`,
   });
 };
+
+/**
+ * After a scheduled RSVP-invitation round, lists the guests whose WhatsApp
+ * message could not be delivered so the couple can fix the numbers and resend
+ * (via the "resend to failed guests" button in the app).
+ */
+export const sendDeliveryFailureReportEmail = async ({
+  userID,
+  name,
+  email,
+  eventName,
+  failures,
+}: {
+  userID: string;
+  name: string;
+  email: string;
+  eventName: string;
+  failures: Array<{ guestName: string; phone: string; error: string }>;
+}): Promise<void> => {
+  if (!transporter) {
+    logWarn(
+      userID,
+      `[email] EMAIL_USER/EMAIL_APP_PASSWORD not set — skipping delivery-failure report email for ${name} <${email}>`,
+    );
+    return;
+  }
+
+  const guestLines = failures
+    .map((f) => `• ${f.guestName} (${f.phone}) — ${f.error}`)
+    .join("\n");
+
+  await transporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `הזמנות שלא נמסרו ל-${failures.length} אורחים — כדאי לבדוק את המספרים`,
+    text: `שלום ${name},\n\nהזמנת אישורי ההגעה לאירוע "${eventName}" נשלחה, אבל לאורחים הבאים ההודעה לא נמסרה:\n\n${guestLines}\n\nמומלץ לבדוק שהמספרים נכונים ולתקן אותם באפליקציה. אחרי התיקון אפשר לשלוח את ההזמנה מחדש רק לאורחים האלה דרך כפתור "שליחה חוזרת לאורחים שנכשלו" במסך אישורי ההגעה.\n\nבברכה,\nצוות ה-RSVP`,
+  });
+};

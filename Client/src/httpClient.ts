@@ -3,6 +3,9 @@ import {
   User,
   Event,
   EventGuest,
+  MessagingPlan,
+  ScheduledRound,
+  ScheduledRoundType,
   ClientLog,
   Task,
   PartnerInfo,
@@ -228,6 +231,10 @@ interface SendMessageOptions {
   messageType?: string;
   guestIds?: number[];
   customText?: string;
+  /** Resend the invitation only to guests whose delivery failed (allowed on the scheduled plan). */
+  failedOnly?: boolean;
+  /** Send the invitation only to guests who never got any message — added after the invitation round (allowed on the scheduled plan). */
+  unsentOnly?: boolean;
 }
 
 const sendMessage = (options: SendMessageOptions) =>
@@ -269,6 +276,32 @@ const requestMessagingPermission = () =>
 const setMessagingPermission = (userID: string, approved: boolean) =>
   post<void>("/admin/setMessagingPermission", { userID, approved });
 
+const setMessagingPlan = (userID: string, plan: MessagingPlan) =>
+  post<void>("/admin/setMessagingPlan", { userID, plan });
+
+// ==================== Scheduled Message Rounds ("send and go") ====================
+
+export interface ScheduledRoundInput {
+  roundType: ScheduledRoundType;
+  roundNumber: number;
+  /** ISO datetime, or null to remove a still-pending round. */
+  scheduledAt: string | null;
+}
+
+const getMessageSchedule = async (eventId: number): Promise<ScheduledRound[]> => {
+  const { rounds } = await get<{ rounds: ScheduledRound[] }>(`/events/${eventId}/messageSchedule`);
+  return rounds;
+};
+
+const saveMessageSchedule = async (eventId: number, rounds: ScheduledRoundInput[]): Promise<ScheduledRound[]> => {
+  const res = await post<{ rounds: ScheduledRound[] }>(`/events/${eventId}/messageSchedule`, { rounds });
+  return res.rounds;
+};
+
+/** Admin/QA only: wipes the event's rounds (and optionally per-guest send markers) for a fresh re-test. */
+const resetMessageSchedule = (eventId: number, clearGuestState: boolean) =>
+  post<{ deletedRounds: number }>("/admin/resetMessageSchedule", { eventId, clearGuestState });
+
 // ==================== Logs Methods ====================
 
 const getLogs = () => get<ClientLog[]>("/logs");
@@ -288,6 +321,7 @@ export interface AdminUserRow {
   cancelledAt: string | null;
   messagingPermissionStatus: "denied" | "pending" | "approved";
   hasPendingMessageRequest: boolean;
+  messagingPlan: MessagingPlan;
 }
 
 const getAllUsersDetailed = () => post<AdminUserRow[]>("/admin/getAllUsersDetailed");
@@ -486,6 +520,8 @@ export const httpRequests = {
   sendMessage, getSendProgress,
   // Messaging Permissions
   getMessagingPermissionStatus, requestMessagingPermission, setMessagingPermission,
+  // Messaging plan + scheduled rounds
+  setMessagingPlan, getMessageSchedule, saveMessageSchedule, resetMessageSchedule,
   // Logs
   getLogs,
   // Admin

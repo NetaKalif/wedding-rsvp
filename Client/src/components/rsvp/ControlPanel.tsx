@@ -43,8 +43,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   userID,
   eventId,
 }) => {
-  const { weddingInfo } = useAuth();
+  const { weddingInfo, user, isAdmin } = useAuth();
   const { confirm, ConfirmDialog } = useConfirm();
+  // "Send and go" couples: call rounds run automatically on their schedule,
+  // so the manual call-pending button is hidden.
+  const isSendAndGo = user?.messagingPlan === "scheduled" && !isAdmin;
   const [noWeddingWarning, setNoWeddingWarning] = React.useState(false);
   const [isCallPendingModalOpen, setIsCallPendingModalOpen] = React.useState(false);
   const rsvpCounts = getRsvpCounts(eventGuests);
@@ -180,15 +183,17 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               <MessageSquare />
               <span style={{ marginRight: "8px" }}>שליחת הודעות</span>
             </Button>
-            <Button
-              onClick={() => setIsCallPendingModalOpen(true)}
-              priority="secondary"
-              disabled={!eventId || rsvpCounts.pending === 0}
-              data-tour="call-pending-btn"
-            >
-              <PhoneCall />
-              <span style={{ marginRight: "8px" }}>שיחות לממתינים</span>
-            </Button>
+            {!isSendAndGo && (
+              <Button
+                onClick={() => setIsCallPendingModalOpen(true)}
+                priority="secondary"
+                disabled={!eventId || rsvpCounts.pending === 0}
+                data-tour="call-pending-btn"
+              >
+                <PhoneCall />
+                <span style={{ marginRight: "8px" }}>שיחות לממתינים</span>
+              </Button>
+            )}
           </div>
         </Card.Content>
       </Card>

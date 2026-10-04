@@ -22,6 +22,9 @@ import {
   SeatingItem,
   SeatingAssignment,
   CustomTablePreset,
+  MessagingPlan,
+  ScheduledRound,
+  ScheduledRoundType,
 } from "./types";
 import defaultTasks from "./defaultTasks.json";
 import { getDateStrings } from "./dateUtils";
@@ -119,6 +122,13 @@ class Database {
     await this.runQuery(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS messaging_permission_status TEXT NOT NULL DEFAULT 'denied'
         CHECK (messaging_permission_status IN ('denied', 'pending', 'approved'));`, []);
+
+    // Messaging plan (admin-assigned): 'manual' = user sends every message
+    // themselves; 'scheduled' = "send and go" — messages go out via
+    // scheduled_rounds and manual sends are blocked (except failed-resends).
+    await this.runQuery(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS messaging_plan TEXT NOT NULL DEFAULT 'manual'
+        CHECK (messaging_plan IN ('manual', 'scheduled'));`, []);
 
     // Track messaging permission requests
     await this.runQuery(`
@@ -270,6 +280,50 @@ class Database {
       ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_call_answered_by TEXT DEFAULT NULL;`, []);
     await this.runQuery(`
       ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_call_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;`, []);
+
+    // Last WhatsApp send outcome per guest: NULL after a successful send, the
+    // error description after a synchronous send failure or an async
+    // delivery-failed webhook. Drives the failed-numbers report email and the
+    // "resend only to failed guests" flow.
+    await this.runQuery(`
+      ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_send_error TEXT DEFAULT NULL;`, []);
+    await this.runQuery(`
+      ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_send_error_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;`, []);
+    // When this guest's current failure was included in a report email to the
+    // couple (NULL = not yet reported). Guest-based (not round-based) so
+    // failures from manual sends and late-arriving webhooks get emailed too.
+    await this.runQuery(`
+      ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_send_error_reported_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;`, []);
+    // The messageType of the most recent send attempt to this guest. The
+    // delivery-failed webhook uses it to flag only *invitation* failures
+    // (= numbers to fix); later-round failures stay in the activity log.
+    await this.runQuery(`
+      ALTER TABLE event_guests ADD COLUMN IF NOT EXISTS last_message_type TEXT DEFAULT NULL;`, []);
+
+    // Scheduled send rounds for "send and go" (messaging_plan='scheduled')
+    // couples: one invitation, up to 3 pending-reminders, up to 2 call rounds
+    // per event, each with its own date/time. Editable while 'pending';
+    // claimed atomically ('processing') by the scheduler, then finalized.
+    await this.runQuery(`
+      CREATE TABLE IF NOT EXISTS scheduled_rounds (
+        id SERIAL PRIMARY KEY,
+        event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        round_type TEXT NOT NULL CHECK (round_type IN ('rsvp', 'rsvpReminder', 'call')),
+        round_number INTEGER NOT NULL DEFAULT 1,
+        scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending', 'processing', 'sent', 'failed', 'skipped')),
+        sent_at TIMESTAMP WITH TIME ZONE,
+        failure_report_sent_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(event_id, round_type, round_number)
+      );`, []);
+
+    // A round stuck in 'processing' can only mean the process died mid-send.
+    // Mark it failed at boot (never back to pending — part of the batch may
+    // already have gone out, and a retry would double-send).
+    await this.runQuery(`
+      UPDATE scheduled_rounds SET status='failed' WHERE status='processing';`, []);
 
     // Optional free-text line included in the event reminder message
     await this.runQuery(`
@@ -529,6 +583,10 @@ class Database {
   }
 
   async getEventById(eventId: number): Promise<Event | null> {
+    // Routes pass parseInt(req.params.eventId) — a malformed URL param (e.g.
+    // /events/undefined/...) arrives as NaN; answer "no such event" instead of
+    // crashing the query with a pg integer-syntax error.
+    if (!Number.isInteger(eventId)) return null;
     const rows = await this.runQuery(`SELECT * FROM events WHERE id=$1;`, [eventId]);
     return rows[0] ?? null;
   }
@@ -624,6 +682,7 @@ class Database {
     return this.runQuery(
       `SELECT eg.id,eg.event_id,eg.guest_id,eg.rsvp_status,eg.last_rsvp_sent_at,
               eg.last_call_status,eg.last_call_answered_by,eg.last_call_at,
+              eg.last_send_error,eg.last_send_error_at,eg.last_message_type,
               g.name,g.phone,g.whose,g.circle,g.number_of_guests,g.user_id
        FROM event_guests eg
        JOIN guests g ON g.id=eg.guest_id
@@ -681,9 +740,10 @@ class Database {
     userID: string;
     guestName: string;
     lastRsvpSentAt: Date | null;
+    lastMessageType: string | null;
   }>> {
     const rows = await this.runQuery(
-      `SELECT eg.event_id, eg.guest_id, eg.last_rsvp_sent_at,
+      `SELECT eg.event_id, eg.guest_id, eg.last_rsvp_sent_at, eg.last_message_type,
               g.user_id, g.name as guest_name,
               e.is_primary
        FROM event_guests eg
@@ -700,6 +760,7 @@ class Database {
       userID: row.user_id,
       guestName: row.guest_name,
       lastRsvpSentAt: row.last_rsvp_sent_at ? new Date(row.last_rsvp_sent_at) : null,
+      lastMessageType: row.last_message_type ?? null,
     }));
   }
 
@@ -979,6 +1040,7 @@ class Database {
              e.deletion_warning_sent_at as "warningSentAt",
              e.deletion_cancelled_at as "cancelledAt",
              u.messaging_permission_status as "messagingPermissionStatus",
+             u.messaging_plan as "messagingPlan",
              EXISTS(
                SELECT 1 FROM message_permission_requests mpr
                WHERE mpr.user_id = u."userID" AND mpr.status = 'pending'
@@ -1427,6 +1489,186 @@ class Database {
     `;
     const result = await this.runQuery(query, [userID]);
     return result.length > 0 ? result[0] : null;
+  }
+
+  // ==================== Messaging Plan / Scheduled Round Methods ====================
+
+  async getMessagingPlan(userID: string): Promise<MessagingPlan> {
+    const result = await this.runQuery(
+      `SELECT messaging_plan FROM users WHERE "userID" = $1;`,
+      [userID],
+    );
+    return result.length > 0 ? result[0].messaging_plan : "manual";
+  }
+
+  async setMessagingPlan(userID: string, plan: MessagingPlan): Promise<void> {
+    await this.runQuery(
+      `UPDATE users SET messaging_plan = $1 WHERE "userID" = $2;`,
+      [plan, userID],
+    );
+  }
+
+  async getScheduledRounds(eventId: number): Promise<ScheduledRound[]> {
+    return this.runQuery(
+      `SELECT * FROM scheduled_rounds WHERE event_id = $1
+       ORDER BY CASE round_type WHEN 'rsvp' THEN 1 WHEN 'rsvpReminder' THEN 2 ELSE 3 END, round_number;`,
+      [eventId],
+    );
+  }
+
+  /**
+   * Creates or reschedules a round. Only touches rounds still 'pending' —
+   * returns null if the round exists but was already claimed/sent, so the
+   * caller can reject the edit.
+   */
+  async upsertScheduledRound(
+    eventId: number,
+    roundType: ScheduledRoundType,
+    roundNumber: number,
+    scheduledAt: Date,
+  ): Promise<ScheduledRound | null> {
+    const rows = await this.runQuery(
+      `INSERT INTO scheduled_rounds (event_id, round_type, round_number, scheduled_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (event_id, round_type, round_number)
+       DO UPDATE SET scheduled_at = EXCLUDED.scheduled_at
+       WHERE scheduled_rounds.status = 'pending'
+       RETURNING *;`,
+      [eventId, roundType, roundNumber, scheduledAt],
+    );
+    return rows[0] ?? null;
+  }
+
+  /** Removes a not-yet-claimed round (a couple deciding to skip e.g. reminder 3). */
+  async deleteScheduledRound(eventId: number, roundType: ScheduledRoundType, roundNumber: number): Promise<boolean> {
+    const rows = await this.runQuery(
+      `DELETE FROM scheduled_rounds
+       WHERE event_id = $1 AND round_type = $2 AND round_number = $3 AND status = 'pending'
+       RETURNING id;`,
+      [eventId, roundType, roundNumber],
+    );
+    return rows.length > 0;
+  }
+
+  /**
+   * Atomically claims due rounds (pending + time reached) by flipping them to
+   * 'processing', so overlapping scheduler ticks can never double-send a
+   * round. bypassTime/eventId are test-only (see /test/run-scheduled-rounds).
+   */
+  async claimDueScheduledRounds(bypassTime = false, eventId?: number): Promise<ScheduledRound[]> {
+    return this.runQuery(
+      `UPDATE scheduled_rounds SET status = 'processing'
+       WHERE status = 'pending'
+         AND ($1 OR scheduled_at <= NOW())
+         AND ($2::int IS NULL OR event_id = $2)
+       RETURNING *;`,
+      [bypassTime, eventId ?? null],
+    );
+  }
+
+  async updateScheduledRoundStatus(
+    roundId: number,
+    status: "sent" | "failed" | "skipped",
+  ): Promise<void> {
+    await this.runQuery(
+      `UPDATE scheduled_rounds SET status = $1, sent_at = CASE WHEN $1 = 'sent' THEN CURRENT_TIMESTAMP ELSE sent_at END
+       WHERE id = $2;`,
+      [status, roundId],
+    );
+  }
+
+  /**
+   * Events that have invitation-delivery failures nobody was emailed about
+   * yet, once the grace window (for async webhook failures to arrive) has
+   * passed. Guest-based, so failures from scheduled rounds, manual sends,
+   * and late webhooks all surface the same way.
+   */
+  async getEventsWithUnreportedSendFailures(
+    delayMs: number,
+    eventId?: number,
+  ): Promise<Array<{ event_id: number; user_id: string; ceremony_name: string }>> {
+    return this.runQuery(
+      `SELECT DISTINCT e.id as event_id, e.user_id, e.ceremony_name
+       FROM event_guests eg
+       JOIN events e ON e.id = eg.event_id
+       WHERE eg.last_send_error IS NOT NULL
+         AND eg.last_send_error_reported_at IS NULL
+         AND eg.last_send_error_at <= NOW() - ($1::bigint * INTERVAL '1 millisecond')
+         AND ($2::int IS NULL OR eg.event_id = $2);`,
+      [delayMs, eventId ?? null],
+    );
+  }
+
+  /** Stamps every currently-failed guest of the event as included in a report email. */
+  async markEventSendFailuresReported(eventId: number): Promise<void> {
+    await this.runQuery(
+      `UPDATE event_guests SET last_send_error_reported_at = CURRENT_TIMESTAMP
+       WHERE event_id = $1 AND last_send_error IS NOT NULL;`,
+      [eventId],
+    );
+  }
+
+  /**
+   * Records per-guest WhatsApp send outcomes: a success clears any stored
+   * error (the number works now), a failure stores the error description.
+   */
+  async recordGuestSendResults(
+    eventId: number,
+    results: Array<{ guestId?: number; success: boolean; error?: string }>,
+  ): Promise<void> {
+    const succeeded = results.filter((r) => r.success && r.guestId != null).map((r) => r.guestId as number);
+    const failed = results.filter((r) => !r.success && r.guestId != null);
+    if (succeeded.length > 0) {
+      await this.runQuery(
+        `UPDATE event_guests SET last_send_error = NULL, last_send_error_at = NULL, last_send_error_reported_at = NULL
+         WHERE event_id = $1 AND guest_id = ANY($2);`,
+        [eventId, succeeded],
+      );
+    }
+    for (const r of failed) {
+      await this.runQuery(
+        `UPDATE event_guests SET last_send_error = $1, last_send_error_at = CURRENT_TIMESTAMP, last_send_error_reported_at = NULL
+         WHERE event_id = $2 AND guest_id = $3;`,
+        [r.error || "Send failed", eventId, r.guestId],
+      );
+    }
+  }
+
+  /** Stamps the type of the message just sent — lets the delivery-failed webhook flag only invitation failures. */
+  async setEventGuestsLastMessageType(eventId: number, guestIds: number[], messageType: string): Promise<void> {
+    if (guestIds.length === 0) return;
+    await this.runQuery(
+      `UPDATE event_guests SET last_message_type = $1 WHERE event_id = $2 AND guest_id = ANY($3);`,
+      [messageType, eventId, guestIds],
+    );
+  }
+
+  /** QA reset: wipes an event's scheduled rounds so the schedule can be re-entered from scratch. */
+  async deleteAllScheduledRounds(eventId: number): Promise<number> {
+    const rows = await this.runQuery(
+      `DELETE FROM scheduled_rounds WHERE event_id = $1 RETURNING id;`,
+      [eventId],
+    );
+    return rows.length;
+  }
+
+  /** QA reset: clears per-guest send markers (errors + last message type) for an event. */
+  async clearEventGuestSendState(eventId: number): Promise<void> {
+    await this.runQuery(
+      `UPDATE event_guests
+       SET last_send_error = NULL, last_send_error_at = NULL, last_send_error_reported_at = NULL, last_message_type = NULL
+       WHERE event_id = $1;`,
+      [eventId],
+    );
+  }
+
+  /** Written by the delivery-status webhook when Meta reports a failed delivery. */
+  async recordGuestDeliveryFailure(eventId: number, guestId: number, error: string): Promise<void> {
+    await this.runQuery(
+      `UPDATE event_guests SET last_send_error = $1, last_send_error_at = CURRENT_TIMESTAMP, last_send_error_reported_at = NULL
+       WHERE event_id = $2 AND guest_id = $3;`,
+      [error, eventId, guestId],
+    );
   }
 
   // ==================== Account Retention (60-day post-wedding deletion) ====================

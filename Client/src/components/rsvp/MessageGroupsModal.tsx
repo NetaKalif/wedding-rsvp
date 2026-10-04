@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   SidePanel,
   Box,
@@ -12,12 +12,16 @@ import {
   TextButton,
   Modal,
   CustomModalLayout,
+  SectionHelper,
 } from "@wix/design-system";
+import { InfoCircleSmall } from "@wix/wix-ui-icons-common";
 import { Event, EventGuest } from "../../types";
 import { httpRequests, DeliveryFailure } from "../../httpClient";
 import { useAuth } from "../../hooks/useAuth";
+import { getMissingInvitationContent } from "./logic";
 import GuestPicker from "./GuestPicker";
 import WhatsAppPreview from "./WhatsAppPreview";
+import TargetedGuestListModal from "./TargetedGuestListModal";
 import "./css/WhatsAppMessage.css";
 
 interface MessageGroupsModalProps {
@@ -25,6 +29,8 @@ interface MessageGroupsModalProps {
   eventId: number;
   eventGuests: EventGuest[];
   event: Event;
+  /** Admin/QA: switches back to the scheduling modal for a "send and go" user. */
+  onSwitchToScheduled?: () => void;
 }
 
 export type MessageType =
@@ -34,11 +40,15 @@ export type MessageType =
   | "eventReminder"
   | "thankYou";
 
+/** Who the RSVP invitation goes to — everyone, late-added guests, or failed deliveries. */
+export type RsvpTarget = "all" | "unsent" | "failed";
+
 const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   setIsMessageGroupsModalOpen,
   eventId,
   eventGuests,
   event,
+  onSwitchToScheduled,
 }) => {
   const { isAdmin } = useAuth();
 
@@ -79,7 +89,30 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     [event.id, event.file_id]
   );
 
+  // Local copy of the guests, refreshed from the server on open — the prop can
+  // be stale (delivery-failure webhooks and scheduled rounds stamp guests
+  // server-side), and the failed/new-guests invitation targets depend on it.
+  const [guests, setGuests] = useState<EventGuest[]>(eventGuests);
+  useEffect(() => setGuests(eventGuests), [eventGuests]);
+  useEffect(() => {
+    let cancelled = false;
+    httpRequests
+      .getEventGuests(eventId)
+      .then((fresh) => {
+        if (!cancelled) setGuests(fresh);
+      })
+      .catch((error) => console.error("Failed to refresh event guests:", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId]);
+
   const [messageType, setMessageType] = useState<MessageType>("rsvp");
+  // Invitation sub-target: everyone (the regular send), guests added after the
+  // invitation went out (unsentOnly), or guests whose delivery failed (failedOnly).
+  const [rsvpTarget, setRsvpTarget] = useState<RsvpTarget>("all");
+  // (i) popup listing the guests behind a targeted sub-option
+  const [infoTarget, setInfoTarget] = useState<Exclude<RsvpTarget, "all"> | null>(null);
   const [customText, setCustomText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [showSendConfirmation, setShowSendConfirmation] = useState(false);
@@ -171,6 +204,27 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
 
   const isPrimaryEvent = event.is_primary;
 
+  const failedGuests = useMemo(() => guests.filter((eg) => eg.last_send_error), [guests]);
+  // Never had any send attempt — added after the invitation went out
+  const unsentGuests = useMemo(
+    () => guests.filter((eg) => eg.phone && !eg.last_message_type && !eg.last_send_error),
+    [guests],
+  );
+  // Before the first send every guest is "unsent" — the regular send covers
+  // them, so the new-guests target only means something after a send happened.
+  const hasAnySend = guests.some((eg) => eg.last_message_type);
+  // An empty category is hidden, not disabled — no dead radio buttons.
+  const showUnsentOption = hasAnySend && unsentGuests.length > 0;
+  const showFailedOption = failedGuests.length > 0;
+  const isTargetedSend = messageType === "rsvp" && rsvpTarget !== "all";
+  const targetedGuests = rsvpTarget === "failed" ? failedGuests : unsentGuests;
+
+  // A refresh can empty the selected target's guest list (e.g. right after
+  // sending to them) — fall back to the regular send rather than a dead end.
+  useEffect(() => {
+    if (isTargetedSend && targetedGuests.length === 0) setRsvpTarget("all");
+  }, [isTargetedSend, targetedGuests.length]);
+
   const handleSend = () => {
     if (messageType === "freeText" && (!customText || customText.trim() === "")) return;
 
@@ -186,12 +240,18 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
     sendResponseReceivedRef.current = false;
     startProgressPolling();
     httpRequests
-      .sendMessage({
-        eventId,
-        messageType,
-        guestIds,
-        customText: messageType === "freeText" ? customText : undefined,
-      })
+      .sendMessage(
+        // Targeted sends are always the invitation — the server resolves the
+        // exact guest set from the failedOnly/unsentOnly flag.
+        isTargetedSend
+          ? { eventId, ...(rsvpTarget === "failed" ? { failedOnly: true } : { unsentOnly: true }) }
+          : {
+              eventId,
+              messageType,
+              guestIds,
+              customText: messageType === "freeText" ? customText : undefined,
+            },
+      )
       .then((result) => {
         sendResponseReceivedRef.current = true;
         setIsListeningForFailures(true);
@@ -200,6 +260,8 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
           fail: result.fail,
           failGuestsList: result.failGuestsList,
         });
+        // Refresh so the failed/new-guests targets reflect this send
+        httpRequests.getEventGuests(eventId).then(setGuests).catch(() => {});
       })
       .catch((err) => {
         console.error(err);
@@ -210,7 +272,7 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
   };
 
   // Guests with no cellphone can't receive WhatsApp messages — exclude from picking/counting/sending.
-  const sendableGuests = eventGuests.filter((g) => !!g.phone);
+  const sendableGuests = guests.filter((g) => !!g.phone);
 
   const selectableGuests = (() => {
     if (messageType === "rsvpReminder") {
@@ -226,23 +288,31 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
 
   // How many messages the send button will actually fire — mirrors the
   // guestIds logic in handleSend.
-  const messagesToSendCount =
-    selectSpecificGuests && selectedGuestIds.size > 0
+  const messagesToSendCount = isTargetedSend
+    ? targetedGuests.length
+    : selectSpecificGuests && selectedGuestIds.size > 0
       ? selectedGuestIds.size
       : targetGuestCount;
 
   const emptyGroupMessage = (() => {
-    if (selectSpecificGuests || targetGuestCount > 0) return null;
+    if (isTargetedSend || selectSpecificGuests || targetGuestCount > 0) return null;
     if (messageType === "rsvpReminder") return "אין אורחים שממתינים לתגובה";
     if (messageType === "eventReminder" || messageType === "thankYou") return "אין אורחים שאישרו הגעה";
     return "אין אורחים לשליחה";
   })();
 
+  // The invitation can't go out with missing content (chiefly the invitation
+  // photo) — the server rejects such sends too; this surfaces it up front.
+  const missingInvitationContent = getMissingInvitationContent(event);
+  const invitationBlocked = messageType === "rsvp" && missingInvitationContent.length > 0;
+
   const isSendDisabled =
     isSending ||
+    invitationBlocked ||
+    (isTargetedSend && targetedGuests.length === 0) ||
     (messageType === "freeText" && (!customText || customText.trim() === "")) ||
-    (selectSpecificGuests && selectedGuestIds.size === 0) ||
-    (!selectSpecificGuests && targetGuestCount === 0);
+    (!isTargetedSend && selectSpecificGuests && selectedGuestIds.size === 0) ||
+    (!isTargetedSend && !selectSpecificGuests && targetGuestCount === 0);
 
   const canSendMessages = isAdmin || messagingPermission?.status === "approved";
 
@@ -372,12 +442,20 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
           renderResponseMessage()
         ) : (
           <Box direction="vertical" gap={3}>
+            {isAdmin && onSwitchToScheduled && (
+              <Box flexShrink={0}>
+                <TextButton size="small" onClick={onSwitchToScheduled}>
+                  תצוגת אדמין: מעבר לתזמון (שלח וגמרנו)
+                </TextButton>
+              </Box>
+            )}
             <Box direction="vertical" gap={2} flexShrink={0}>
               <div data-tour="message-types">
               <RadioGroup
               value={messageType}
               onChange={(value) => {
                 setMessageType(value as MessageType);
+                setRsvpTarget("all");
                 setSelectedGuestIds(new Set());
               }}
             >
@@ -387,6 +465,64 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                   <Text size="small" secondary>
                     שליחת הזמנה ראשונית עם כפתורי אישור הגעה
                   </Text>
+                  {messageType === "rsvp" && (showUnsentOption || showFailedOption) && (
+                    <Box direction="vertical" gap={1} paddingTop="6px">
+                      <RadioGroup
+                        value={rsvpTarget}
+                        onChange={(value) => {
+                          setRsvpTarget(value as RsvpTarget);
+                          // The specific-guest picker only applies to the regular send
+                          setSelectSpecificGuests(false);
+                          setSelectedGuestIds(new Set());
+                        }}
+                      >
+                        <RadioGroup.Radio value="all">
+                          <Text size="small">שליחה לכל האורחים</Text>
+                        </RadioGroup.Radio>
+                        {showUnsentOption && (
+                          <RadioGroup.Radio value="unsent">
+                            <Box direction="horizontal" verticalAlign="middle" gap="4px">
+                              <Text size="small">
+                                אורחים חדשים שטרם קיבלו הזמנה ({unsentGuests.length})
+                              </Text>
+                              <TextButton
+                                size="small"
+                                aria-label="מי האורחים החדשים?"
+                                onClick={(e: React.MouseEvent) => {
+                                  // Peeking at the list must not switch the target
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setInfoTarget("unsent");
+                                }}
+                              >
+                                <InfoCircleSmall />
+                              </TextButton>
+                            </Box>
+                          </RadioGroup.Radio>
+                        )}
+                        {showFailedOption && (
+                          <RadioGroup.Radio value="failed">
+                            <Box direction="horizontal" verticalAlign="middle" gap="4px">
+                              <Text size="small">
+                                אורחים שההזמנה לא נמסרה אליהם ({failedGuests.length})
+                              </Text>
+                              <TextButton
+                                size="small"
+                                aria-label="מי האורחים שההזמנה לא נמסרה אליהם?"
+                                onClick={(e: React.MouseEvent) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setInfoTarget("failed");
+                                }}
+                              >
+                                <InfoCircleSmall />
+                              </TextButton>
+                            </Box>
+                          </RadioGroup.Radio>
+                        )}
+                      </RadioGroup>
+                    </Box>
+                  )}
                 </Box>
               </RadioGroup.Radio>
 
@@ -464,21 +600,24 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
               </Box>
             )}
 
-            <Box direction="vertical" gap={2} flexShrink={0}>
-              <div data-tour="select-specific-guests">
-                <Checkbox
-                  checked={selectSpecificGuests}
-                  onChange={() => {
-                    setSelectSpecificGuests((v) => !v);
-                    setSelectedGuestIds(new Set());
-                  }}
-                >
-                  <Text>בחירת אורחים ספציפיים לשליחה</Text>
-                </Checkbox>
-              </div>
-            </Box>
+            {/* Targeted sends already name their exact guest set — no picker */}
+            {!isTargetedSend && (
+              <Box direction="vertical" gap={2} flexShrink={0}>
+                <div data-tour="select-specific-guests">
+                  <Checkbox
+                    checked={selectSpecificGuests}
+                    onChange={() => {
+                      setSelectSpecificGuests((v) => !v);
+                      setSelectedGuestIds(new Set());
+                    }}
+                  >
+                    <Text>בחירת אורחים ספציפיים לשליחה</Text>
+                  </Checkbox>
+                </div>
+              </Box>
+            )}
 
-              {selectSpecificGuests && (
+              {!isTargetedSend && selectSpecificGuests && (
                 <GuestPicker
                   key={messageType}
                   guests={selectableGuests}
@@ -488,6 +627,20 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
               )}
 
             <Box direction="vertical" gap={3} flexShrink={0}>
+              {invitationBlocked && (
+                <SectionHelper skin="warning" title="לפני ששולחים — חסרים פרטים">
+                  <Box direction="vertical" gap="6px">
+                    <Text size="small">
+                      כדי לשלוח את ההזמנה יש להשלים בעריכת הפרטים:
+                    </Text>
+                    {missingInvitationContent.map((item) => (
+                      <Text size="small" key={item}>
+                        • {item}
+                      </Text>
+                    ))}
+                  </Box>
+                </SectionHelper>
+              )}
               {emptyGroupMessage && (
                 <Text size="small" secondary skin="error">
                   ⚠️ {emptyGroupMessage}
@@ -527,6 +680,14 @@ const MessageGroupsModal: React.FC<MessageGroupsModalProps> = ({
                   }
                 />
               </Modal>
+
+              {infoTarget !== null && (
+                <TargetedGuestListModal
+                  target={infoTarget}
+                  guests={infoTarget === "failed" ? failedGuests : unsentGuests}
+                  onClose={() => setInfoTarget(null)}
+                />
+              )}
 
               <div data-tour="whatsapp-preview">
                 <WhatsAppPreview

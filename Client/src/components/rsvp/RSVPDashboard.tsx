@@ -6,7 +6,9 @@ import AddGuestModal from "./AddGuestModal";
 import ControlPanel from "./ControlPanel";
 import InfoModal from "./InfoModal";
 import MessageGroupsModal from "./MessageGroupsModal";
+import ScheduledMessagingModal from "./ScheduledMessagingModal";
 import EventsList from "./EventsList";
+import UndeliveredGuestsBanner from "./UndeliveredGuestsBanner";
 import "@wix/design-system/styles.global.css";
 import { useAuth } from "../../hooks/useAuth";
 import { useAppData } from "../../hooks/useAppData";
@@ -18,7 +20,10 @@ const CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
 
 export const RSVPDashboard = () => {
   const navigate = useNavigate();
-  const { user, isLoading, weddingInfo } = useAuth();
+  const { user, isLoading, weddingInfo, isAdmin } = useAuth();
+  // Admin/QA: when viewing a "send and go" user, the admin can flip between
+  // the scheduling modal (default) and the manual send modal.
+  const [adminManualView, setAdminManualView] = useState(false);
   const { guests, eventGuestsByEventId, updateEventGuests, refreshGuests, refreshEvents } = useAppData();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -136,6 +141,16 @@ export const RSVPDashboard = () => {
 
         {activeTab === "guests" && (
           <>
+            {weddingInfo && (
+              <UndeliveredGuestsBanner
+                eventId={weddingInfo.id}
+                eventGuests={eventGuests}
+                refreshSignal={isMessageGroupsModalOpen}
+                onGuestsRefreshed={handleEventGuestsChange}
+                onOpenSendModal={() => setIsMessageGroupsModalOpen(true)}
+              />
+            )}
+
             <Box direction="horizontal" gap="20px" padding="20px">
               <ControlPanel
                 setIsAddGuestModalOpen={setIsAddGuestModalOpen}
@@ -192,15 +207,38 @@ export const RSVPDashboard = () => {
               <InfoModal isOpen={isInfoModalOpen} setIsInfoModalOpen={setIsInfoModalOpen} />
             </Modal>
 
+            {/* "Send and go" couples schedule their rounds; everyone else sends
+                manually. Admins viewing a scheduled couple default to the
+                scheduling modal (with the QA reset tool) and can flip to the
+                manual modal and back. */}
             <Modal isOpen={isMessageGroupsModalOpen}>
-              {weddingInfo && (
-                <MessageGroupsModal
-                  setIsMessageGroupsModalOpen={setIsMessageGroupsModalOpen}
-                  eventId={weddingInfo.id}
-                  eventGuests={eventGuests}
-                  event={weddingInfo}
-                />
-              )}
+              {weddingInfo &&
+                (user.messagingPlan === "scheduled" && !adminManualView ? (
+                  <ScheduledMessagingModal
+                    onClose={() => setIsMessageGroupsModalOpen(false)}
+                    eventId={weddingInfo.id}
+                    event={weddingInfo}
+                    eventGuests={eventGuests}
+                    onGuestsUpdated={handleEventGuestsChange}
+                    onEditDetails={() => {
+                      setIsMessageGroupsModalOpen(false);
+                      setIsInfoModalOpen(true);
+                    }}
+                    onSwitchToManual={isAdmin ? () => setAdminManualView(true) : undefined}
+                  />
+                ) : (
+                  <MessageGroupsModal
+                    setIsMessageGroupsModalOpen={setIsMessageGroupsModalOpen}
+                    eventId={weddingInfo.id}
+                    eventGuests={eventGuests}
+                    event={weddingInfo}
+                    onSwitchToScheduled={
+                      isAdmin && user.messagingPlan === "scheduled"
+                        ? () => setAdminManualView(false)
+                        : undefined
+                    }
+                  />
+                ))}
             </Modal>
           </>
         )}

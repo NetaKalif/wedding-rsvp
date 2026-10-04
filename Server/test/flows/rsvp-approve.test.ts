@@ -131,7 +131,9 @@ describe("RSVP pending flow", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("RSVP mistake correction", () => {
-  it('guest sends "טעות", RSVP is reset to null', async () => {
+  // Since "fix mistake guests" (613632f), טעות marks the guest as declined (0)
+  // rather than resetting to pending.
+  it('guest sends "טעות", RSVP is set to 0 (declined)', async () => {
     await resetRsvp(2);
 
     await mock.simulateReply({ from: TEST_GUEST_PHONE, type: "text", payload: "טעות" });
@@ -139,7 +141,7 @@ describe("RSVP mistake correction", () => {
     await mock.waitForMessages(`+${TEST_GUEST_PHONE}`, 1);
 
     const guest = await getGuest();
-    expect(guest?.rsvp_status).toBeNull();
+    expect(guest?.rsvp_status).toBe(0);
   });
 });
 

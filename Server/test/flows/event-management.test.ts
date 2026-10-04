@@ -185,6 +185,12 @@ describe("Authorization", () => {
       getEventGuests(WEDDING_EVENT_ID, "wrong-user-id"),
     ).rejects.toMatchObject({ response: { status: 404 } });
   });
+
+  it("a malformed eventId URL param returns 404 instead of a 500 query error", async () => {
+    await expect(
+      axios.get(`${REAL_SERVER}/events/undefined/guests`, { headers: authHeader() }),
+    ).rejects.toMatchObject({ response: { status: 404 } });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

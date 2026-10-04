@@ -165,6 +165,22 @@ const createReminderAdditionalData = (event: Event): string => {
 const createReminderDayWord = (event: Event): string =>
   event.reminder_day === "day_before" ? "מחר" : "היום";
 
+/**
+ * The event fields the RSVP invitation (wedding_rsvp_action) renders — the
+ * photo is the template's image header. Sends and invitation-round scheduling
+ * are blocked while any of these are missing, so a half-empty invitation can
+ * never reach guests. Call with bride/groom already inherited from the
+ * primary event for non-primary events.
+ */
+export const getMissingInvitationFields = (event: Event): string[] => {
+  const missing: string[] = [];
+  if (!event.file_id) missing.push("invitation photo");
+  if (!event.bride_name?.trim() || !event.groom_name?.trim()) missing.push("couple names");
+  if (!event.date) missing.push("event date");
+  if (!event.location?.trim()) missing.push("event location");
+  return missing;
+};
+
 export const getTemplateParams = (templateName: TemplateName, event: Event): TemplateParams => {
   switch (templateName) {
     case "wedding_rsvp_action":
@@ -221,6 +237,10 @@ export interface MessageResult {
   userID: string;
   guestName: string;
   logMessage: string;
+  /** Set when the recipient is an event guest — lets callers persist the outcome on event_guests. */
+  guestId?: number;
+  /** The raw error description on failure (logMessage minus the log framing). */
+  error?: string;
 }
 
 const getWhatsAppApiUrl = (endpoint: string) =>
@@ -231,7 +251,7 @@ const createAuthHeaders = (accessToken: string) => ({
   "Content-Type": "application/json",
 });
 
-type MessageRecipient = { phone: string; user_id: string; name: string };
+type MessageRecipient = { phone: string; user_id: string; name: string; guest_id?: number };
 
 // Backoff delays for rate-limited sends. Meta signals throttling with HTTP 429
 // or one of these error codes; a short wait usually clears it.
@@ -265,6 +285,7 @@ export const sendWhatsAppMessage = async (
         success: true,
         userID: recipient.user_id,
         guestName: recipient.name,
+        guestId: recipient.guest_id,
         logMessage: `✅ Message sent successfully to ${recipient.name}`,
       };
     } catch (error) {
@@ -278,6 +299,8 @@ export const sendWhatsAppMessage = async (
         success: false,
         userID: recipient.user_id,
         guestName: recipient.name,
+        guestId: recipient.guest_id,
+        error: errorMessage,
         logMessage: `❌ Failed to send message to ${recipient.name}: ${errorMessage}`,
       };
     }
@@ -370,6 +393,14 @@ export const handleStatusUpdates = async (statuses: WhatsAppStatusUpdate[]): Pro
     for (const candidate of candidates) {
       const ts = candidate.lastRsvpSentAt;
       if (ts && (!best.lastRsvpSentAt || ts > best.lastRsvpSentAt)) best = candidate;
+    }
+
+    // Only invitation failures feed the failed-guests panel/report — they
+    // mean a number to fix. Later-round failures (reminders, thank-you) are
+    // mostly transient (frequency caps, opt-outs) and stay in the log only.
+    // A null lastMessageType means a pre-tracking send — treated as invitation.
+    if (best.lastMessageType === "rsvp" || best.lastMessageType == null) {
+      await db.recordGuestDeliveryFailure(best.eventId, best.guestId, description);
     }
 
     await logMessage(

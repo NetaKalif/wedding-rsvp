@@ -1,5 +1,6 @@
 import { httpRequests } from "../../httpClient";
 import {
+  Event,
   EventGuest,
   FilterOptions,
   Guest,
@@ -31,6 +32,21 @@ export const validatePhoneNumber = (
   }
 
   return formattedPhone;
+};
+
+/**
+ * Content the invitation message renders — sending (or scheduling) the RSVP
+ * invitation is blocked while any of it is missing, chiefly the invitation
+ * photo. Mirrors the server's getMissingInvitationFields. Pass an event whose
+ * bride/groom names are already inherited from the primary event.
+ */
+export const getMissingInvitationContent = (event: Event): string[] => {
+  const missing: string[] = [];
+  if (!event.file_id) missing.push("תמונת ההזמנה");
+  if (!event.bride_name?.trim() || !event.groom_name?.trim()) missing.push("שמות בני הזוג");
+  if (!event.date) missing.push("תאריך האירוע");
+  if (!event.location?.trim()) missing.push("מיקום האירוע");
+  return missing;
 };
 
 export const getRsvpCounts = (guestsList: EventGuest[]) => {

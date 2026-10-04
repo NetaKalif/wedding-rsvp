@@ -84,7 +84,12 @@ export interface SendJob {
   deliveryFailures: DeliveryFailure[];
 }
 
-const SEND_JOB_GRACE_MS = Number(process.env.WA_SEND_JOB_GRACE_MS ?? 30_000);
+// Short on purpose: it only controls how long the client keeps showing the
+// "checking delivery updates" state after dispatch. Most delivery-failed
+// webhooks land within a few seconds; later ones still reach the per-guest
+// error markers (failed-guests panel + report email) — they just won't show
+// inside the already-finished send session.
+const SEND_JOB_GRACE_MS = Number(process.env.WA_SEND_JOB_GRACE_MS ?? 5_000);
 
 const sendJobs = new Map<string, SendJob>();
 

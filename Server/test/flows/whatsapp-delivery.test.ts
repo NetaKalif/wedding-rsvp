@@ -111,14 +111,22 @@ describe("send-job progress registry", () => {
     expect(startSendJob(owner, "test", [{ phone: "+2", name: "B" }])).not.toBeNull();
   });
 
-  it("expires a finished job after the grace window", () => {
+  it("expires a finished job after the short grace window (~5s)", () => {
     const owner = "registry-owner-2";
     const job = startSendJob(owner, "test", [{ phone: "+1", name: "A" }])!;
     finishSendJob(job);
     expect(getSendJob(owner)).not.toBeNull();
 
     const realNow = Date.now;
-    jest.spyOn(Date, "now").mockImplementation(() => realNow() + 31_000);
+    // Still within the window just before 5s…
+    jest.spyOn(Date, "now").mockImplementation(() => realNow() + 4_000);
+    try {
+      expect(getSendJob(owner)).not.toBeNull();
+    } finally {
+      (Date.now as jest.Mock).mockRestore();
+    }
+    // …and gone shortly after it
+    jest.spyOn(Date, "now").mockImplementation(() => realNow() + 6_000);
     try {
       expect(getSendJob(owner)).toBeNull();
     } finally {
