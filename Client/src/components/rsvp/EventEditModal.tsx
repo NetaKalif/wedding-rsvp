@@ -22,6 +22,7 @@ const EventEditModal: React.FC<EventEditModalProps> = ({ event, onClose, onSaved
     waze_link: event.waze_link || "",
     gift_link: event.gift_link || "",
     send_reminder: event.send_reminder || false,
+    ask_invited_count: event.ask_invited_count || false,
     reminder_day: event.reminder_day || "wedding_day",
     // TIME columns come back as "HH:MM:SS" — the time input wants "HH:MM"
     reminder_time: (event.reminder_time || "10:00").slice(0, 5),

@@ -64,6 +64,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
     reminder_time: "10:00",
     reminder_additional_text: "",
     send_thank_you: false,
+    ask_invited_count: false,
   });
   const [activeStep, setActiveStep] = useState(0);
   const [file, setFile] = useState<File | undefined>(undefined);
@@ -320,6 +321,26 @@ const InfoModal: React.FC<InfoModalProps> = ({ isOpen, setIsInfoModalOpen }) => 
               </Box>
             </Popover.Content>
           </Popover>
+        </Box>
+      </FormField>
+      <FormField label="הודעת אישור הגעה">
+        <Box direction="vertical" gap={1}>
+          <Checkbox
+            checked={eventDetails.ask_invited_count || false}
+            onChange={(e) =>
+              setEventDetails((prev) => ({
+                ...prev,
+                ask_invited_count: e.target.checked,
+              }))
+            }
+          >
+            ציון מספר המוזמנים בהודעה לאחר אישור הגעה
+          </Checkbox>
+          <Text size="small" secondary>
+            {eventDetails.ask_invited_count
+              ? "״איזה כיף! ההזמנה שלכם היא ל-N אורחים, כמה אורחים תגיעו? נא להשיב במספר בלבד״"
+              : "״איזה כיף! כמה אורחים תהיו? אנא השיבו במספר בלבד״"}
+          </Text>
         </Box>
       </FormField>
     </Box>

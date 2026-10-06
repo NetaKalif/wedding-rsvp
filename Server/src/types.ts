@@ -92,6 +92,8 @@ export interface Event {
   gift_link?: string;
   thank_you_message?: string;
   send_reminder?: boolean;
+  /** When true, the post-approval follow-up states the guest's invited count. */
+  ask_invited_count?: boolean;
   reminder_day?: "day_before" | "wedding_day";
   reminder_time?: string;
   /** Free text appended to the reminder's additional_data param (single line). */

@@ -139,6 +139,7 @@ async function createTables(pool: Pool): Promise<void> {
       gift_link TEXT,
       thank_you_message TEXT,
       send_reminder BOOLEAN DEFAULT FALSE,
+      ask_invited_count BOOLEAN DEFAULT FALSE,
       reminder_day TEXT CHECK (reminder_day IN ('day_before','wedding_day')),
       reminder_time TIME,
       send_thank_you BOOLEAN DEFAULT FALSE,

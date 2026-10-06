@@ -213,12 +213,14 @@ app.post("/sms", async (req: Request, res: Response) => {
     }
 
     // All candidates now have the same shape — wedding is just another event
-    const { eventId, guestId, phone, userID: candidateUserID, guestName } = bestCandidate;
+    const { eventId, guestId, phone, userID: candidateUserID, guestName, numberOfGuests, askInvitedCount } = bestCandidate;
     let msg: string;
     if (message.type === "button") {
       msg = message.button?.payload || message.button?.text || "";
       await logMessage(candidateUserID, `🔘 SMS button reply for event ${eventId} from ${guestName} (${phone}): ${msg}`);
-      await handleButtonReply(msg, phone, candidateUserID, eventId, guestId, guestName).catch((error) => {
+      await handleButtonReply(msg, {
+        phone, userID: candidateUserID, eventId, guestId, guestName, numberOfGuests, askInvitedCount,
+      }).catch((error) => {
         logError(candidateUserID, "Error processing SMS:", error);
         return res.status(500).send(error.message);
       });
@@ -634,6 +636,7 @@ app.post(
         gift_link: info.gift_link,
         thank_you_message: info.thank_you_message,
         send_reminder: info.send_reminder ?? (info.reminder_time ? true : false),
+        ask_invited_count: info.ask_invited_count ?? false,
         reminder_day: info.reminder_day,
         reminder_time: info.reminder_time,
         reminder_additional_text: info.reminder_additional_text,
@@ -2017,7 +2020,7 @@ app.post(
   upload.single("image") as RequestHandler,
   async (req: Request, res: Response) => {
     try {
-      const { ceremony_name, date, time, location, additional_info, waze_link, gift_link, send_reminder, reminder_day, reminder_time, reminder_additional_text } = req.body;
+      const { ceremony_name, date, time, location, additional_info, waze_link, gift_link, send_reminder, ask_invited_count, reminder_day, reminder_time, reminder_additional_text } = req.body;
       if (!ceremony_name) {
         return res.status(400).send("ceremony_name is required");
       }
@@ -2035,6 +2038,7 @@ app.post(
         file_id: null,
         // Multipart bodies deliver booleans as "true"/"false" strings
         send_reminder: send_reminder === true || send_reminder === "true",
+        ask_invited_count: ask_invited_count === true || ask_invited_count === "true",
         reminder_day: reminder_day || null,
         reminder_time: reminder_time || null,
         reminder_additional_text: reminder_additional_text || null,
@@ -2076,6 +2080,7 @@ app.patch(
       // Multipart bodies deliver booleans as "true"/"false" strings, and an
       // empty reminder_time is not a valid TIME value
       if (typeof updates.send_reminder === "string") updates.send_reminder = updates.send_reminder === "true";
+      if (typeof updates.ask_invited_count === "string") updates.ask_invited_count = updates.ask_invited_count === "true";
       if (updates.reminder_time === "") updates.reminder_time = null;
       if (updates.reminder_day === "") updates.reminder_day = null;
       const dataOwner = await resolveDataOwner(req.auth.userID);

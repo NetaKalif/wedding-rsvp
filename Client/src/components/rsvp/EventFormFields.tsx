@@ -28,6 +28,7 @@ export interface EventFormValues {
   waze_link: string;
   gift_link: string;
   send_reminder: boolean;
+  ask_invited_count: boolean;
   // "wedding_day" is the DB value for "on the day of the event" (shared with the wedding)
   reminder_day: "day_before" | "wedding_day";
   reminder_time: string;
@@ -43,6 +44,7 @@ export const emptyEventForm: EventFormValues = {
   waze_link: "",
   gift_link: "",
   send_reminder: false,
+  ask_invited_count: false,
   reminder_day: "wedding_day",
   reminder_time: "10:00",
   reminder_additional_text: "",
@@ -174,6 +176,22 @@ const EventFormFields: React.FC<EventFormFieldsProps> = ({
         )}
         {imageFile && <Text size="small" secondary>{imageFile.name}</Text>}
         {!hasImage && <Text size="small" skin="error">חובה להעלות תמונת הזמנה</Text>}
+      </FieldSet>
+
+      <FieldSet legend="הודעת אישור הגעה">
+        <Box direction="vertical" gap={1}>
+          <Checkbox
+            checked={form.ask_invited_count}
+            onChange={(e) => onChange({ ask_invited_count: e.target.checked })}
+          >
+            ציון מספר המוזמנים בהודעה לאחר אישור הגעה
+          </Checkbox>
+          <Text size="small" secondary>
+            {form.ask_invited_count
+              ? "״איזה כיף! ההזמנה שלכם היא ל-N אורחים, כמה אורחים תגיעו? נא להשיב במספר בלבד״"
+              : "״איזה כיף! כמה אורחים תהיו? אנא השיבו במספר בלבד״"}
+          </Text>
+        </Box>
       </FieldSet>
 
       <FieldSet legend="תזכורת אוטומטית">

@@ -77,13 +77,21 @@ export const handleTextResponse = async (
   await sendWhatsAppMessage(recipient, { freeText: message });
 };
 
+export interface ButtonReplyContext {
+  phone: string;
+  userID: string;
+  eventId: number;
+  guestId: number;
+  guestName: string;
+  /** guests.number_of_guests — how many people this invitation covers. */
+  numberOfGuests: number;
+  /** events.ask_invited_count — state the invited count in the follow-up. */
+  askInvitedCount: boolean;
+}
+
 export const handleButtonReply = async (
   msg: string,
-  phone: string,
-  userID: string,
-  eventId: number,
-  guestId: number,
-  guestName: string,
+  { phone, userID, eventId, guestId, guestName, numberOfGuests, askInvitedCount }: ButtonReplyContext,
 ): Promise<void> => {
   const senderStatus = mapResponseToStatus(
     msg as (typeof RESPONSE_BUTTONS)[keyof typeof RESPONSE_BUTTONS]
@@ -97,7 +105,10 @@ export const handleButtonReply = async (
     await sendWhatsAppMessage(recipient, { freeText: messagesMap.declined });
   } else if (senderStatus === RSVP_STATUS.APPROVED) {
     await logMessage(userID, `📠 RSVP approved by ${guestName} (event ${eventId}), awaiting count`);
-    await sendWhatsAppMessage(recipient, { freeText: messagesMap.approveFollowUp });
+    const followUp = askInvitedCount && numberOfGuests >= 1
+      ? messagesMap.approveFollowUpWithCount(numberOfGuests)
+      : messagesMap.approveFollowUp;
+    await sendWhatsAppMessage(recipient, { freeText: followUp });
   } else if (senderStatus === RSVP_STATUS.PENDING) {
     await sendWhatsAppMessage(recipient, { freeText: messagesMap.pending });
   }

@@ -193,6 +193,58 @@ describe("EventEditModal - automatic reminder settings", () => {
   });
 });
 
+describe("EventEditModal - invited-count follow-up setting", () => {
+  const askInvitedCountLabel = "ציון מספר המוזמנים בהודעה לאחר אישור הגעה";
+
+  it("defaults to off and saves ask_invited_count=false", async () => {
+    const onSaved = jest.fn();
+    render(<EventEditModal event={event} onClose={jest.fn()} onSaved={onSaved} />);
+
+    // The hint previews the generic follow-up while the option is off
+    expect(screen.getByText("״איזה כיף! כמה אורחים תהיו? אנא השיבו במספר בלבד״")).toBeInTheDocument();
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mockUpdateEvent).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({ ask_invited_count: false }),
+      undefined
+    );
+  });
+
+  it("checking the option previews the count-stating text and saves ask_invited_count=true", async () => {
+    const onSaved = jest.fn();
+    render(<EventEditModal event={event} onClose={jest.fn()} onSaved={onSaved} />);
+
+    fireEvent.click(screen.getByText(askInvitedCountLabel));
+    expect(
+      screen.getByText("״איזה כיף! ההזמנה שלכם היא ל-N אורחים, כמה אורחים תגיעו? נא להשיב במספר בלבד״")
+    ).toBeInTheDocument();
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mockUpdateEvent).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({ ask_invited_count: true }),
+      undefined
+    );
+  });
+
+  it("prefills an enabled setting from the event", () => {
+    render(
+      <EventEditModal
+        event={{ ...event, ask_invited_count: true }}
+        onClose={jest.fn()}
+        onSaved={jest.fn()}
+      />
+    );
+
+    expect(
+      screen.getByText("״איזה כיף! ההזמנה שלכם היא ל-N אורחים, כמה אורחים תגיעו? נא להשיב במספר בלבד״")
+    ).toBeInTheDocument();
+  });
+});
+
 describe("EventEditModal - required date, time and location", () => {
   it.each([
     ["date", { date: "" }],

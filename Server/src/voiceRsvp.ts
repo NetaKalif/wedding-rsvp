@@ -158,7 +158,13 @@ export const handleAnswerDigit = async (
       action: webhook("/voice/count", eventId, guestId),
       method: "POST",
     });
-    gather.say(sayOpts, "מעולה! נשמח לדעת כמה אורחים תגיעו. נא להקליד מספר בלבד ולסיים בסולמית.");
+    const { askInvitedCount, numberOfGuests } = await db.getInvitedCountInfo(eventId, guestId);
+    const invitedClause = askInvitedCount && numberOfGuests >= 1
+      ? numberOfGuests === 1
+        ? "ההזמנה שלכם היא לאורח אחד. "
+        : `ההזמנה שלכם היא ל-${numberOfGuests} אורחים. `
+      : "";
+    gather.say(sayOpts, `מעולה! ${invitedClause}נשמח לדעת כמה אורחים תגיעו. נא להקליד מספר בלבד ולסיים בסולמית.`);
     // No number entered: default to 1 confirmed guest so the RSVP isn't lost.
     vr.redirect(webhook("/voice/count", eventId, guestId));
     return vr.toString();

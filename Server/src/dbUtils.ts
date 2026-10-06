@@ -251,6 +251,7 @@ class Database {
         gift_link TEXT,
         thank_you_message TEXT,
         send_reminder BOOLEAN DEFAULT FALSE,
+        ask_invited_count BOOLEAN DEFAULT FALSE,
         reminder_day TEXT CHECK (reminder_day IN ('day_before','wedding_day')),
         reminder_time TIME,
         reminder_additional_text TEXT,
@@ -328,6 +329,11 @@ class Database {
     // Optional free-text line included in the event reminder message
     await this.runQuery(`
       ALTER TABLE events ADD COLUMN IF NOT EXISTS reminder_additional_text TEXT;`, []);
+
+    // When set, the post-approval follow-up message states how many guests the
+    // invitation was for (guests.number_of_guests)
+    await this.runQuery(`
+      ALTER TABLE events ADD COLUMN IF NOT EXISTS ask_invited_count BOOLEAN DEFAULT FALSE;`, []);
 
     // 60-day post-wedding data retention: warning email + hard-delete tracking
     // on the primary event, and a standalone audit trail that outlives the
@@ -597,13 +603,13 @@ class Database {
       `INSERT INTO events
          (user_id,is_primary,ceremony_name,date,time,location,additional_info,file_id,
           bride_name,groom_name,waze_link,gift_link,thank_you_message,
-          send_reminder,reminder_day,reminder_time,reminder_additional_text,send_thank_you,estimated_guests,total_budget)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+          send_reminder,ask_invited_count,reminder_day,reminder_time,reminder_additional_text,send_thank_you,estimated_guests,total_budget)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
        RETURNING *;`,
       [userID, e.is_primary ?? false, e.ceremony_name,
         e.date ?? null, e.time ?? null, e.location ?? null, e.additional_info ?? null, e.file_id ?? null,
         e.bride_name ?? null, e.groom_name ?? null, e.waze_link ?? null, e.gift_link ?? null, e.thank_you_message ?? null,
-        e.send_reminder ?? false, e.reminder_day ?? null, e.reminder_time ?? null, e.reminder_additional_text ?? null, e.send_thank_you ?? false,
+        e.send_reminder ?? false, e.ask_invited_count ?? false, e.reminder_day ?? null, e.reminder_time ?? null, e.reminder_additional_text ?? null, e.send_thank_you ?? false,
         e.estimated_guests ?? 0, e.total_budget ?? 0],
     );
     return rows[0];
@@ -739,13 +745,15 @@ class Database {
     phone: string;
     userID: string;
     guestName: string;
+    numberOfGuests: number;
+    askInvitedCount: boolean;
     lastRsvpSentAt: Date | null;
     lastMessageType: string | null;
   }>> {
     const rows = await this.runQuery(
       `SELECT eg.event_id, eg.guest_id, eg.last_rsvp_sent_at, eg.last_message_type,
-              g.user_id, g.name as guest_name,
-              e.is_primary
+              g.user_id, g.name as guest_name, g.number_of_guests,
+              e.is_primary, e.ask_invited_count
        FROM event_guests eg
        JOIN guests g ON g.id = eg.guest_id
        JOIN events e ON e.id = eg.event_id
@@ -759,9 +767,34 @@ class Database {
       phone,
       userID: row.user_id,
       guestName: row.guest_name,
+      numberOfGuests: row.number_of_guests ?? 1,
+      askInvitedCount: row.ask_invited_count ?? false,
       lastRsvpSentAt: row.last_rsvp_sent_at ? new Date(row.last_rsvp_sent_at) : null,
       lastMessageType: row.last_message_type ?? null,
     }));
+  }
+
+  /**
+   * The invited-count context for one event guest: the event's
+   * ask_invited_count flag plus the guest's number_of_guests. Used by the
+   * voice-RSVP flow, which identifies guests by eventId+guestId (no phone
+   * lookup) and so can't reuse getAllRsvpCandidatesByPhone.
+   */
+  async getInvitedCountInfo(eventId: number, guestId: number): Promise<{
+    askInvitedCount: boolean;
+    numberOfGuests: number;
+  }> {
+    const rows = await this.runQuery(
+      `SELECT e.ask_invited_count, g.number_of_guests
+       FROM events e
+       JOIN guests g ON g.id = $2
+       WHERE e.id = $1;`,
+      [eventId, guestId],
+    );
+    return {
+      askInvitedCount: rows[0]?.ask_invited_count ?? false,
+      numberOfGuests: rows[0]?.number_of_guests ?? 1,
+    };
   }
 
   // ==================== Seating Methods ====================
