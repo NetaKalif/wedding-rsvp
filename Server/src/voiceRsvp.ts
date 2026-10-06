@@ -143,13 +143,16 @@ export const handleAnswerDigit = async (
 
   if (digits === "0") {
     await db.updateEventGuestRsvp(eventId, guestId, 0);
-    await logMessage(null, `📞 Voice RSVP declined (event ${eventId}, guest ${guestId})`);
+    const { userID, guestName } = await db.getVoiceLogContext(eventId, guestId);
+    await logMessage(userID, `📞 Voice RSVP declined by ${guestName} (event ${eventId})`);
     vr.say(sayOpts, "קיבלנו, תודה. נשמח לראותכם בשמחה הבאה!");
     vr.hangup();
     return vr.toString();
   }
 
   if (digits === "1") {
+    const { userID, guestName } = await db.getVoiceLogContext(eventId, guestId);
+    await logMessage(userID, `📞 Voice RSVP approved by ${guestName} (event ${eventId}), awaiting count`);
     const gather = vr.gather({
       input: ["dtmf"],
       finishOnKey: "#",
@@ -204,7 +207,8 @@ export const handleCountDigits = async (
   }
 
   await db.updateEventGuestRsvp(eventId, guestId, count);
-  await logMessage(null, `📞 Voice RSVP confirmed (event ${eventId}, guest ${guestId}): ${count}`);
+  const { userID, guestName } = await db.getVoiceLogContext(eventId, guestId);
+  await logMessage(userID, `📞 Voice RSVP confirmed by ${guestName} (event ${eventId}): ${count} guests`);
   vr.say(sayOpts, `תודה רבה! רשמנו ${count} אורחים. נתראה בשמחה!`);
   vr.hangup();
   return vr.toString();
@@ -294,8 +298,9 @@ export const handleCallStatus = async (
   if (!callStatus || !FINAL_CALL_STATUSES.has(callStatus)) return;
   const db = Database.getInstance();
   await db.updateEventGuestCallOutcome(eventId, guestId, callStatus, answeredBy || null);
+  const { userID, guestName } = await db.getVoiceLogContext(eventId, guestId);
   await logMessage(
-    null,
-    `📞 Voice RSVP call finished (event ${eventId}, guest ${guestId}): ${callStatus}${answeredBy ? ` (${answeredBy})` : ""}`,
+    userID,
+    `📞 Voice call to ${guestName} ended (event ${eventId}): ${callStatus}${answeredBy ? ` (${answeredBy})` : ""}`,
   );
 };

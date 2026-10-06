@@ -797,6 +797,29 @@ class Database {
     };
   }
 
+  /**
+   * Activity-log context for a voice-RSVP webhook: the event owner's userID
+   * (whose client log the entry belongs in) and the guest's display name.
+   * The voice flow only carries eventId+guestId, so like getInvitedCountInfo
+   * it can't reuse the phone-based lookups.
+   */
+  async getVoiceLogContext(eventId: number, guestId: number): Promise<{
+    userID: string | null;
+    guestName: string;
+  }> {
+    const rows = await this.runQuery(
+      `SELECT e.user_id, g.name
+       FROM events e
+       JOIN guests g ON g.id = $2
+       WHERE e.id = $1;`,
+      [eventId, guestId],
+    );
+    return {
+      userID: rows[0]?.user_id ?? null,
+      guestName: rows[0]?.name ?? `guest ${guestId}`,
+    };
+  }
+
   // ==================== Seating Methods ====================
 
   async getSeatingLayout(eventId: number): Promise<SeatingLayout | null> {

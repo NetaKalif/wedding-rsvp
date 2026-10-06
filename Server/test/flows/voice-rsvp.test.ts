@@ -52,6 +52,11 @@ const getRsvp = async (eventId: number, guestId: number): Promise<number | null 
 const setRsvp = (eventId: number, guestId: number, rsvpStatus: number | null) =>
   axios.post(`${REAL_SERVER}/updateRsvp`, { eventId, guestId, rsvpStatus }, { headers: authHeader() });
 
+const getLogMessages = async (userID?: string): Promise<string[]> => {
+  const { data } = await axios.get(`${REAL_SERVER}/logs`, { headers: authHeader(userID) });
+  return (data as Array<{ message: string }>).map((l) => l.message);
+};
+
 beforeEach(async () => {
   await setRsvp(WEDDING_EVENT_ID, GUEST_ID, null);
 });
@@ -152,6 +157,40 @@ describe("Status callback webhook", () => {
       AnsweredBy: "human",
     });
     expect(await getRsvp(WEDDING_EVENT_ID, GUEST_ID)).toBeNull();
+  });
+});
+
+// Voice webhooks carry no session, so log attribution comes from the event's
+// owner (getVoiceLogContext) — these assert each step lands in the couple's
+// activity log (/logs) with the guest's name, like the WhatsApp flow does.
+describe("Activity logging", () => {
+  it("logs a decline under the event owner with the guest's name", async () => {
+    await postVoice("/voice/answer", WEDDING_EVENT_ID, GUEST_ID, { Digits: "0" });
+    const logs = await getLogMessages();
+    expect(logs).toContain(`📞 Voice RSVP declined by Test Guest (event ${WEDDING_EVENT_ID})`);
+  });
+
+  it("logs an approval (awaiting count) and then the confirmed count", async () => {
+    await postVoice("/voice/answer", WEDDING_EVENT_ID, GUEST_ID, { Digits: "1" });
+    await postVoice("/voice/count", WEDDING_EVENT_ID, GUEST_ID, { Digits: "4" });
+    const logs = await getLogMessages();
+    expect(logs).toContain(`📞 Voice RSVP approved by Test Guest (event ${WEDDING_EVENT_ID}), awaiting count`);
+    expect(logs).toContain(`📞 Voice RSVP confirmed by Test Guest (event ${WEDDING_EVENT_ID}): 4 guests`);
+  });
+
+  it("logs the final call outcome under the event owner", async () => {
+    await postVoice("/voice/status", WEDDING_EVENT_ID, GUEST_ID, {
+      CallStatus: "completed",
+      AnsweredBy: "human",
+    });
+    const logs = await getLogMessages();
+    expect(logs).toContain(`📞 Voice call to Test Guest ended (event ${WEDDING_EVENT_ID}): completed (human)`);
+  });
+
+  it("does not leak voice logs into another user's activity log", async () => {
+    await postVoice("/voice/answer", WEDDING_EVENT_ID, GUEST_ID, { Digits: "0" });
+    const otherLogs = await getLogMessages("someone-else");
+    expect(otherLogs.filter((m) => m.includes("Voice RSVP"))).toHaveLength(0);
   });
 });
 
