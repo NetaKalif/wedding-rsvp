@@ -21,7 +21,9 @@ interface GuestsPanelProps {
   onHighlightTable?: (tableId: number) => void;
 }
 
-const EMPTY_FILTERS: FilterOptions = { whose: [], circle: [], rsvpStatus: [], searchTerm: "" };
+// The panel opens filtered to confirmed guests — pending/declined are opted
+// back in through the regular filter UI (uncheck the status chip / add others).
+const DEFAULT_FILTERS: FilterOptions = { whose: [], circle: [], rsvpStatus: ["confirmed"], searchTerm: "" };
 
 const guestSeats = (g: EventGuest): number =>
   g.rsvp_status != null && g.rsvp_status > 0 ? g.rsvp_status : g.number_of_guests ?? 1;
@@ -52,7 +54,7 @@ export const GuestsPanel: React.FC<GuestsPanelProps> = ({
   eventGuests, assignments, items, onUnassign, onHighlightTable,
 }) => {
   // Same checkbox-based filter UX as the RSVP page (shared component + logic)
-  const [filterOptions, setFilterOptions] = useState<FilterOptions>(EMPTY_FILTERS);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>(DEFAULT_FILTERS);
   const [unassignedOnly, setUnassignedOnly] = useState(false);
 
   const tableByEventGuest = useMemo(() => {

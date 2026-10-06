@@ -121,6 +121,138 @@ export const canvasSeatStats = (
   return { totalSeats, takenSeats, freeSeats: Math.max(0, totalSeats - takenSeats) };
 };
 
+// ==================== Item text ====================
+
+/**
+ * Canvas-wide label font size, in cm (the canvas is cm-scaled, so this is
+ * on-floor text height). A viewer preference, not floor-plan data — it lives
+ * in localStorage, not in the DB.
+ */
+export const DEFAULT_FONT_CM = 30;
+export const MIN_FONT_CM = 10;
+export const MAX_FONT_CM = 100;
+export const FONT_STEP_CM = 5;
+export const FONT_STORAGE_KEY = "seating_font_size_cm";
+
+/** Parses a stored integer preference; missing/invalid falls back, valid is clamped. */
+const loadStoredInt = (raw: string | null, min: number, max: number, fallback: number): number => {
+  if (raw == null) return fallback;
+  const n = Number(raw);
+  return Number.isInteger(n) ? Math.min(max, Math.max(min, n)) : fallback;
+};
+
+export const clampFontSize = (sizeCm: number): number =>
+  Math.min(MAX_FONT_CM, Math.max(MIN_FONT_CM, sizeCm));
+
+export const loadStoredFontSize = (raw: string | null): number =>
+  loadStoredInt(raw, MIN_FONT_CM, MAX_FONT_CM, DEFAULT_FONT_CM);
+
+// ==================== Side-panel width ====================
+
+/** The objects/guests side panel is drag-resizable; the width is a viewer preference. */
+export const DEFAULT_PANEL_WIDTH_PX = 380;
+export const MIN_PANEL_WIDTH_PX = 240;
+export const MAX_PANEL_WIDTH_PX = 640;
+export const PANEL_WIDTH_STORAGE_KEY = "seating_side_panel_px";
+
+export const clampPanelWidth = (px: number): number =>
+  Math.min(MAX_PANEL_WIDTH_PX, Math.max(MIN_PANEL_WIDTH_PX, Math.round(px)));
+
+export const loadStoredPanelWidth = (raw: string | null): number =>
+  loadStoredInt(raw, MIN_PANEL_WIDTH_PX, MAX_PANEL_WIDTH_PX, DEFAULT_PANEL_WIDTH_PX);
+
+/**
+ * The stacked status lines at the top of a table on the canvas: the table
+ * number (bold, topmost — shown even when a custom label hides it from the
+ * display name) and the occupancy line under it.
+ */
+export const tableTopLines = (
+  item: Pick<SeatingItem, "table_number" | "capacity">,
+  occupancy: TableOccupancy | null,
+): { numberLine: string | null; capacityLine: string } => ({
+  numberLine: item.table_number != null ? String(item.table_number) : null,
+  capacityLine: `${occupancy?.seated ?? 0}/${item.capacity ?? "?"}${occupancy?.hasTentative ? " ?" : ""}${occupancy?.hasDeclined ? " ✕" : ""}`,
+});
+
+/** Pixel width of a text at a font size; injectable for tests / no-canvas environments. */
+export type TextMeasurer = (text: string, fontSizeCm: number) => number;
+
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+const defaultMeasurer: TextMeasurer = (text, fontSizeCm) => {
+  if (measureCtx === undefined) {
+    measureCtx = typeof document !== "undefined"
+      ? document.createElement("canvas").getContext("2d")
+      : null;
+  }
+  if (!measureCtx) return text.length * fontSizeCm * 0.6; // rough fallback
+  // Matches the Konva Text props on CanvasItem (bold, Konva's default Arial)
+  measureCtx.font = `bold ${fontSizeCm}px Arial`;
+  return measureCtx.measureText(text).width;
+};
+
+/** Whether the item label gets cut with an ellipsis (drives the hover tooltip). */
+export const isLabelTruncated = (
+  text: string,
+  fontSizeCm: number,
+  widthCm: number,
+  measure: TextMeasurer = defaultMeasurer,
+): boolean => text.length > 0 && measure(text, fontSizeCm) > widthCm;
+
+// ==================== Rotation snapping ====================
+
+/** Right angles the transformer magnetically locks onto. */
+export const ROTATION_SNAPS = [0, 90, 180, 270];
+export const ROTATION_SNAP_TOLERANCE_DEG = 7;
+
+/**
+ * Normalizes a rotation to [0, 360) and locks it onto the nearest right angle
+ * when within tolerance — the committed value is then exactly 0/90/180/270.
+ */
+export const snapRotationDeg = (
+  deg: number,
+  tolerance = ROTATION_SNAP_TOLERANCE_DEG,
+): number => {
+  const normalized = ((Math.round(deg) % 360) + 360) % 360;
+  const nearestRight = Math.round(normalized / 90) * 90;
+  if (Math.abs(normalized - nearestRight) <= tolerance) return nearestRight % 360;
+  return normalized;
+};
+
+// ==================== Selection ====================
+
+/** Click selection semantics: plain click selects one; additive click toggles. */
+export const toggleSelection = (current: number[], id: number, additive: boolean): number[] => {
+  if (!additive) return [id];
+  return current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+};
+
+/**
+ * New positions for a group of items moved by one drag delta: each item snaps
+ * to the grid and clamps to the room independently (same rules as a single drag).
+ */
+export const moveItemsBy = (
+  items: SeatingItem[],
+  ids: number[],
+  dxCm: number,
+  dyCm: number,
+  roomWidthCm: number,
+  roomHeightCm: number,
+): Array<{ id: number; x_cm: number; y_cm: number }> =>
+  ids.flatMap((id) => {
+    const item = items.find((i) => i.id === id);
+    if (!item) return [];
+    const pos = clampToRoom(
+      {
+        ...item,
+        x_cm: snapToGrid(Math.round(item.x_cm + dxCm)),
+        y_cm: snapToGrid(Math.round(item.y_cm + dyCm)),
+      },
+      roomWidthCm,
+      roomHeightCm,
+    );
+    return [{ id, x_cm: pos.x_cm, y_cm: pos.y_cm }];
+  });
+
 // ==================== Table identity ====================
 
 export const nextTableNumber = (items: SeatingItem[]): number =>
@@ -130,6 +262,24 @@ export const nextTableNumber = (items: SeatingItem[]): number =>
 
 export const tableDisplayName = (item: Pick<SeatingItem, "label" | "table_number">): string =>
   item.label?.trim() || `שולחן ${item.table_number ?? "?"}`;
+
+/**
+ * Updates that close the numbering gaps left by deleting tables: every
+ * remaining table shifts down by how many deleted numbers were below it,
+ * keeping the sequence chronological. Numbers below the gap are untouched.
+ */
+export const renumberAfterDelete = (
+  items: SeatingItem[],
+  deletedNumbers: number[],
+): Array<{ id: number; before: number; after: number }> =>
+  items
+    .filter((i) => i.kind === "table" && i.table_number != null)
+    .flatMap((i) => {
+      const shift = deletedNumbers.filter((n) => n < i.table_number!).length;
+      return shift > 0
+        ? [{ id: i.id, before: i.table_number!, after: i.table_number! - shift }]
+        : [];
+    });
 
 // ==================== Geometry ====================
 
@@ -404,56 +554,27 @@ export const buildDuplicate = (
 
 // ==================== Export rows ====================
 
-export interface TableExportRow {
-  tableName: string;
+export interface GuestExportRow {
   guestName: string;
   seats: number;
-  status: string;
+  tableNumber: number | null;
 }
 
-const rsvpLabel = (a: SeatingAssignment): string =>
-  a.rsvp_status == null ? "ממתין" : a.rsvp_status === 0 ? "לא מגיע" : "אישר";
-
-/** Rows grouped by table (canvas order), for the per-table export sheet. */
-export const buildTableRows = (
+/**
+ * The single export table (xlsx + print): guests alphabetically, each with the
+ * party size and the table number. The export layer adds a blank "arrived"
+ * column next to the seats for marking day-of corrections by hand.
+ */
+export const buildGuestExportRows = (
   items: SeatingItem[],
   assignments: SeatingAssignment[],
-): TableExportRow[] => {
-  const rows: TableExportRow[] = [];
-  for (const item of items) {
-    if (item.kind !== "table") continue;
-    for (const a of assignments.filter((x) => x.item_id === item.id)) {
-      rows.push({
-        tableName: tableDisplayName(item),
-        guestName: a.name ?? "",
-        seats: seatCount(a),
-        status: rsvpLabel(a),
-      });
-    }
-  }
-  return rows;
-};
-
-export interface EscortRow {
-  guestName: string;
-  tableName: string;
-  seats: number;
-}
-
-/** Alphabetical guest → table list (the venue escort list). */
-export const buildEscortRows = (
-  items: SeatingItem[],
-  assignments: SeatingAssignment[],
-): EscortRow[] => {
+): GuestExportRow[] => {
   const tableById = new Map(items.map((i) => [i.id, i]));
   return assignments
-    .map((a) => {
-      const table = tableById.get(a.item_id);
-      return {
-        guestName: a.name ?? "",
-        tableName: table ? tableDisplayName(table) : "",
-        seats: seatCount(a),
-      };
-    })
+    .map((a) => ({
+      guestName: a.name ?? "",
+      seats: seatCount(a),
+      tableNumber: tableById.get(a.item_id)?.table_number ?? null,
+    }))
     .sort((a, b) => a.guestName.localeCompare(b.guestName, "he"));
 };

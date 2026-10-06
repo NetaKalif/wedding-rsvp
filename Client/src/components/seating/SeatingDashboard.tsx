@@ -19,6 +19,7 @@ import {
 import { SeatingCanvas } from "./SeatingCanvas";
 import { ObjectsBank } from "./panel/ObjectsBank";
 import { GuestsPanel } from "./panel/GuestsPanel";
+import { TableCardsPanel } from "./panel/TableCardsPanel";
 import { TableModal } from "./TableModal";
 import { ObjectModal } from "./ObjectModal";
 import { CustomPresetModal } from "./CustomPresetModal";
@@ -26,10 +27,20 @@ import {
   BankEntry,
   buildDuplicate,
   buildSwapEntries,
+  clampFontSize,
+  clampPanelWidth,
   clampToRoom,
+  FONT_STEP_CM,
+  FONT_STORAGE_KEY,
+  loadStoredFontSize,
+  loadStoredPanelWidth,
+  MAX_FONT_CM,
+  MIN_FONT_CM,
+  PANEL_WIDTH_STORAGE_KEY,
   nextTableNumber,
   OBJECT_COLORS,
   remapItemId,
+  renumberAfterDelete,
   SeatingBatchableEntry,
   SeatingHistoryEntry,
   snapToGrid,
@@ -62,11 +73,19 @@ export const SeatingDashboard: React.FC = () => {
   const [presets, setPresets] = useState<CustomTablePreset[]>([]);
 
   const [activeTab, setActiveTab] = useState<"objects" | "guests">("objects");
-  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  // Multi-selection, in click order (plain click = one item; shift/ctrl-click toggles)
+  const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
+  // Canvas-wide label font size — a viewer preference persisted in localStorage
+  const [labelFontSize, setLabelFontSize] = useState<number>(
+    () => loadStoredFontSize(localStorage.getItem(FONT_STORAGE_KEY)),
+  );
+  // Drag-resizable side-panel width — also a persisted viewer preference
+  const [sidePanelWidth, setSidePanelWidth] = useState<number>(
+    () => loadStoredPanelWidth(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY)),
+  );
+  const sidePanelRef = useRef<HTMLDivElement>(null);
   const [modalTableId, setModalTableId] = useState<number | null>(null);
   const [modalObjectId, setModalObjectId] = useState<number | null>(null);
-  // Switch-guests mode: the table whose guests will be swapped with a target
-  const [switchSourceId, setSwitchSourceId] = useState<number | null>(null);
   const [showPresetModal, setShowPresetModal] = useState(false);
   const [editingPreset, setEditingPreset] = useState<CustomTablePreset | null>(null);
   const [presetModalKind, setPresetModalKind] = useState<SeatingItemKind>("table");
@@ -160,7 +179,7 @@ export const SeatingDashboard: React.FC = () => {
     await httpRequests.deleteSeatingItem(eventId, item.id);
     setItems((prev) => prev.filter((i) => i.id !== item.id));
     setAssignments((prev) => prev.filter((a) => a.item_id !== item.id)); // cascades server-side
-    setSelectedItemId((sel) => (sel === item.id ? null : sel));
+    setSelectedItemIds((sel) => sel.filter((id) => id !== item.id));
     saveBuffer.current.delete(item.id);
     return captured;
   }, [eventId, assignments]);
@@ -295,6 +314,35 @@ export const SeatingDashboard: React.FC = () => {
     }
   }, [future, redoSingle, removeItem, recreateItem]);
 
+  const updateLabelFontSize = useCallback((next: number) => {
+    const clamped = clampFontSize(next);
+    setLabelFontSize(clamped);
+    localStorage.setItem(FONT_STORAGE_KEY, String(clamped));
+  }, []);
+
+  /**
+   * Drag the divider between the canvas and the side panel. The panel is the
+   * leftmost column, so its width is simply the pointer's distance from its
+   * (fixed) left edge.
+   */
+  const startPanelResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const panelLeft = sidePanelRef.current?.getBoundingClientRect().left ?? 0;
+    const widthAt = (ev: MouseEvent) => clampPanelWidth(ev.clientX - panelLeft);
+    const onMove = (ev: MouseEvent) => setSidePanelWidth(widthAt(ev));
+    const onUp = (ev: MouseEvent) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(widthAt(ev)));
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none"; // no text selection mid-drag
+  }, []);
+
   // ==================== Item operations ====================
 
   const handleItemChange = useCallback((id: number, changes: Partial<SeatingItem>) => {
@@ -306,12 +354,30 @@ export const SeatingDashboard: React.FC = () => {
     applyUpdate(id, changes);
   }, [items, pushHistory, applyUpdate]);
 
+  /** One drag of a (possibly multi-) selection: all moves become ONE history entry. */
+  const handleMoveItems = useCallback((changes: Array<{ id: number; x_cm: number; y_cm: number }>) => {
+    const subEntries: SeatingBatchableEntry[] = [];
+    for (const { id, x_cm, y_cm } of changes) {
+      const current = items.find((i) => i.id === id);
+      if (!current || (current.x_cm === x_cm && current.y_cm === y_cm)) continue;
+      subEntries.push({
+        type: "update",
+        itemId: id,
+        before: { x_cm: current.x_cm, y_cm: current.y_cm },
+        after: { x_cm, y_cm },
+      });
+      applyUpdate(id, { x_cm, y_cm });
+    }
+    if (subEntries.length === 1) pushHistory(subEntries[0]);
+    else if (subEntries.length > 1) pushHistory({ type: "batch", entries: subEntries });
+  }, [items, applyUpdate, pushHistory]);
+
   const createItemOnCanvas = useCallback(async (fields: Omit<SeatingItem, "id" | "event_id">) => {
     if (eventId == null) return;
     try {
       const item = await httpRequests.createSeatingItem(eventId, fields);
       setItems((prev) => [...prev, item]);
-      setSelectedItemId(item.id);
+      setSelectedItemIds([item.id]);
       pushHistory({ type: "create", item, assignments: [] });
     } catch { /* server rejected — nothing was added */ }
   }, [eventId, pushHistory]);
@@ -346,14 +412,46 @@ export const SeatingDashboard: React.FC = () => {
     await createItemOnCanvas(buildDuplicate(source, items, layout.room_width_cm, layout.room_height_cm));
   }, [items, layout, createItemOnCanvas]);
 
+  /**
+   * Deleting a mid-sequence table leaves a numbering gap; offer to shift the
+   * higher-numbered tables down so the numbering stays chronological. Recorded
+   * as its own history entry (on top of the delete), so undo first restores
+   * the numbers, then the table.
+   */
+  const offerRenumberAfterDelete = useCallback(async (
+    deletedNumbers: number[],
+    remaining: SeatingItem[],
+  ) => {
+    const updates = renumberAfterDelete(remaining, deletedNumbers);
+    if (updates.length === 0) return;
+    const confirmed = await confirm({
+      title: "עדכון מספרי שולחנות",
+      message: `נוצר פער במספור השולחנות. לעדכן את המספרים של ${updates.length === 1 ? "השולחן שאחרי" : `${updates.length} השולחנות שאחרי`} כך שהמספור יישאר רציף?`,
+      confirmText: "עדכון המספור",
+      confirmSkin: "standard",
+    });
+    if (!confirmed) return;
+    const entries: SeatingBatchableEntry[] = updates.map((u) => ({
+      type: "update",
+      itemId: u.id,
+      before: { table_number: u.before },
+      after: { table_number: u.after },
+    }));
+    updates.forEach((u) => applyUpdate(u.id, { table_number: u.after }));
+    pushHistory(entries.length === 1 ? entries[0] : { type: "batch", entries });
+  }, [confirm, applyUpdate, pushHistory]);
+
   const handleDeleteItem = useCallback(async (id: number) => {
     const item = items.find((i) => i.id === id);
     if (!item) return;
     try {
       const captured = await removeItem(item);
       pushHistory({ type: "delete", item, assignments: captured });
-    } catch { /* keep state — delete failed */ }
-  }, [items, removeItem, pushHistory]);
+    } catch { return; /* keep state — delete failed */ }
+    if (item.kind === "table" && item.table_number != null) {
+      await offerRenumberAfterDelete([item.table_number], items.filter((i) => i.id !== id));
+    }
+  }, [items, removeItem, pushHistory, offerRenumberAfterDelete]);
 
   // Clean canvas: wipes every item (guests become unassigned). Not undoable —
   // the confirmation dialog is the guard — so the history is cleared with it.
@@ -369,26 +467,46 @@ export const SeatingDashboard: React.FC = () => {
       await httpRequests.clearSeatingItems(eventId);
       setItems([]);
       setAssignments([]);
-      setSelectedItemId(null);
+      setSelectedItemIds([]);
       saveBuffer.current = new Map();
       setPast([]);
       setFuture([]);
     } catch { /* keep state — clear failed */ }
   }, [eventId, items.length, confirm]);
 
-  // Delete key removes the selected item (unless typing in an input or a modal is open)
+  /**
+   * Deletes every selected item (each delete is its own undoable entry), then
+   * offers the renumbering ONCE for all the gaps the deleted tables left.
+   */
+  const handleDeleteSelected = useCallback(async () => {
+    const deletedIds = new Set<number>();
+    const deletedNumbers: number[] = [];
+    for (const id of selectedItemIds) {
+      const item = items.find((i) => i.id === id);
+      if (!item) continue;
+      try {
+        const captured = await removeItem(item);
+        pushHistory({ type: "delete", item, assignments: captured });
+        deletedIds.add(id);
+        if (item.kind === "table" && item.table_number != null) deletedNumbers.push(item.table_number);
+      } catch { /* keep going — this delete failed */ }
+    }
+    await offerRenumberAfterDelete(deletedNumbers, items.filter((i) => !deletedIds.has(i.id)));
+  }, [selectedItemIds, items, removeItem, pushHistory, offerRenumberAfterDelete]);
+
+  // Delete key removes the selected items (unless typing in an input or a modal is open)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return;
-      if (selectedItemId == null || modalTableId != null || showPresetModal || showLayoutForm) return;
+      if (selectedItemIds.length === 0 || modalTableId != null || modalObjectId != null || showPresetModal || showLayoutForm) return;
       const tag = (document.activeElement?.tagName ?? "").toLowerCase();
       if (tag === "input" || tag === "textarea" || tag === "select") return;
       e.preventDefault();
-      void handleDeleteItem(selectedItemId);
+      void handleDeleteSelected();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedItemId, modalTableId, showPresetModal, showLayoutForm, handleDeleteItem]);
+  }, [selectedItemIds, modalTableId, modalObjectId, showPresetModal, showLayoutForm, handleDeleteSelected]);
 
   // ==================== Assignments ====================
 
@@ -418,12 +536,13 @@ export const SeatingDashboard: React.FC = () => {
     else setModalObjectId(id);
   }, [items]);
 
-  /** Target table picked in switch mode: confirm, then swap all guests as one batch. */
-  const handlePickSwitchTarget = useCallback(async (targetId: number) => {
-    if (switchSourceId == null || targetId === switchSourceId) return;
-    const source = items.find((i) => i.id === switchSourceId);
-    const target = items.find((i) => i.id === targetId);
-    if (!source || !target) return;
+  /** Swap all guests between the two selected tables, as one undoable batch. */
+  const handleSwapSelectedTables = useCallback(async () => {
+    const tables = selectedItemIds
+      .map((id) => items.find((i) => i.id === id))
+      .filter((i): i is SeatingItem => i != null && i.kind === "table");
+    if (tables.length !== 2) return;
+    const [source, target] = tables;
     const confirmed = await confirm({
       title: "החלפת אורחים",
       message: `להחליף את כל האורחים בין ${tableDisplayName(source)} ל${tableDisplayName(target)}?`,
@@ -431,7 +550,7 @@ export const SeatingDashboard: React.FC = () => {
       confirmSkin: "standard",
     });
     if (!confirmed) return;
-    const entries = buildSwapEntries(switchSourceId, targetId, assignments);
+    const entries = buildSwapEntries(source.id, target.id, assignments);
     const applied: SeatingBatchableEntry[] = [];
     for (const entry of entries) {
       if (entry.type !== "assign") continue;
@@ -441,24 +560,7 @@ export const SeatingDashboard: React.FC = () => {
       } catch { /* skip failed move; the rest still applies */ }
     }
     if (applied.length > 0) pushHistory({ type: "batch", entries: applied });
-    setSwitchSourceId(null);
-  }, [switchSourceId, items, assignments, confirm, doAssign, pushHistory]);
-
-  // Switch mode ends on Escape, and can't outlive its source table
-  useEffect(() => {
-    if (switchSourceId != null && !items.some((i) => i.id === switchSourceId)) {
-      setSwitchSourceId(null);
-    }
-  }, [switchSourceId, items]);
-
-  useEffect(() => {
-    if (switchSourceId == null) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSwitchSourceId(null);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [switchSourceId]);
+  }, [selectedItemIds, items, assignments, confirm, doAssign, pushHistory]);
 
   /**
    * The table-modal save: props changes + staged guest removals/additions are
@@ -534,7 +636,7 @@ export const SeatingDashboard: React.FC = () => {
 
   const withCleanStage = useCallback(async (): Promise<string | null> => {
     if (!stageRef.current || !layout) return null;
-    setSelectedItemId(null); // detach transformer handles before capturing
+    setSelectedItemIds([]); // detach transformer handles before capturing
     await new Promise((resolve) => setTimeout(resolve, 100));
     return stageToRoomPng(stageRef.current, layout);
   }, [layout]);
@@ -590,7 +692,12 @@ export const SeatingDashboard: React.FC = () => {
 
   const modalTable = modalTableId != null ? items.find((i) => i.id === modalTableId) ?? null : null;
   const modalObject = modalObjectId != null ? items.find((i) => i.id === modalObjectId) ?? null : null;
-  const selectedItem = selectedItemId != null ? items.find((i) => i.id === selectedItemId) ?? null : null;
+  // Selected items in selection order (drives the toolbar and the side-panel cards)
+  const selectedItems = selectedItemIds
+    .map((id) => items.find((i) => i.id === id))
+    .filter((i): i is SeatingItem => i != null);
+  const selectedItem = selectedItems.length === 1 ? selectedItems[0] : null;
+  const selectedTables = selectedItems.filter((i) => i.kind === "table");
 
   if (isLoading) {
     return (
@@ -624,6 +731,26 @@ export const SeatingDashboard: React.FC = () => {
             <Button size="small" skin="light" prefixIcon={<Ruler size={14} />} onClick={openLayoutForm}>
               {layout ? `גודל האולם: ${layout.room_width_cm / 100}×${layout.room_height_cm / 100} מ׳` : "הגדרת גודל האולם"}
             </Button>
+            <div className="font-size-control" title="גודל הטקסט בפריטים על הקנבס" data-testid="font-size-control">
+              <span className="font-size-label">גודל טקסט</span>
+              <button
+                type="button"
+                onClick={() => updateLabelFontSize(labelFontSize - FONT_STEP_CM)}
+                disabled={labelFontSize <= MIN_FONT_CM}
+                aria-label="הקטנת הטקסט"
+              >
+                −
+              </button>
+              <span className="font-size-value">{labelFontSize}</span>
+              <button
+                type="button"
+                onClick={() => updateLabelFontSize(labelFontSize + FONT_STEP_CM)}
+                disabled={labelFontSize >= MAX_FONT_CM}
+                aria-label="הגדלת הטקסט"
+              >
+                +
+              </button>
+            </div>
             <Button size="small" skin="light" onClick={() => void undo()} disabled={past.length === 0} prefixIcon={<Undo2 size={14} />}>בטל</Button>
             <Button size="small" skin="light" onClick={() => void redo()} disabled={future.length === 0} prefixIcon={<Redo2 size={14} />}>בצע שוב</Button>
             <Button
@@ -678,16 +805,6 @@ export const SeatingDashboard: React.FC = () => {
                   />
                 </div>
               )}
-              {selectedItem.kind === "table" && (
-                <Button
-                  size="small"
-                  skin={switchSourceId === selectedItem.id ? "standard" : "light"}
-                  onClick={() => setSwitchSourceId((prev) => prev === selectedItem.id ? null : selectedItem.id)}
-                  prefixIcon={<ArrowLeftRight size={14} />}
-                >
-                  {switchSourceId === selectedItem.id ? "ביטול החלפה" : "החלפת אורחים"}
-                </Button>
-              )}
               <Button
                 size="small"
                 skin="light"
@@ -701,6 +818,30 @@ export const SeatingDashboard: React.FC = () => {
                 skin="destructive"
                 priority="secondary"
                 onClick={() => handleDeleteItem(selectedItem.id)}
+                prefixIcon={<Trash2 size={14} />}
+              >
+                מחיקה
+              </Button>
+            </div>
+          )}
+          {selectedItems.length > 1 && (
+            <div className="toolbar-group toolbar-group-selection" data-testid="multi-selection-tools">
+              <Text size="small" weight="bold">{`${selectedItems.length} פריטים נבחרו`}</Text>
+              {selectedItems.length === 2 && selectedTables.length === 2 && (
+                <Button
+                  size="small"
+                  skin="light"
+                  onClick={() => void handleSwapSelectedTables()}
+                  prefixIcon={<ArrowLeftRight size={14} />}
+                >
+                  החלפת אורחים
+                </Button>
+              )}
+              <Button
+                size="small"
+                skin="destructive"
+                priority="secondary"
+                onClick={() => void handleDeleteSelected()}
                 prefixIcon={<Trash2 size={14} />}
               >
                 מחיקה
@@ -742,16 +883,15 @@ export const SeatingDashboard: React.FC = () => {
               layout={layout}
               items={items}
               assignments={assignments}
-              selectedItemId={selectedItemId}
-              switchSourceId={switchSourceId}
+              selectedItemIds={selectedItemIds}
+              labelFontSize={labelFontSize}
               stageRef={stageRef}
-              onSelect={setSelectedItemId}
+              onSelectionChange={setSelectedItemIds}
               onItemChange={handleItemChange}
+              onMoveItems={handleMoveItems}
               onDropNewItem={handleDropNewItem}
               onDropGuest={handleAssignGuest}
               onOpenItem={handleOpenItem}
-              onPickSwitchTarget={handlePickSwitchTarget}
-              onCancelSwitch={() => setSwitchSourceId(null)}
             />
           ) : (
             <div className="seating-empty-state" dir="rtl">
@@ -760,9 +900,31 @@ export const SeatingDashboard: React.FC = () => {
               <Button onClick={openLayoutForm}>הגדרת גודל האולם</Button>
             </div>
           )}
+          {/* Floats over the stage on the right — the canvas keeps its size;
+              pan the stage if a table ends up underneath the panel */}
+          {selectedTables.length > 0 && (
+            <div className="seating-tables-panel" dir="rtl" data-testid="seating-tables-panel">
+              <TableCardsPanel
+                tables={selectedTables}
+                assignments={assignments}
+                onAssignGuest={handleAssignGuest}
+                onUnassignGuest={handleUnassignGuest}
+                onOpenTable={setModalTableId}
+                onClose={() => setSelectedItemIds([])}
+              />
+            </div>
+          )}
         </div>
 
-        <div className="seating-side-panel">
+        {/* Divider between the canvas and the side panel — drag to resize */}
+        <div
+          className="seating-panel-resizer"
+          data-testid="seating-panel-resizer"
+          onMouseDown={startPanelResize}
+          title="גרירה לשינוי רוחב הפאנל"
+        />
+
+        <div className="seating-side-panel" ref={sidePanelRef} style={{ width: sidePanelWidth }}>
           <div className="seating-tabs">
             <button
               type="button"
@@ -792,7 +954,7 @@ export const SeatingDashboard: React.FC = () => {
               assignments={assignments}
               items={items}
               onUnassign={handleUnassignGuest}
-              onHighlightTable={setSelectedItemId}
+              onHighlightTable={(tableId) => setSelectedItemIds([tableId])}
             />
           )}
         </div>

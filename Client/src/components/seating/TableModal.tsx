@@ -41,6 +41,7 @@ export const TableModal: React.FC<TableModalProps> = ({
   table, items, assignments, eventGuests, onApply, onClose,
 }) => {
   const [label, setLabel] = useState(table.label ?? "");
+  const [tableNumber, setTableNumber] = useState(String(table.table_number ?? ""));
   const [capacity, setCapacity] = useState(String(table.capacity ?? ""));
   const [widthCm, setWidthCm] = useState(String(table.width_cm));
   const [heightCm, setHeightCm] = useState(String(table.height_cm));
@@ -103,10 +104,16 @@ export const TableModal: React.FC<TableModalProps> = ({
   };
 
   const capacityNum = parsePositiveInt(capacity);
+  const tableNumberNum = parsePositiveInt(tableNumber);
+  // Numbers must stay unique — another table already holding this one blocks the save
+  const numberTaken =
+    tableNumberNum != null &&
+    items.some((i) => i.id !== table.id && i.kind === "table" && i.table_number === tableNumberNum);
   const widthNum = parsePositiveInt(widthCm);
   const heightNum = table.shape === "circle" ? widthNum : parsePositiveInt(heightCm);
   const isValid =
     capacityNum != null &&
+    tableNumberNum != null && !numberTaken &&
     widthNum != null && widthNum >= MIN_ITEM_CM &&
     heightNum != null && heightNum >= MIN_ITEM_CM;
 
@@ -118,6 +125,7 @@ export const TableModal: React.FC<TableModalProps> = ({
       await Promise.resolve(onApply(
         {
           label: label.trim() || null,
+          table_number: tableNumberNum,
           capacity: capacityNum,
           width_cm: widthNum,
           height_cm: heightNum,
@@ -145,13 +153,26 @@ export const TableModal: React.FC<TableModalProps> = ({
       content={
         <div dir="rtl">
           <Box direction="vertical" gap="14px" paddingTop="6px">
-            <FormField label="שם השולחן">
-              <Input
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder={`שולחן ${table.table_number ?? ""}`}
-              />
-            </FormField>
+            <Box direction="horizontal" gap="10px">
+              <Box flexGrow={1}>
+                <FormField label="שם השולחן">
+                  <Input
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value)}
+                    placeholder={`שולחן ${table.table_number ?? ""}`}
+                  />
+                </FormField>
+              </Box>
+              <FormField label="מספר שולחן" required>
+                <Input
+                  value={tableNumber}
+                  onChange={(e) => setTableNumber(e.target.value)}
+                  type="number"
+                  status={numberTaken ? "error" : undefined}
+                  statusMessage={numberTaken ? "המספר כבר שייך לשולחן אחר" : undefined}
+                />
+              </FormField>
+            </Box>
 
             <Box direction="horizontal" gap="10px">
               <FormField label="מקומות ישיבה" required>

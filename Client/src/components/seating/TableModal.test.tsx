@@ -53,6 +53,41 @@ const renderModal = (props: Partial<React.ComponentProps<typeof TableModal>> = {
   return render(<TableModal {...defaults} {...props} />);
 };
 
+describe("TableModal table number", () => {
+  it("shows the current number and sends the edited one on save", async () => {
+    const onApply = jest.fn();
+    const onClose = jest.fn();
+    renderModal({ onApply, onClose });
+    // The number field holds the table's current number (1)
+    fireEvent.change(screen.getByDisplayValue("1"), { target: { value: "5" } });
+    fireEvent.click(screen.getByText("שמירה"));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({ table_number: 5 }),
+      { assign: [], unassign: [] },
+    );
+  });
+
+  it("blocks saving when the number already belongs to another table", () => {
+    const onApply = jest.fn();
+    renderModal({ onApply });
+    fireEvent.change(screen.getByDisplayValue("1"), { target: { value: "2" } }); // table 2 exists
+    fireEvent.click(screen.getByText("שמירה"));
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it("blocks saving when the number is cleared or not a positive integer", () => {
+    const onApply = jest.fn();
+    renderModal({ onApply });
+    const numberInput = screen.getByDisplayValue("1");
+    fireEvent.change(numberInput, { target: { value: "" } });
+    fireEvent.click(screen.getByText("שמירה"));
+    fireEvent.change(numberInput, { target: { value: "0" } });
+    fireEvent.click(screen.getByText("שמירה"));
+    expect(onApply).not.toHaveBeenCalled();
+  });
+});
+
 describe("TableModal add-guest list", () => {
   it("shows only unassigned guests by default", () => {
     renderModal({

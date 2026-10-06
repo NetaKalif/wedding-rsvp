@@ -5,10 +5,12 @@ import { SeatingItem } from "../../types";
 import {
   FILL_COLORS,
   fillState,
+  isLabelTruncated,
   MIN_ITEM_CM,
-  snapToGrid,
+  snapRotationDeg,
   TableOccupancy,
   tableDisplayName,
+  tableTopLines,
 } from "./logic";
 
 // All coordinates are in cm — the Stage is scaled, so no px conversion here.
@@ -20,43 +22,45 @@ interface CanvasItemProps {
   isOverlapping: boolean;
   /** A guest is being dragged and this table is under the cursor. */
   isDropTarget: boolean;
-  /** Switch-guests mode: a source table is chosen and awaits a target table. */
-  isSwitchMode: boolean;
-  /** This item IS the switch source — greyed out and not pickable. */
-  isSwitchSource: boolean;
-  roomWidthCm: number;
-  roomHeightCm: number;
-  onSelect: (id: number) => void;
-  onChange: (id: number, changes: Partial<SeatingItem>) => void;
+  /** Canvas-wide label font size in cm (a viewer preference from localStorage). */
+  fontSize: number;
+  onSelect: (id: number, additive: boolean) => void;
   onOpenItem: (id: number) => void;
-  onPickSwitchTarget: (tableId: number) => void;
+  /**
+   * Drag lifecycle is owned by the canvas: a multi-selection is moved by the
+   * transformer (which makes every attached node drag along and fire its own
+   * drag events), and the canvas commits the whole gesture once.
+   */
+  onItemDragStart: (id: number) => void;
+  onItemDragEnd: (id: number, node: Konva.Node) => void;
+  /** Transform (resize/rotate) commit — single-selection only. */
+  onChange: (id: number, changes: Partial<SeatingItem>) => void;
+  /** Full label of a truncated item on hover (null clears the tooltip). */
+  onHoverLabel: (text: string | null) => void;
 }
 
 const OBJECT_FILL = "#e8e4f5";
 
 export const CanvasItem: React.FC<CanvasItemProps> = ({
-  item, occupancy, isSelected, isOverlapping, isDropTarget, isSwitchMode, isSwitchSource,
-  roomWidthCm, roomHeightCm, onSelect, onChange, onOpenItem, onPickSwitchTarget,
+  item, occupancy, isSelected, isOverlapping, isDropTarget,
+  fontSize, onSelect, onOpenItem,
+  onItemDragStart, onItemDragEnd, onChange, onHoverLabel,
 }) => {
   const halfW = item.width_cm / 2;
   const halfH = item.height_cm / 2;
   const isTable = item.kind === "table";
+  const labelText = isTable ? tableDisplayName(item) : item.label ?? "";
+  // Table labels wrap to extra lines instead of being cut, so only object
+  // labels (single-line, ellipsized) get the hover tooltip.
+  const labelTruncated = !isTable && isLabelTruncated(labelText, fontSize, item.width_cm);
+
+  const { numberLine, capacityLine } = tableTopLines(item, occupancy);
+  const smallFont = Math.round(fontSize * 0.93);
 
   const fill = isTable
     ? FILL_COLORS[fillState(occupancy?.seated ?? 0, item.capacity)]
     : item.color ?? OBJECT_FILL;
   const stroke = isDropTarget ? "#2e7d32" : isOverlapping ? "#d84a4a" : isSelected ? "#3899ec" : "#7a7a7a";
-
-  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-    const node = e.target;
-    // node position is the item's center (see Group offset below)
-    const x = snapToGrid(node.x() - halfW);
-    const y = snapToGrid(node.y() - halfH);
-    const clampedX = Math.min(Math.max(x, 0), Math.max(0, roomWidthCm - item.width_cm));
-    const clampedY = Math.min(Math.max(y, 0), Math.max(0, roomHeightCm - item.height_cm));
-    node.position({ x: clampedX + halfW, y: clampedY + halfH });
-    onChange(item.id, { x_cm: clampedX, y_cm: clampedY });
-  };
 
   const handleTransformEnd = (e: Konva.KonvaEventObject<Event>) => {
     const node = e.target as Konva.Group;
@@ -69,7 +73,9 @@ export const CanvasItem: React.FC<CanvasItemProps> = ({
       // Bounding-box invariant: circles keep width === height (the diameter)
       width = height = Math.max(width, height);
     }
-    const rotation = Math.round(node.rotation()) % 360;
+    // Lock onto 0/90/180/270 when close — the transformer snaps visually,
+    // this makes the committed value exact as well.
+    const rotation = snapRotationDeg(node.rotation());
     const x_cm = Math.round(node.x() - width / 2);
     const y_cm = Math.round(node.y() - height / 2);
     onChange(item.id, { width_cm: width, height_cm: height, rotation_deg: rotation, x_cm, y_cm });
@@ -82,13 +88,9 @@ export const CanvasItem: React.FC<CanvasItemProps> = ({
     dash: isOverlapping && !isDropTarget ? [12, 8] : undefined,
   };
 
-  // In switch mode clicks pick the swap target (the source itself is inert)
-  const handleClick = () => {
-    if (isSwitchMode) {
-      if (isTable && !isSwitchSource) onPickSwitchTarget(item.id);
-      return;
-    }
-    onSelect(item.id);
+  const handleClick = (e: Konva.KonvaEventObject<MouseEvent | Event>) => {
+    const evt = e.evt as MouseEvent;
+    onSelect(item.id, Boolean(evt?.shiftKey || evt?.ctrlKey || evt?.metaKey));
   };
 
   return (
@@ -97,41 +99,77 @@ export const CanvasItem: React.FC<CanvasItemProps> = ({
       x={item.x_cm + halfW}
       y={item.y_cm + halfH}
       rotation={item.rotation_deg}
-      draggable={!isSwitchMode}
-      opacity={isSwitchSource ? 0.35 : 1}
+      draggable
       onClick={handleClick}
       onTap={handleClick}
-      onDblClick={() => !isSwitchMode && onOpenItem(item.id)}
-      onDblTap={() => !isSwitchMode && onOpenItem(item.id)}
-      onDragStart={() => onSelect(item.id)}
-      onDragEnd={handleDragEnd}
+      onDblClick={() => onOpenItem(item.id)}
+      onDblTap={() => onOpenItem(item.id)}
+      onDragStart={() => onItemDragStart(item.id)}
+      onDragEnd={(e) => onItemDragEnd(item.id, e.target)}
       onTransformEnd={handleTransformEnd}
+      onMouseEnter={() => labelTruncated && onHoverLabel(labelText)}
+      onMouseLeave={() => onHoverLabel(null)}
     >
       {item.shape === "circle" ? (
         <Circle radius={halfW} {...shapeProps} />
       ) : (
         <Rect x={-halfW} y={-halfH} width={item.width_cm} height={item.height_cm} cornerRadius={8} {...shapeProps} />
       )}
-      <Text
-        text={isTable ? tableDisplayName(item) : item.label ?? ""}
-        x={-halfW}
-        y={isTable ? -34 : -17}
-        width={item.width_cm}
-        align="center"
-        fontSize={30}
-        fontStyle="bold"
-        fill="#333"
-        listening={false}
-      />
-      {isTable && (
+      {isTable ? (
+        <>
+          {/* Table number topmost, capacity under it, label below the center —
+              the label wraps to extra lines instead of being cut, growing
+              downward from the center. */}
+          {numberLine != null && (
+            <Text
+              text={numberLine}
+              x={-halfW}
+              y={-(smallFont + 4) - (smallFont + 6)}
+              width={item.width_cm}
+              align="center"
+              fontSize={smallFont}
+              fontStyle="bold"
+              fill="#333"
+              wrap="none"
+              listening={false}
+            />
+          )}
+          <Text
+            text={capacityLine}
+            x={-halfW}
+            y={-(smallFont + 4)}
+            width={item.width_cm}
+            align="center"
+            fontSize={smallFont}
+            fill={occupancy && item.capacity != null && occupancy.seated > item.capacity ? "#c62828" : "#555"}
+            wrap="none"
+            listening={false}
+          />
+          <Text
+            text={labelText}
+            x={-halfW}
+            y={4}
+            width={item.width_cm}
+            align="center"
+            fontSize={fontSize}
+            fontStyle="bold"
+            fill="#333"
+            wrap="word"
+            listening={false}
+          />
+        </>
+      ) : (
         <Text
-          text={`${occupancy?.seated ?? 0}/${item.capacity ?? "?"}${occupancy?.hasTentative ? " ?" : ""}${occupancy?.hasDeclined ? " ✕" : ""}`}
+          text={labelText}
           x={-halfW}
-          y={4}
+          y={-(fontSize / 2 + 2)}
           width={item.width_cm}
           align="center"
-          fontSize={28}
-          fill={occupancy && item.capacity != null && occupancy.seated > item.capacity ? "#c62828" : "#555"}
+          fontSize={fontSize}
+          fontStyle="bold"
+          fill="#333"
+          wrap="none"
+          ellipsis
           listening={false}
         />
       )}

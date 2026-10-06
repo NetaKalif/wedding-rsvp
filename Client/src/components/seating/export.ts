@@ -2,7 +2,7 @@ import { Workbook } from "exceljs";
 import Konva from "konva";
 import { SeatingAssignment, SeatingItem, SeatingLayout } from "../../types";
 import { downloadXlsx } from "../rsvp/logic";
-import { buildEscortRows, buildTableRows, fitScale } from "./logic";
+import { buildGuestExportRows, fitScale } from "./logic";
 
 const EXPORT_WIDTH_PX = 2000;
 
@@ -45,29 +45,24 @@ export const downloadDataUrl = (dataUrl: string, filename: string) => {
   a.click();
 };
 
-/** Two-sheet workbook: guests grouped by table, and the alphabetical escort list. */
+/**
+ * Single-sheet workbook: guests alphabetically, with a blank "arrived" column
+ * for marking the actual head-count on the wedding day.
+ */
 export const downloadSeatingXlsx = async (
   items: SeatingItem[],
   assignments: SeatingAssignment[],
 ) => {
   const workbook = new Workbook();
 
-  const byTable = workbook.addWorksheet("לפי שולחן", { views: [{ rightToLeft: true }] });
-  byTable.columns = [
-    { header: "שולחן", key: "tableName", width: 24 },
+  const sheet = workbook.addWorksheet("רשימת אורחים", { views: [{ rightToLeft: true }] });
+  sheet.columns = [
     { header: "אורח", key: "guestName", width: 28 },
-    { header: "מקומות", key: "seats", width: 10 },
-    { header: "סטטוס", key: "status", width: 14 },
+    { header: "מספר אורחים", key: "seats", width: 12 },
+    { header: "הגיעו בפועל", key: "arrived", width: 12 },
+    { header: "מספר שולחן", key: "tableNumber", width: 12 },
   ];
-  buildTableRows(items, assignments).forEach((row) => byTable.addRow(row));
-
-  const escort = workbook.addWorksheet("לפי אורח", { views: [{ rightToLeft: true }] });
-  escort.columns = [
-    { header: "אורח", key: "guestName", width: 28 },
-    { header: "שולחן", key: "tableName", width: 24 },
-    { header: "מקומות", key: "seats", width: 10 },
-  ];
-  buildEscortRows(items, assignments).forEach((row) => escort.addRow(row));
+  buildGuestExportRows(items, assignments).forEach((row) => sheet.addRow(row));
 
   await downloadXlsx(workbook, "seating_arrangement.xlsx");
 };
@@ -86,14 +81,8 @@ export const openPrintView = (
   assignments: SeatingAssignment[],
   eventTitle: string,
 ) => {
-  const tableRows = buildTableRows(items, assignments);
-  const escortRows = buildEscortRows(items, assignments);
-
-  const tableRowsHtml = tableRows
-    .map((r) => `<tr><td>${escapeHtml(r.tableName)}</td><td>${escapeHtml(r.guestName)}</td><td>${r.seats}</td><td>${escapeHtml(r.status)}</td></tr>`)
-    .join("");
-  const escortRowsHtml = escortRows
-    .map((r) => `<tr><td>${escapeHtml(r.guestName)}</td><td>${escapeHtml(r.tableName)}</td><td>${r.seats}</td></tr>`)
+  const guestRowsHtml = buildGuestExportRows(items, assignments)
+    .map((r) => `<tr><td>${escapeHtml(r.guestName)}</td><td>${r.seats}</td><td class="arrived"></td><td>${r.tableNumber ?? ""}</td></tr>`)
     .join("");
 
   const html = `<!DOCTYPE html>
@@ -108,18 +97,16 @@ export const openPrintView = (
   table { border-collapse: collapse; width: 100%; margin-top: 8px; }
   th, td { border: 1px solid #bbb; padding: 4px 10px; text-align: right; font-size: 12px; }
   th { background: #f0f0f0; }
+  td.arrived { min-width: 70px; } /* room to hand-write the actual head-count */
   .page-break { page-break-before: always; }
 </style>
 </head>
 <body>
   <h1>סידורי הושבה — ${escapeHtml(eventTitle)}</h1>
   <img src="${floorPlanDataUrl}" alt="מפת האולם">
-  <h2 class="page-break">אורחים לפי שולחן</h2>
-  <table><thead><tr><th>שולחן</th><th>אורח</th><th>מקומות</th><th>סטטוס</th></tr></thead>
-  <tbody>${tableRowsHtml}</tbody></table>
-  <h2 class="page-break">רשימת אורחים (א-ב) — מספרי שולחן</h2>
-  <table><thead><tr><th>אורח</th><th>שולחן</th><th>מקומות</th></tr></thead>
-  <tbody>${escortRowsHtml}</tbody></table>
+  <h2 class="page-break">רשימת אורחים (א-ב)</h2>
+  <table><thead><tr><th>אורח</th><th>מספר אורחים</th><th>הגיעו בפועל</th><th>מספר שולחן</th></tr></thead>
+  <tbody>${guestRowsHtml}</tbody></table>
   <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
 </body>
 </html>`;

@@ -13,44 +13,62 @@ import {
   GRID_CM,
   GUEST_DRAG_TYPE,
   MIN_ITEM_CM,
+  moveItemsBy,
   parseDragPayload,
+  ROTATION_SNAPS,
+  ROTATION_SNAP_TOLERANCE_DEG,
   tableAtPoint,
-  tableDisplayName,
   tableOccupancy,
+  toggleSelection,
 } from "./logic";
 
 interface SeatingCanvasProps {
   layout: SeatingLayout;
   items: SeatingItem[];
   assignments: SeatingAssignment[];
-  selectedItemId: number | null;
-  /** When set, the canvas is in switch-guests mode: this table awaits a partner. */
-  switchSourceId: number | null;
+  /** Multi-selection: plain click selects one, shift/ctrl-click toggles. */
+  selectedItemIds: number[];
+  /** Canvas-wide label font size in cm (a viewer preference from localStorage). */
+  labelFontSize: number;
   stageRef: React.RefObject<Konva.Stage | null>;
-  onSelect: (id: number | null) => void;
+  onSelectionChange: (ids: number[]) => void;
   onItemChange: (id: number, changes: Partial<SeatingItem>) => void;
+  /** One drag of a multi-selection commits all moved items as one action. */
+  onMoveItems: (changes: Array<{ id: number; x_cm: number; y_cm: number }>) => void;
   onDropNewItem: (entry: BankEntry, label: string | null, xCm: number, yCm: number) => void;
   onDropGuest: (eventGuestId: number, tableId: number) => void;
   onOpenItem: (id: number) => void;
-  onPickSwitchTarget: (tableId: number) => void;
-  onCancelSwitch: () => void;
 }
 
 interface ViewState { scale: number; x: number; y: number; }
 
 const ZOOM_FACTOR = 1.06;
 
+/**
+ * One in-flight drag gesture over a (possibly multi-) selection. The Konva
+ * Transformer natively drags every attached node along and makes each of them
+ * fire its own dragstart/dragend — so the FIRST dragstart opens the gesture
+ * (fixing the moved ids), later dragstarts are the transformer's sibling
+ * startDrag calls, and the FIRST dragend commits the whole gesture once.
+ */
+interface DragSession {
+  ids: number[];
+  startTopLeft: Map<number, { x: number; y: number }>;
+}
+
 export const SeatingCanvas: React.FC<SeatingCanvasProps> = ({
-  layout, items, assignments, selectedItemId, switchSourceId, stageRef,
-  onSelect, onItemChange, onDropNewItem, onDropGuest, onOpenItem,
-  onPickSwitchTarget, onCancelSwitch,
+  layout, items, assignments, selectedItemIds, labelFontSize, stageRef,
+  onSelectionChange, onItemChange, onMoveItems, onDropNewItem, onDropGuest, onOpenItem,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
+  const dragSession = useRef<DragSession | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [view, setView] = useState<ViewState | null>(null);
   // The table currently under a dragged guest — highlighted as the drop target
   const [dropTableId, setDropTableId] = useState<number | null>(null);
+  // Full label of a hovered item whose text is cut with an ellipsis
+  const [labelTooltip, setLabelTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
 
   // Track the canvas area's size (70% column, so it changes with the window)
   useEffect(() => {
@@ -82,17 +100,84 @@ export const SeatingCanvas: React.FC<SeatingCanvasProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseScale]);
 
-  // Attach the transformer to the selected node
+  // Attach the transformer to every selected node
   useEffect(() => {
     const transformer = transformerRef.current;
     const stage = stageRef.current;
     if (!transformer || !stage) return;
-    const node = selectedItemId != null ? stage.findOne(`#item-${selectedItemId}`) : null;
-    transformer.nodes(node ? [node] : []);
+    const nodes = selectedItemIds
+      .map((id) => stage.findOne(`#item-${id}`))
+      .filter((n): n is Konva.Node => n != null);
+    transformer.nodes(nodes);
     transformer.getLayer()?.batchDraw();
-  }, [selectedItemId, items, stageRef]);
+  }, [selectedItemIds, items, stageRef]);
 
-  const selectedItem = items.find((i) => i.id === selectedItemId) ?? null;
+  const selectedItems = useMemo(
+    () => items.filter((i) => selectedItemIds.includes(i.id)),
+    [items, selectedItemIds],
+  );
+  // Resize/rotate are single-selection tools; a multi-selection moves as a group
+  const singleSelected = selectedItems.length === 1 ? selectedItems[0] : null;
+
+  const handleItemSelect = useCallback((id: number, additive: boolean) => {
+    onSelectionChange(toggleSelection(selectedItemIds, id, additive));
+  }, [selectedItemIds, onSelectionChange]);
+
+  // ==================== Group drag ====================
+
+  const handleItemDragStart = useCallback((id: number) => {
+    // Sibling dragstarts fired by the transformer's drag sync join the open gesture
+    if (dragSession.current) return;
+    // Dragging an unselected item selects it alone; dragging a selected one drags the group
+    const ids = selectedItemIds.includes(id) ? selectedItemIds : [id];
+    if (!selectedItemIds.includes(id)) onSelectionChange([id]);
+    const startTopLeft = new Map<number, { x: number; y: number }>();
+    for (const itemId of ids) {
+      const item = items.find((i) => i.id === itemId);
+      if (item) startTopLeft.set(itemId, { x: item.x_cm, y: item.y_cm });
+    }
+    dragSession.current = { ids, startTopLeft };
+  }, [selectedItemIds, items, onSelectionChange]);
+
+  const handleItemDragEnd = useCallback((id: number, node: Konva.Node) => {
+    const session = dragSession.current;
+    if (!session) return; // the gesture was already committed by another node's dragend
+    const start = session.startTopLeft.get(id);
+    const item = items.find((i) => i.id === id);
+    dragSession.current = null;
+    if (!start || !item) return;
+    // The transformer moves every attached node by the same delta — derive it
+    // from whichever node's dragend fires first (node position is the center).
+    const dx = node.x() - item.width_cm / 2 - start.x;
+    const dy = node.y() - item.height_cm / 2 - start.y;
+    const changes = moveItemsBy(
+      items, session.ids, dx, dy, layout.room_width_cm, layout.room_height_cm,
+    );
+    // Park every node on its committed (snapped + clamped) center — React can't
+    // reset a node whose props didn't change, so this is done imperatively.
+    for (const change of changes) {
+      const item = items.find((i) => i.id === change.id);
+      const moved = stageRef.current?.findOne(`#item-${change.id}`);
+      if (item && moved) {
+        moved.position({
+          x: change.x_cm + item.width_cm / 2,
+          y: change.y_cm + item.height_cm / 2,
+        });
+      }
+    }
+    onMoveItems(changes);
+  }, [items, layout.room_width_cm, layout.room_height_cm, onMoveItems, stageRef]);
+
+  // ==================== Label tooltip ====================
+
+  const handleHoverLabel = useCallback((text: string | null) => {
+    if (text == null) { setLabelTooltip(null); return; }
+    const pointer = stageRef.current?.getPointerPosition();
+    if (!pointer) return;
+    setLabelTooltip({ text, x: pointer.x, y: pointer.y });
+  }, [stageRef]);
+
+  // ==================== Zoom / HTML5 drops ====================
 
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -174,6 +259,12 @@ export const SeatingCanvas: React.FC<SeatingCanvasProps> = ({
 
   if (!view) return <div ref={containerRef} className="seating-canvas-container" />;
 
+  const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent | Event>) => {
+    if (e.target === stageRef.current || e.target.name() === "room") {
+      onSelectionChange([]);
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -199,18 +290,8 @@ export const SeatingCanvas: React.FC<SeatingCanvasProps> = ({
             setView((v) => (v ? { ...v, x: e.target.x(), y: e.target.y() } : v));
           }
         }}
-        onClick={(e) => {
-          if (e.target === stageRef.current || e.target.name() === "room") {
-            if (switchSourceId != null) onCancelSwitch();
-            else onSelect(null);
-          }
-        }}
-        onTap={(e) => {
-          if (e.target === stageRef.current || e.target.name() === "room") {
-            if (switchSourceId != null) onCancelSwitch();
-            else onSelect(null);
-          }
-        }}
+        onClick={handleStageClick}
+        onTap={handleStageClick}
       >
         <Layer>
           <Rect
@@ -229,25 +310,27 @@ export const SeatingCanvas: React.FC<SeatingCanvasProps> = ({
               key={item.id}
               item={item}
               occupancy={item.kind === "table" ? tableOccupancy(item.id, assignments) : null}
-              isSelected={item.id === selectedItemId}
+              isSelected={selectedItemIds.includes(item.id)}
               isOverlapping={overlappingIds.has(item.id)}
               isDropTarget={item.id === dropTableId}
-              isSwitchMode={switchSourceId != null}
-              isSwitchSource={item.id === switchSourceId}
-              roomWidthCm={layout.room_width_cm}
-              roomHeightCm={layout.room_height_cm}
-              onSelect={onSelect}
-              onChange={onItemChange}
+              fontSize={labelFontSize}
+              onSelect={handleItemSelect}
               onOpenItem={onOpenItem}
-              onPickSwitchTarget={onPickSwitchTarget}
+              onItemDragStart={handleItemDragStart}
+              onItemDragEnd={handleItemDragEnd}
+              onChange={onItemChange}
+              onHoverLabel={handleHoverLabel}
             />
           ))}
           <Transformer
             ref={transformerRef}
-            rotateEnabled={selectedItem?.shape === "rect"}
-            keepRatio={selectedItem?.shape === "circle"}
+            resizeEnabled={singleSelected != null}
+            rotateEnabled={singleSelected?.shape === "rect"}
+            rotationSnaps={ROTATION_SNAPS}
+            rotationSnapTolerance={ROTATION_SNAP_TOLERANCE_DEG}
+            keepRatio={singleSelected?.shape === "circle"}
             enabledAnchors={
-              selectedItem?.shape === "circle"
+              singleSelected?.shape === "circle"
                 ? ["top-left", "top-right", "bottom-left", "bottom-right"]
                 : undefined
             }
@@ -259,15 +342,14 @@ export const SeatingCanvas: React.FC<SeatingCanvasProps> = ({
           />
         </Layer>
       </Stage>
-      {switchSourceId != null && (
-        <div className="switch-banner" dir="rtl" data-testid="switch-banner">
-          <span>
-            {`בחרו שולחן להחלפת האורחים עם ${(() => {
-              const source = items.find((i) => i.id === switchSourceId);
-              return source ? tableDisplayName(source) : "";
-            })()}`}
-          </span>
-          <button type="button" onClick={onCancelSwitch}>ביטול</button>
+      {/* Full name of a hovered item whose label is cut with an ellipsis */}
+      {labelTooltip && (
+        <div
+          className="canvas-label-tooltip"
+          data-testid="canvas-label-tooltip"
+          style={{ left: labelTooltip.x + 12, top: labelTooltip.y + 12 }}
+        >
+          {labelTooltip.text}
         </div>
       )}
       {/* Seat capacity stats for the whole floor plan */}

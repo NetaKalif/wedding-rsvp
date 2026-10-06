@@ -187,7 +187,9 @@ describe("GuestsPanel", () => {
     expect(screen.getByTestId("active-filter-chips")).toHaveTextContent("מוזמן ע״י: כלה");
     fireEvent.click(screen.getByTitle("הסרת הסינון מוזמן ע״י: כלה"));
     expect(screen.getByText("דנה לוי")).toBeInTheDocument();
-    expect(screen.queryByTestId("active-filter-chips")).not.toBeInTheDocument();
+    // The preset confirmed-status chip is independent of the removed whose chip
+    expect(screen.getByTestId("active-filter-chips")).toHaveTextContent("סטטוס: מאושר");
+    expect(screen.getByTestId("active-filter-chips")).not.toHaveTextContent("מוזמן ע״י");
   });
 
   it("renders no drag handle for declined guests", () => {
@@ -199,7 +201,34 @@ describe("GuestsPanel", () => {
         onUnassign={jest.fn()}
       />,
     );
+    // Declined guests are behind the default confirmed-only filter — clear it
+    fireEvent.click(screen.getByTitle("הסרת הסינון סטטוס: מאושר"));
     expect(screen.getByTitle("האורח ביטל הגעה")).toBeInTheDocument();
     expect(screen.queryByTitle("גררו אל שולחן באולם")).not.toBeInTheDocument();
+  });
+
+  it("opens with the status filter preset to confirmed; removing the chip shows everyone", () => {
+    render(
+      <GuestsPanel
+        eventGuests={[
+          guest({ id: 1, name: "אישר", rsvp_status: 2 }),
+          guest({ id: 2, guest_id: 2, name: "ממתין לתשובה", rsvp_status: null }),
+          guest({ id: 3, guest_id: 3, name: "ביטל", rsvp_status: 0 }),
+        ]}
+        assignments={[]}
+        items={[]}
+        onUnassign={jest.fn()}
+      />,
+    );
+    // The preset is a regular filter: visible as an active chip, confirmed-only list
+    expect(screen.getByTestId("active-filter-chips")).toHaveTextContent("סטטוס: מאושר");
+    expect(screen.getByText("אישר")).toBeInTheDocument();
+    expect(screen.queryByText("ממתין לתשובה")).not.toBeInTheDocument();
+    expect(screen.queryByText("ביטל")).not.toBeInTheDocument();
+
+    // Removing the chip through the normal filter UI reveals pending/declined too
+    fireEvent.click(screen.getByTitle("הסרת הסינון סטטוס: מאושר"));
+    expect(screen.getByText("ממתין לתשובה")).toBeInTheDocument();
+    expect(screen.getByText("ביטל")).toBeInTheDocument();
   });
 });

@@ -1,17 +1,25 @@
 import { EventGuest, SeatingAssignment, SeatingItem } from "../../types";
 import {
   buildDuplicate,
-  buildEscortRows,
+  buildGuestExportRows,
   buildSwapEntries,
   canvasSeatStats,
-  buildTableRows,
   clampToRoom,
   fillState,
   findOverlappingIds,
   fitScale,
+  clampFontSize,
+  clampPanelWidth,
+  isLabelTruncated,
   itemsOverlap,
+  loadStoredFontSize,
+  loadStoredPanelWidth,
+  moveItemsBy,
   needsAttention,
   nextTableNumber,
+  renumberAfterDelete,
+  snapRotationDeg,
+  toggleSelection,
   OBJECT_COLORS,
   parseDragPayload,
   PRESET_OBJECTS,
@@ -22,6 +30,7 @@ import {
   snapToGrid,
   tableAtPoint,
   tableDisplayName,
+  tableTopLines,
   tableOccupancy,
 } from "./logic";
 
@@ -167,6 +176,61 @@ describe("table identity", () => {
     expect(tableDisplayName({ label: "שולחן ילדים", table_number: 3 })).toBe("שולחן ילדים");
     expect(tableDisplayName({ label: "  ", table_number: 3 })).toBe("שולחן 3");
     expect(tableDisplayName({ label: null, table_number: 3 })).toBe("שולחן 3");
+  });
+});
+
+describe("tableTopLines", () => {
+  it("shows the table number even when a custom label hides it, plus the occupancy flags", () => {
+    expect(tableTopLines(
+      { table_number: 5, capacity: 12 },
+      { seated: 7, hasTentative: true, hasDeclined: true },
+    )).toEqual({ numberLine: "5", capacityLine: "7/12 ? ✕" });
+  });
+
+  it("omits the number line when the table has none, and tolerates missing data", () => {
+    expect(tableTopLines({ table_number: null, capacity: null }, null))
+      .toEqual({ numberLine: null, capacityLine: "0/?" });
+  });
+});
+
+describe("renumberAfterDelete", () => {
+  it("shifts only the tables numbered above the deleted number", () => {
+    const items = [
+      baseItem({ id: 1, table_number: 1 }),
+      baseItem({ id: 3, table_number: 3 }),
+      baseItem({ id: 4, table_number: 4 }),
+    ];
+    expect(renumberAfterDelete(items, [2])).toEqual([
+      { id: 3, before: 3, after: 2 },
+      { id: 4, before: 4, after: 3 },
+    ]);
+  });
+
+  it("returns nothing when the deleted table had the highest number", () => {
+    const items = [baseItem({ id: 1, table_number: 1 }), baseItem({ id: 2, table_number: 2 })];
+    expect(renumberAfterDelete(items, [3])).toEqual([]);
+  });
+
+  it("closes multiple gaps at once (multi-delete)", () => {
+    const items = [
+      baseItem({ id: 1, table_number: 1 }),
+      baseItem({ id: 4, table_number: 4 }),
+      baseItem({ id: 6, table_number: 6 }),
+    ];
+    // tables 2, 3 and 5 were deleted
+    expect(renumberAfterDelete(items, [2, 3, 5])).toEqual([
+      { id: 4, before: 4, after: 2 },
+      { id: 6, before: 6, after: 3 },
+    ]);
+  });
+
+  it("ignores objects and tables without a number", () => {
+    const items = [
+      baseItem({ id: 1, kind: "object", table_number: null }),
+      baseItem({ id: 2, table_number: null }),
+      baseItem({ id: 3, table_number: 5 }),
+    ];
+    expect(renumberAfterDelete(items, [2])).toEqual([{ id: 3, before: 5, after: 4 }]);
   });
 });
 
@@ -394,17 +458,115 @@ describe("export rows", () => {
     baseAssignment({ id: 2, item_id: 1, event_guest_id: 2, name: "אבי", rsvp_status: null, number_of_guests: 4 }),
   ];
 
-  it("groups by table with status labels", () => {
-    expect(buildTableRows(items, assignments)).toEqual([
-      { tableName: "שולחן 1", guestName: "אבי", seats: 4, status: "ממתין" },
-      { tableName: "שולחן חברים", guestName: "גל", seats: 2, status: "אישר" },
+  it("lists guests alphabetically with party size and table number only", () => {
+    expect(buildGuestExportRows(items, assignments)).toEqual([
+      { guestName: "אבי", seats: 4, tableNumber: 1 },
+      // A labeled table still exports its number
+      { guestName: "גל", seats: 2, tableNumber: 2 },
     ]);
   });
 
-  it("builds the escort list sorted alphabetically by guest", () => {
-    expect(buildEscortRows(items, assignments)).toEqual([
-      { guestName: "אבי", tableName: "שולחן 1", seats: 4 },
-      { guestName: "גל", tableName: "שולחן חברים", seats: 2 },
+  it("exports a null table number when the table no longer exists", () => {
+    expect(buildGuestExportRows([], assignments).map((r) => r.tableNumber)).toEqual([null, null]);
+  });
+});
+
+describe("snapRotationDeg", () => {
+  it("locks onto right angles within tolerance", () => {
+    expect(snapRotationDeg(0)).toBe(0);
+    expect(snapRotationDeg(4)).toBe(0);
+    expect(snapRotationDeg(-5)).toBe(0); // 355 → snaps back to 0
+    expect(snapRotationDeg(87)).toBe(90);
+    expect(snapRotationDeg(93)).toBe(90);
+    expect(snapRotationDeg(176)).toBe(180);
+    expect(snapRotationDeg(267)).toBe(270);
+    expect(snapRotationDeg(356)).toBe(0);
+  });
+
+  it("leaves angles outside the tolerance untouched (normalized to 0–359)", () => {
+    expect(snapRotationDeg(45)).toBe(45);
+    expect(snapRotationDeg(99)).toBe(99);
+    expect(snapRotationDeg(-45)).toBe(315);
+    expect(snapRotationDeg(405)).toBe(45);
+  });
+});
+
+describe("toggleSelection", () => {
+  it("plain click selects exactly the clicked item", () => {
+    expect(toggleSelection([], 5, false)).toEqual([5]);
+    expect(toggleSelection([1, 2], 5, false)).toEqual([5]);
+    expect(toggleSelection([5], 5, false)).toEqual([5]);
+  });
+
+  it("additive click toggles membership, preserving selection order", () => {
+    expect(toggleSelection([], 5, true)).toEqual([5]);
+    expect(toggleSelection([1, 2], 5, true)).toEqual([1, 2, 5]);
+    expect(toggleSelection([1, 5, 2], 5, true)).toEqual([1, 2]);
+  });
+});
+
+describe("moveItemsBy", () => {
+  const items = [
+    baseItem({ id: 1, x_cm: 100, y_cm: 100 }),
+    baseItem({ id: 2, x_cm: 400, y_cm: 300 }),
+  ];
+
+  it("moves every selected item by the same delta, snapped to the grid", () => {
+    expect(moveItemsBy(items, [1, 2], 160, -40, 2000, 2000)).toEqual([
+      { id: 1, x_cm: 250, y_cm: 50 },
+      { id: 2, x_cm: 550, y_cm: 250 },
     ]);
+  });
+
+  it("clamps each item to the room independently", () => {
+    // Items are 180cm wide; room 1000 → max top-left x is 820
+    expect(moveItemsBy(items, [1, 2], 600, 0, 1000, 1000)).toEqual([
+      { id: 1, x_cm: 700, y_cm: 100 },
+      { id: 2, x_cm: 820, y_cm: 300 },
+    ]);
+  });
+
+  it("ignores ids that are not on the canvas", () => {
+    expect(moveItemsBy(items, [1, 99], 50, 0, 2000, 2000)).toEqual([
+      { id: 1, x_cm: 150, y_cm: 100 },
+    ]);
+  });
+});
+
+describe("item text", () => {
+  it("clampFontSize keeps the size inside the allowed range", () => {
+    expect(clampFontSize(30)).toBe(30);
+    expect(clampFontSize(5)).toBe(10);
+    expect(clampFontSize(500)).toBe(100);
+  });
+
+  it("loadStoredFontSize parses the localStorage value, falling back to the default", () => {
+    expect(loadStoredFontSize("45")).toBe(45);
+    expect(loadStoredFontSize("5")).toBe(10); // clamped into range
+    expect(loadStoredFontSize("200")).toBe(100);
+    expect(loadStoredFontSize(null)).toBe(30);
+    expect(loadStoredFontSize("not-a-number")).toBe(30);
+    expect(loadStoredFontSize("30.5")).toBe(30); // non-integer → default
+  });
+
+  it("side-panel width: clamps drags and parses the stored preference", () => {
+    expect(clampPanelWidth(380)).toBe(380);
+    expect(clampPanelWidth(100)).toBe(240); // can't be dragged narrower
+    expect(clampPanelWidth(5000)).toBe(640); // or wider
+    expect(clampPanelWidth(380.6)).toBe(381);
+    expect(loadStoredPanelWidth("420")).toBe(420);
+    expect(loadStoredPanelWidth("100")).toBe(240);
+    expect(loadStoredPanelWidth(null)).toBe(380);
+    expect(loadStoredPanelWidth("garbage")).toBe(380);
+  });
+
+  it("isLabelTruncated compares measured text width against the item width", () => {
+    const measure = (text: string, fontSize: number) => text.length * fontSize;
+    expect(isLabelTruncated("שולחן ארוך מאוד", 30, 180, measure)).toBe(true);
+    expect(isLabelTruncated("קצר", 30, 180, measure)).toBe(false);
+    expect(isLabelTruncated("", 30, 180, measure)).toBe(false);
+    // Bigger font can push the same text over the edge
+    expect(isLabelTruncated("שולחן", 30, 180, measure)).toBe(false);
+    expect(isLabelTruncated("שולחן", 40, 180, measure)).toBe(true);
   });
 });
