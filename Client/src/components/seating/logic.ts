@@ -281,6 +281,23 @@ export const renumberAfterDelete = (
         : [];
     });
 
+/**
+ * History entries that strip the number from every numbered table, so the user
+ * can renumber freely. Applied and recorded as ONE batch — a single undo
+ * restores all the numbers.
+ */
+export const clearTableNumberEntries = (
+  items: SeatingItem[],
+): Array<Extract<SeatingBatchableEntry, { type: "update" }>> =>
+  items
+    .filter((i) => i.kind === "table" && i.table_number != null)
+    .map((i) => ({
+      type: "update" as const,
+      itemId: i.id,
+      before: { table_number: i.table_number },
+      after: { table_number: null },
+    }));
+
 // ==================== Geometry ====================
 
 interface Bounds { left: number; top: number; right: number; bottom: number; }

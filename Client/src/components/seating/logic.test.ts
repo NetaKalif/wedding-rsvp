@@ -5,6 +5,7 @@ import {
   buildSwapEntries,
   canvasSeatStats,
   clampToRoom,
+  clearTableNumberEntries,
   fillState,
   findOverlappingIds,
   fitScale,
@@ -231,6 +232,34 @@ describe("renumberAfterDelete", () => {
       baseItem({ id: 3, table_number: 5 }),
     ];
     expect(renumberAfterDelete(items, [2])).toEqual([{ id: 3, before: 5, after: 4 }]);
+  });
+});
+
+describe("clearTableNumberEntries", () => {
+  it("builds an update entry per numbered table, remembering the old number", () => {
+    const items = [
+      baseItem({ id: 1, table_number: 3 }),
+      baseItem({ id: 2, table_number: 7 }),
+    ];
+    expect(clearTableNumberEntries(items)).toEqual([
+      { type: "update", itemId: 1, before: { table_number: 3 }, after: { table_number: null } },
+      { type: "update", itemId: 2, before: { table_number: 7 }, after: { table_number: null } },
+    ]);
+  });
+
+  it("skips objects and tables that already have no number", () => {
+    const items = [
+      baseItem({ id: 1, kind: "object", table_number: null }),
+      baseItem({ id: 2, table_number: null }),
+      baseItem({ id: 3, table_number: 2 }),
+    ];
+    expect(clearTableNumberEntries(items)).toEqual([
+      { type: "update", itemId: 3, before: { table_number: 2 }, after: { table_number: null } },
+    ]);
+  });
+
+  it("returns nothing when no table is numbered (button stays disabled)", () => {
+    expect(clearTableNumberEntries([baseItem({ id: 1, table_number: null })])).toEqual([]);
   });
 });
 

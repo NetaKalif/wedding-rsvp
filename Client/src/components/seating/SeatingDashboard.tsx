@@ -3,7 +3,7 @@ import { Box, Button, Loader, Modal, PopoverMenu, Text, Input, FormField } from 
 import { ChevronDown } from "@wix/wix-ui-icons-common";
 import "@wix/design-system/styles.global.css";
 import Konva from "konva";
-import { Undo2, Redo2, Trash2, Copy, Eraser, ArrowLeftRight, Image as ImageIcon, Printer, FileSpreadsheet, Ruler } from "lucide-react";
+import { Undo2, Redo2, Trash2, Copy, Eraser, ArrowLeftRight, Image as ImageIcon, Printer, FileSpreadsheet, Ruler, Hash } from "lucide-react";
 import Header from "../global/Header";
 import { useAuth } from "../../hooks/useAuth";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -30,6 +30,7 @@ import {
   clampFontSize,
   clampPanelWidth,
   clampToRoom,
+  clearTableNumberEntries,
   FONT_STEP_CM,
   FONT_STORAGE_KEY,
   loadStoredFontSize,
@@ -453,6 +454,25 @@ export const SeatingDashboard: React.FC = () => {
     }
   }, [items, removeItem, pushHistory, offerRenumberAfterDelete]);
 
+  /**
+   * Strips the number from every numbered table so the user can renumber them
+   * however they want (double-click a table → table number field). One
+   * undoable batch — a single undo brings all the numbers back.
+   */
+  const handleClearTableNumbers = useCallback(async () => {
+    const entries = clearTableNumberEntries(items);
+    if (entries.length === 0) return;
+    const confirmed = await confirm({
+      title: "איפוס מספרי השולחנות",
+      message: `להסיר את המספרים מ-${entries.length} השולחנות? לאחר מכן ניתן למספר כל שולחן מחדש בלחיצה כפולה עליו. אפשר לשחזר עם "בטל".`,
+      confirmText: "הסרת המספרים",
+      confirmSkin: "standard",
+    });
+    if (!confirmed) return;
+    entries.forEach((e) => applyUpdate(e.itemId, e.after));
+    pushHistory(entries.length === 1 ? entries[0] : { type: "batch", entries });
+  }, [items, confirm, applyUpdate, pushHistory]);
+
   // Clean canvas: wipes every item (guests become unassigned). Not undoable —
   // the confirmation dialog is the guard — so the history is cleared with it.
   const handleClearCanvas = useCallback(async () => {
@@ -751,6 +771,15 @@ export const SeatingDashboard: React.FC = () => {
                 +
               </button>
             </div>
+            <Button
+              size="small"
+              skin="light"
+              disabled={!items.some((i) => i.kind === "table" && i.table_number != null)}
+              onClick={() => void handleClearTableNumbers()}
+              prefixIcon={<Hash size={14} />}
+            >
+              איפוס מספור
+            </Button>
             <Button size="small" skin="light" onClick={() => void undo()} disabled={past.length === 0} prefixIcon={<Undo2 size={14} />}>בטל</Button>
             <Button size="small" skin="light" onClick={() => void redo()} disabled={future.length === 0} prefixIcon={<Redo2 size={14} />}>בצע שוב</Button>
             <Button
