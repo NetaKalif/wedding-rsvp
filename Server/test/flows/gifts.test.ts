@@ -261,6 +261,49 @@ describe("Delete gift", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+describe("Gift activity log", () => {
+  const getLogs = async (): Promise<Array<{ message: string }>> => {
+    const { data } = await axios.get(`${REAL_SERVER}/logs`, { headers: authHeader() });
+    return data;
+  };
+
+  it("add/update/delete log the guest's name and amounts, with old → new on update", async () => {
+    const guest = await addGuest("Logger", "+972509998020");
+    createdGuestIds.push(guest.id);
+
+    const { data: gift } = await addGift(guest.id, "cash", 300);
+    createdGiftIds.push(gift.gift_id);
+    let logs = await getLogs();
+    expect(logs.some((l) => l.message === "🎁 Gift added for Logger: ₪300 (cash)")).toBe(true);
+
+    await updateGift(gift.gift_id, "check", 450);
+    logs = await getLogs();
+    expect(
+      logs.some((l) => l.message === "🎁 Gift updated for Logger: ₪300 → ₪450, cash → check"),
+    ).toBe(true);
+
+    await deleteGift(gift.gift_id);
+    logs = await getLogs();
+    expect(logs.some((l) => l.message === "🗑️ Gift deleted for Logger: ₪450 (check)")).toBe(true);
+  });
+
+  it("update with identical values logs '(no changes)', and 'other' gifts log their description", async () => {
+    const guest = await addGuest("Otherly", "+972509998021");
+    createdGuestIds.push(guest.id);
+
+    const { data: gift } = await addGift(guest.id, "other", 200, undefined, "שובר");
+    createdGiftIds.push(gift.gift_id);
+    let logs = await getLogs();
+    expect(logs.some((l) => l.message === "🎁 Gift added for Otherly: ₪200 (other: שובר)")).toBe(true);
+
+    await updateGift(gift.gift_id, "other", 200, undefined, "שובר");
+    logs = await getLogs();
+    expect(logs.some((l) => l.message === "🎁 Gift updated for Otherly (no changes)")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe("Gift/guest coupling", () => {
   it("deleting a guest also deletes their gifts", async () => {
     const guest = await addGuest("Ephemeral", "+972509998008");

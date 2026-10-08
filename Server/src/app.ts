@@ -7,6 +7,7 @@ import {
   User,
   Event,
   EventGuest,
+  Guest,
   GIFT_TYPES,
   GiftType,
   SEATING_ITEM_KINDS,
@@ -535,13 +536,30 @@ app.patch("/addGuests", async (req: Request, res: Response) => {
   }
 });
 
+const GUEST_LOG_FIELDS: { key: keyof Guest; label: string }[] = [
+  { key: "name", label: "name" },
+  { key: "phone", label: "phone" },
+  { key: "whose", label: "side" },
+  { key: "circle", label: "circle" },
+  { key: "number_of_guests", label: "count" },
+];
+
+function describeGuestChanges(before: Guest | undefined, after: Guest): string {
+  if (!before) return "";
+  const parts = GUEST_LOG_FIELDS.filter(
+    ({ key }) => String(before[key] ?? "") !== String(after[key] ?? ""),
+  ).map(({ key, label }) => `${label}: ${before[key] ?? "—"} → ${after[key] ?? "—"}`);
+  return parts.length ? `: ${parts.join(", ")}` : " (no changes)";
+}
+
 app.patch("/updateGuest", async (req: Request, res: Response) => {
   const { guestId, updates } = req.body;
   try {
     const dataOwner = await resolveDataOwner(req.auth.userID);
+    const before = await db.getGuestById(dataOwner, Number(guestId));
     const updated = await db.updateGuest(dataOwner, Number(guestId), updates);
     if (!updated) return res.status(404).send("Guest not found");
-    await logMessage(dataOwner, `✏️ Guest ${guestId} updated`);
+    await logMessage(dataOwner, `✏️ Guest ${updated.name} updated${describeGuestChanges(before, updated)}`);
     res.status(200).json(updated);
   } catch (error: any) {
     if (error.code === "23505") {
@@ -1941,6 +1959,23 @@ const validateGiftFields = (
   };
 };
 
+const giftKindLabel = (gift: { gift_type: string; other_description?: string | null }) =>
+  gift.gift_type === "other" && gift.other_description
+    ? `other: ${gift.other_description}`
+    : gift.gift_type;
+
+function describeGiftChanges(
+  before: { amount: number; gift_type: string; other_description?: string | null },
+  after: { amount: number; gift_type: string; other_description?: string | null },
+): string {
+  const parts: string[] = [];
+  if (before.amount !== after.amount) parts.push(`₪${before.amount} → ₪${after.amount}`);
+  if (giftKindLabel(before) !== giftKindLabel(after)) {
+    parts.push(`${giftKindLabel(before)} → ${giftKindLabel(after)}`);
+  }
+  return parts.length ? `: ${parts.join(", ")}` : " (no changes)";
+}
+
 // Add a gift from a guest
 app.post("/gifts", async (req: Request, res: Response) => {
   try {
@@ -1960,7 +1995,11 @@ app.post("/gifts", async (req: Request, res: Response) => {
       fields.amount,
       fields.otherDescription,
     );
-    await logMessage(dataOwner, `🎁 Gift added: ₪${fields.amount} (${fields.giftType})`);
+    const guest = await db.getGuestById(dataOwner, Number(guest_id));
+    await logMessage(
+      dataOwner,
+      `🎁 Gift added for ${guest?.name ?? `guest ${guest_id}`}: ₪${fields.amount} (${giftKindLabel(gift)})`,
+    );
     res.status(201).json(gift);
   } catch (error: any) {
     if (error.message === "Guest not found or access denied") {
@@ -1980,15 +2019,19 @@ app.patch("/gifts/:giftId", async (req: Request, res: Response) => {
       return res.status(400).send(fields.error);
     }
     const dataOwner = await resolveDataOwner(req.auth.userID);
+    const before = await db.getGiftById(dataOwner, parseInt(giftId));
     const gift = await db.updateGift(dataOwner, parseInt(giftId), {
       gift_type: fields.giftType,
       other_description: fields.otherDescription,
       amount: fields.amount,
     });
-    if (!gift) {
+    if (!gift || !before) {
       return res.status(404).send("Gift not found");
     }
-    await logMessage(dataOwner, `🎁 Gift updated: ₪${fields.amount} (${fields.giftType})`);
+    await logMessage(
+      dataOwner,
+      `🎁 Gift updated for ${before.guest_name ?? `guest ${gift.guest_id}`}${describeGiftChanges(before, gift)}`,
+    );
     res.status(200).json(gift);
   } catch (error) {
     logError(req.auth?.userID, "Error updating gift:", error);
@@ -2001,11 +2044,15 @@ app.delete("/gifts/:giftId", async (req: Request, res: Response) => {
   try {
     const { giftId } = req.params;
     const dataOwner = await resolveDataOwner(req.auth.userID);
+    const gift = await db.getGiftById(dataOwner, parseInt(giftId));
     const deleted = await db.deleteGift(dataOwner, parseInt(giftId));
     if (!deleted) {
       return res.status(404).send("Gift not found");
     }
-    await logMessage(dataOwner, `🗑️ Gift deleted`);
+    await logMessage(
+      dataOwner,
+      `🗑️ Gift deleted for ${gift?.guest_name ?? `guest ${gift?.guest_id ?? giftId}`}: ₪${gift?.amount} (${gift ? giftKindLabel(gift) : "?"})`,
+    );
     res.status(200).send("Gift deleted successfully");
   } catch (error) {
     logError(req.auth?.userID, "Error deleting gift:", error);

@@ -536,6 +536,14 @@ class Database {
     );
   }
 
+  async getGuestById(userID: string, guestId: number): Promise<Guest | undefined> {
+    const rows = await this.runQuery(
+      `SELECT ${guestColumns} FROM guests WHERE id=$1 AND user_id=$2;`,
+      [guestId, userID],
+    );
+    return rows[0];
+  }
+
   async addGuests(userID: string, guests: Pick<Guest, "name" | "phone" | "whose" | "circle" | "number_of_guests">[]): Promise<Guest[]> {
     if (guests.length === 0) return [];
     const values: any[] = [];
@@ -2230,6 +2238,23 @@ class Database {
       ...row,
       amount: parseFloat(row.amount),
     }));
+  }
+
+  // Get one gift, with the giving guest's name for activity logging
+  async getGiftById(
+    userID: string,
+    giftId: number,
+  ): Promise<(Gift & { guest_name: string | null }) | undefined> {
+    const rows = await this.runQuery(
+      `SELECT g.gift_id, g.user_id, g.guest_id, g.gift_type, g.other_description, g.amount, g.created_at,
+              gu.name AS guest_name
+       FROM gifts g
+       LEFT JOIN guests gu ON gu.id = g.guest_id
+       WHERE g.gift_id = $1 AND g.user_id = $2;`,
+      [giftId, userID],
+    );
+    if (rows.length === 0) return undefined;
+    return { ...rows[0], amount: parseFloat(rows[0].amount) };
   }
 
   // Add a gift from a guest

@@ -134,6 +134,56 @@ describe("Guests without a phone number", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+describe("Update guest activity log", () => {
+  const getLogs = async (): Promise<Array<{ message: string }>> => {
+    const { data } = await axios.get(`${REAL_SERVER}/logs`, { headers: authHeader() });
+    return data;
+  };
+
+  it("logs the guest's name and each changed field as old → new", async () => {
+    const { data } = await addGuest("Noa", "+972509999010");
+    const newGuest = (data as any[]).find((g) => g.name === "Noa");
+    createdGuestIds.push(newGuest.id);
+
+    await updateGuest(newGuest.id, {
+      name: "Noa Levi",
+      phone: "+972509999011",
+      whose: "bride",
+      circle: "family",
+      number_of_guests: 3,
+    });
+
+    const logs = await getLogs();
+    const entry = logs.find((l) => l.message.startsWith("✏️ Guest Noa Levi updated"));
+    expect(entry).toBeDefined();
+    expect(entry!.message).toContain("name: Noa → Noa Levi");
+    expect(entry!.message).toContain("phone: +972509999010 → +972509999011");
+    expect(entry!.message).toContain("circle: friends → family");
+    expect(entry!.message).toContain("count: 1 → 3");
+    // Unchanged fields stay out of the log line.
+    expect(entry!.message).not.toContain("side:");
+  });
+
+  it("logs '(no changes)' when the update changes nothing", async () => {
+    const { data } = await addGuest("Omer", "+972509999012");
+    const newGuest = (data as any[]).find((g) => g.name === "Omer");
+    createdGuestIds.push(newGuest.id);
+
+    await updateGuest(newGuest.id, {
+      name: "Omer",
+      phone: "+972509999012",
+      whose: "bride",
+      circle: "friends",
+      number_of_guests: 1,
+    });
+
+    const logs = await getLogs();
+    expect(logs.some((l) => l.message === "✏️ Guest Omer updated (no changes)")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe("Remove guest from event (not from account)", () => {
   it("removed from event → gone from that event, but still in global guest list", async () => {
     const { data } = await addGuest("Fiona", "+972509999003");
