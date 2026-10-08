@@ -55,6 +55,15 @@ const pool = new Pool({
   statement_timeout: 30000,
   query_timeout: 30000,
 });
+
+// The warm idle connections above can still be killed out from under us (the
+// Aiven server or a NAT aborting the socket surfaces as e.g. ECONNABORTED).
+// pg emits that as an 'error' event on the pool itself; with no listener,
+// Node treats it as fatal and the whole process crashes. Log and move on —
+// the pool discards the dead client and dials a fresh one on next use.
+pool.on("error", (err) => {
+  logError(undefined, "Idle database connection error (client discarded):", err);
+});
 const guestColumns = `id, user_id, name, phone, whose, circle, number_of_guests`;
 const USER_NAME_CACHE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 

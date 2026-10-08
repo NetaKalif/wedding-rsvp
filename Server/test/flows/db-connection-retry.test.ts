@@ -10,9 +10,10 @@
  */
 
 const mockQuery = jest.fn();
+const mockOn = jest.fn();
 
 jest.mock("pg", () => ({
-  Pool: jest.fn(() => ({ query: mockQuery })),
+  Pool: jest.fn(() => ({ query: mockQuery, on: mockOn })),
 }));
 
 import Database from "../../src/dbUtils";
@@ -22,6 +23,20 @@ const db = new (Database as any)();
 
 beforeEach(() => {
   mockQuery.mockReset();
+});
+
+describe("pool idle-client error handling", () => {
+  test("registers an 'error' listener on the pool so an idle connection drop can't crash the process", () => {
+    // Node kills the process on an unhandled 'error' event, so the listener
+    // itself is the fix (seen in prod: ECONNABORTED from Aiven on an idle
+    // client took the whole server down).
+    const errorCalls = mockOn.mock.calls.filter(([event]) => event === "error");
+    expect(errorCalls).toHaveLength(1);
+
+    // The handler must swallow the error (log it), never rethrow.
+    const handler = errorCalls[0][1];
+    expect(() => handler(new Error("read ECONNABORTED"))).not.toThrow();
+  });
 });
 
 describe("runQuery connect-failure retry", () => {
