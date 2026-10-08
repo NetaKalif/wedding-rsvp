@@ -80,20 +80,30 @@ describe("Scheduled thank-you messages (day after the wedding)", () => {
   const pool = new Pool({ connectionString: DATABASE_URL, ssl: false });
   const OWNER = "sched-thankyou-owner";
   const GUEST_PHONE = "+972509990202";
+  const DECLINED_PHONE = "+972509990203";
+  const PENDING_PHONE = "+972509990204";
 
   // Seeds an approved-messaging owner whose wedding was YESTERDAY, with one
   // confirmed guest — the exact state the day-after thank-you fires on.
+  // A declined and a pending guest are seeded alongside to verify the
+  // scheduler only thanks confirmed (rsvp_status > 0) guests.
   const seedOwnerWithWedding = async (sendThankYou: boolean) => {
     await pool.query(
       `INSERT INTO users ("userID", email, name, messaging_permission_status)
        VALUES ($1, $2, $3, 'approved')`,
       [OWNER, `${OWNER}@test.com`, OWNER],
     );
-    const { rows: [guest] } = await pool.query(
-      `INSERT INTO guests (user_id, name, phone, whose, circle, number_of_guests)
-       VALUES ($1, 'thankyou-guest', $2, 'bride', 'family', 1) RETURNING id`,
-      [OWNER, GUEST_PHONE],
-    );
+    const insertGuest = async (name: string, phone: string) => {
+      const { rows: [g] } = await pool.query(
+        `INSERT INTO guests (user_id, name, phone, whose, circle, number_of_guests)
+         VALUES ($1, $2, $3, 'bride', 'family', 1) RETURNING id`,
+        [OWNER, name, phone],
+      );
+      return g.id;
+    };
+    const confirmedId = await insertGuest("thankyou-guest", GUEST_PHONE);
+    const declinedId = await insertGuest("thankyou-declined", DECLINED_PHONE);
+    const pendingId = await insertGuest("thankyou-pending", PENDING_PHONE);
     // Same date format the scheduler compares against (getDateFormat → UTC yyyy-mm-dd)
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const { rows: [event] } = await pool.query(
@@ -102,8 +112,8 @@ describe("Scheduled thank-you messages (day after the wedding)", () => {
       [OWNER, yesterday, sendThankYou],
     );
     await pool.query(
-      `INSERT INTO event_guests (event_id, guest_id, rsvp_status) VALUES ($1, $2, 2)`,
-      [event.id, guest.id],
+      `INSERT INTO event_guests (event_id, guest_id, rsvp_status) VALUES ($1, $2, 2), ($1, $3, 0), ($1, $4, NULL)`,
+      [event.id, confirmedId, declinedId, pendingId],
     );
   };
 
@@ -123,6 +133,9 @@ describe("Scheduled thank-you messages (day after the wedding)", () => {
 
     const [msg] = await mock.waitForMessages(GUEST_PHONE, 1);
     expect(msg.template?.name).toBe("thank_you_message");
+    // Only the confirmed guest gets the thank-you
+    expect(await mock.getMessages({ to: DECLINED_PHONE })).toHaveLength(0);
+    expect(await mock.getMessages({ to: PENDING_PHONE })).toHaveLength(0);
   });
 
   it("the scheduler sends nothing when send_thank_you is off", async () => {

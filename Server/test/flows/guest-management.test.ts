@@ -164,6 +164,22 @@ describe("Update guest activity log", () => {
     expect(entry!.message).not.toContain("side:");
   });
 
+  it("delete logs the guest's name and details, not just the ID", async () => {
+    const { data } = await addGuest("Tamar", "+972509999013");
+    const newGuest = (data as any[]).find((g) => g.name === "Tamar");
+
+    await deleteGuest(newGuest.id);
+
+    const logs = await getLogs();
+    expect(
+      logs.some(
+        (l) =>
+          l.message ===
+          "👋 Guest Tamar deleted (phone: +972509999013, side: bride, circle: friends, count: 1)",
+      ),
+    ).toBe(true);
+  });
+
   it("logs '(no changes)' when the update changes nothing", async () => {
     const { data } = await addGuest("Omer", "+972509999012");
     const newGuest = (data as any[]).find((g) => g.name === "Omer");

@@ -619,8 +619,14 @@ app.delete("/deleteGuest", async (req: Request, res: Response) => {
   const { guestId } = req.body;
   try {
     const dataOwner = await resolveDataOwner(req.auth.userID);
+    const guest = await db.getGuestById(dataOwner, Number(guestId));
     await db.deleteGuest(dataOwner, Number(guestId));
-    await logMessage(dataOwner, `👋 Guest ${guestId} deleted`);
+    await logMessage(
+      dataOwner,
+      guest
+        ? `👋 Guest ${guest.name} deleted (phone: ${guest.phone ?? "—"}, side: ${guest.whose}, circle: ${guest.circle}, count: ${guest.number_of_guests})`
+        : `👋 Guest ${guestId} deleted`,
+    );
     const guests = await db.getGuests(dataOwner);
     res.status(200).json(guests);
   } catch (error) {

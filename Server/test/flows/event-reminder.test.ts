@@ -28,9 +28,11 @@ const HENNA_EVENT_ID = 2;
 const TEST_GUEST_ID = 1;
 const ALICE_ID = 2;
 const BOB_ID = 3;
+const CLARE_ID = 4;
 const TEST_GUEST_PHONE = "972501234567";
 const ALICE_PHONE = "972501111111";
 const BOB_PHONE = "972502222222";
+const CLARE_PHONE = "972503333333";
 
 const WAZE_LINK = "https://waze.com/ul/test";
 const GIFT_LINK = "https://pay.example.com/gift";
@@ -45,7 +47,7 @@ const setRsvp = (eventId: number, guestId: number, rsvpStatus: number | null) =>
 const patchEvent = (eventId: number, updates: Record<string, unknown>) =>
   axios.patch(`${REAL_SERVER}/events/${eventId}`, updates, { headers: authHeader() });
 
-const sendReminder = (messageType: "eventReminder", eventId: number, guestIds: number[]) =>
+const sendReminder = (messageType: "eventReminder", eventId: number, guestIds?: number[]) =>
   axios.post(
     `${REAL_SERVER}/sendMessage`,
     { options: { messageType, eventId, guestIds } },
@@ -172,24 +174,68 @@ describe("eventReminder on the primary event (wedding)", () => {
   });
 });
 
+describe("Event reminders go only to confirmed guests (rsvp_status > 0)", () => {
+  beforeEach(async () => {
+    await setRsvp(WEDDING_EVENT_ID, TEST_GUEST_ID, 2); // confirmed
+    await setRsvp(WEDDING_EVENT_ID, ALICE_ID, 0); // declined
+    await setRsvp(WEDDING_EVENT_ID, BOB_ID, null); // pending
+    await setRsvp(WEDDING_EVENT_ID, CLARE_ID, null); // pending
+  });
+
+  afterAll(async () => {
+    // Restore seed state so other suites aren't affected
+    await setRsvp(WEDDING_EVENT_ID, TEST_GUEST_ID, null);
+    await setRsvp(WEDDING_EVENT_ID, ALICE_ID, null);
+    await setRsvp(WEDDING_EVENT_ID, CLARE_ID, null);
+  });
+
+  it("sends to confirmed guests and skips declined and pending ones", async () => {
+    await sendReminder("eventReminder", WEDDING_EVENT_ID); // no selection → whole event
+
+    const [msg] = await mock.waitForMessages(`+${TEST_GUEST_PHONE}`, 1);
+    expect(msg.template?.name).toBe("event_reminder");
+    expect(await mock.getMessages({ to: `+${ALICE_PHONE}` })).toHaveLength(0);
+    expect(await mock.getMessages({ to: `+${BOB_PHONE}` })).toHaveLength(0);
+    expect(await mock.getMessages({ to: `+${CLARE_PHONE}` })).toHaveLength(0);
+  });
+
+  it("returns 400 when only non-confirmed guests are explicitly selected", async () => {
+    await expect(sendReminder("eventReminder", WEDDING_EVENT_ID, [ALICE_ID, BOB_ID])).rejects.toMatchObject({
+      response: { status: 400 },
+    });
+    expect(await mock.getMessages({ to: `+${ALICE_PHONE}` })).toHaveLength(0);
+    expect(await mock.getMessages({ to: `+${BOB_PHONE}` })).toHaveLength(0);
+  });
+});
+
 describe("Scheduled reminders for non-primary events", () => {
   const pool = new Pool({ connectionString: DATABASE_URL, ssl: false });
   const OWNER = "sched-nonprimary-owner";
   const GUEST_PHONE = "+972509990101";
+  const DECLINED_PHONE = "+972509990102";
+  const PENDING_PHONE = "+972509990103";
 
   // Seeds an approved-messaging owner with a NON-primary event, reminder on,
   // and one confirmed guest — i.e. an event the scheduler should now pick up.
+  // A declined and a pending guest are seeded alongside to verify the
+  // scheduler only targets confirmed (rsvp_status > 0) guests.
   const seedOwnerWithEvent = async (date: string, reminderDay: "day_before" | "wedding_day") => {
     await pool.query(
       `INSERT INTO users ("userID", email, name, messaging_permission_status)
        VALUES ($1, $2, $3, 'approved')`,
       [OWNER, `${OWNER}@test.com`, OWNER],
     );
-    const { rows: [guest] } = await pool.query(
-      `INSERT INTO guests (user_id, name, phone, whose, circle, number_of_guests)
-       VALUES ($1, 'sched-guest', $2, 'bride', 'family', 1) RETURNING id`,
-      [OWNER, GUEST_PHONE],
-    );
+    const insertGuest = async (name: string, phone: string) => {
+      const { rows: [g] } = await pool.query(
+        `INSERT INTO guests (user_id, name, phone, whose, circle, number_of_guests)
+         VALUES ($1, $2, $3, 'bride', 'family', 1) RETURNING id`,
+        [OWNER, name, phone],
+      );
+      return g.id;
+    };
+    const confirmedId = await insertGuest("sched-guest", GUEST_PHONE);
+    const declinedId = await insertGuest("sched-declined", DECLINED_PHONE);
+    const pendingId = await insertGuest("sched-pending", PENDING_PHONE);
     const { rows: [event] } = await pool.query(
       `INSERT INTO events (user_id, is_primary, ceremony_name, date, time, bride_name, groom_name,
                            send_reminder, reminder_day, reminder_time)
@@ -197,8 +243,8 @@ describe("Scheduled reminders for non-primary events", () => {
       [OWNER, date, reminderDay],
     );
     await pool.query(
-      `INSERT INTO event_guests (event_id, guest_id, rsvp_status) VALUES ($1, $2, 2)`,
-      [event.id, guest.id],
+      `INSERT INTO event_guests (event_id, guest_id, rsvp_status) VALUES ($1, $2, 2), ($1, $3, 0), ($1, $4, NULL)`,
+      [event.id, confirmedId, declinedId, pendingId],
     );
   };
 
@@ -223,6 +269,9 @@ describe("Scheduled reminders for non-primary events", () => {
     const params = bodyParams(msg);
     expect(params.day).toBe("היום");
     expect(params.ceremony_name).toBe("חינה מתוזמנת");
+    // Only the confirmed guest gets the reminder
+    expect(await mock.getMessages({ to: DECLINED_PHONE })).toHaveLength(0);
+    expect(await mock.getMessages({ to: PENDING_PHONE })).toHaveLength(0);
   });
 
   it("the scheduler sends a day-before reminder for a non-primary event dated tomorrow", async () => {
